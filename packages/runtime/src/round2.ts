@@ -2,7 +2,7 @@ import type { AgentRegistry } from "@sre/agent-registry";
 import { domainHandoffSchema, type DomainHandoff, type Evidence, type SpecialistResult } from "@sre/evidence";
 import type { ExecutionContext } from "./types.ts";
 
-export interface Round2Rejection { agentId: string; domain: string; reason: "invalid-domain" | "not-allowed" | "already-ran" | "unauthorized" | "budget-exhausted" }
+export interface Round2Rejection { agentId: string; domain: string; reason: "invalid-domain" | "not-allowed" | "not-in-manager-allowlist" | "already-ran" | "unauthorized" | "budget-exhausted" }
 export interface Round2Plan { request?: { agentId: string; handoff: DomainHandoff }; rejections: Round2Rejection[] }
 
 export function planRound2(options: {
@@ -13,14 +13,18 @@ export function planRound2(options: {
   entities: Record<string, string>;
   budgetUsed: boolean;
   maxAgentsPerRequest: number;
+  /** manager.spec.agents.allowed — a discovered domain outside it is never selectable */
+  allowedManagerAgents: string[];
 }): Round2Plan {
   const rejections: Round2Rejection[] = [];
+  const managerAllowlist = new Set(options.allowedManagerAgents);
   let request: Round2Plan["request"];
   for (const result of options.results) {
     for (const domain of (result.needsDomain ?? []).slice(0, 1)) {
       const target = options.registry.resolve(domain);
       let reason: Round2Rejection["reason"] | undefined;
       if (target === undefined) reason = "invalid-domain";
+      else if (!managerAllowlist.has(domain)) reason = "not-in-manager-allowlist";
       else if (!options.registry.mayRequestDomain(result.agentId, domain)) reason = "not-allowed";
       else if (options.alreadyRun.includes(domain)) reason = "already-ran";
       else if (options.registry.filterAuthorized([domain], options.ctx.identity.roles, options.ctx.environment).length === 0) reason = "unauthorized";

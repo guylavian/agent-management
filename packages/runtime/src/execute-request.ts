@@ -26,6 +26,20 @@ export interface RuntimeDependencies {
 }
 
 export async function executeRequest(req: UserRequest, deps: RuntimeDependencies): Promise<AssistantResponse> {
+  // the single absolute deadline is fixed at request entry, BEFORE routing, and
+  // covers every downstream stage (Stage-1, Manager LLM, fan-out, RAG, MCP,
+  // Round 2, Tier-L). One AbortController fires at that deadline for all of them.
+  const deadline = Date.now() + deps.requestDeadlineMs;
+  const requestController = new AbortController();
+  const requestTimer = setTimeout(() => requestController.abort(deadlineError()), Math.max(1, deadline - Date.now()));
+  try {
+    return await executeWithinDeadline(req, deps, deadline, requestController.signal);
+  } finally {
+    clearTimeout(requestTimer);
+  }
+}
+
+async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies, deadline: number, signal: AbortSignal): Promise<AssistantResponse> {
   const modelSafeQuestion = redactText(req.question).value;
   const environment = req.environment ?? deps.defaultEnvironment;
   const configured = new Set(deps.manager.spec.agents.allowed);
@@ -39,9 +53,10 @@ export async function executeRequest(req: UserRequest, deps: RuntimeDependencies
     if (authorizedCandidates.length === 0) return authorizationDenied(req.identity.requestId);
     try {
       incrementMetric("sre_manager_invocations_total");
-      routing = await withSpan("manager.route.llm", { "request.id": req.identity.requestId, environment }, () => new ManagerRouter(deps.model, deps.registry, deps.manager).selectAgents(modelSafeQuestion, authorizedCandidates, stage1.entities));
+      // the Manager LLM call shares the request deadline signal
+      routing = await withSpan("manager.route.llm", { "request.id": req.identity.requestId, environment }, () => new ManagerRouter(deps.model, deps.registry, deps.manager).selectAgents(modelSafeQuestion, authorizedCandidates, stage1.entities, signal));
     } catch {
-      return routeInvalid(req.identity.requestId);
+      return signal.aborted ? requestTimeout(req.identity.requestId) : routeInvalid(req.identity.requestId);
     }
   }
 
@@ -52,7 +67,8 @@ export async function executeRequest(req: UserRequest, deps: RuntimeDependencies
     environment,
     intent,
     requestId: req.identity.requestId,
-    deadline: Date.now() + deps.requestDeadlineMs,
+    deadline,
+    signal,
   };
   let requestedAgents = routing.agents;
   if (routing.abstain) {
@@ -64,17 +80,10 @@ export async function executeRequest(req: UserRequest, deps: RuntimeDependencies
   const authorizedAgents = deps.registry.filterAuthorized(requestedAgents, ctx.identity.roles, ctx.environment);
   if (authorizedAgents.length === 0) return authorizationDenied(ctx.requestId);
 
-  const requestController = new AbortController();
-  const requestTimer = setTimeout(() => requestController.abort(), Math.max(1, ctx.deadline - Date.now()));
-  let results: SpecialistResult[];
-  try {
-    const settled = await withSpan("manager.fanout", { "request.id": ctx.requestId, "agent.count": authorizedAgents.length }, () => Promise.allSettled(
-      authorizedAgents.map((agentId) => executeAgent(agentId, ctx, deps, requestController.signal)),
-    ));
-    results = settled.map((item, index): SpecialistResult => item.status === "fulfilled" ? item.value : specialistFailure(authorizedAgents[index] as string, ctx, item.reason));
-  } finally {
-    clearTimeout(requestTimer);
-  }
+  const settled = await withSpan("manager.fanout", { "request.id": ctx.requestId, "agent.count": authorizedAgents.length }, () => Promise.allSettled(
+    authorizedAgents.map((agentId) => executeAgent(agentId, ctx, deps, signal)),
+  ));
+  const results: SpecialistResult[] = settled.map((item, index): SpecialistResult => item.status === "fulfilled" ? item.value : specialistFailure(authorizedAgents[index] as string, ctx, item.reason));
 
   const round2 = await withSpan("round2.resolve", { "request.id": ctx.requestId, "round.number": 2 }, async () => planRound2({
     results,
@@ -84,15 +93,15 @@ export async function executeRequest(req: UserRequest, deps: RuntimeDependencies
     entities: stage1.entities,
     budgetUsed: false,
     maxAgentsPerRequest: deps.manager.spec.execution.maxAgentsPerRequest,
+    allowedManagerAgents: deps.manager.spec.agents.allowed,
   }));
   const rejectionEvidence = round2RejectionEvidence(round2.rejections, ctx);
   if (rejectionEvidence.length > 0 && results[0] !== undefined) results[0].evidence.push(...rejectionEvidence);
   if (round2.request !== undefined) {
     incrementMetric("sre_round2_total");
-    const secondController = new AbortController();
     const request = round2.request;
     try {
-      results.push(await withSpan(`agent.${request.agentId}.execute`, { "request.id": ctx.requestId, "round.number": 2, "agent.id": request.agentId }, () => executeAgent(request.agentId, ctx, deps, secondController.signal, request.handoff)));
+      results.push(await withSpan(`agent.${request.agentId}.execute`, { "request.id": ctx.requestId, "round.number": 2, "agent.id": request.agentId }, () => executeAgent(request.agentId, ctx, deps, signal, request.handoff)));
     } catch (error) {
       results.push(specialistFailure(request.agentId, ctx, error));
     }
@@ -159,6 +168,14 @@ function safeAgentError(code: AgentTransportError["code"]): string {
   if (code === "AGENT_RESPONSE_TOO_LARGE") return "A specialist response exceeded the safe size limit";
   if (code === "AGENT_INVALID_RESPONSE") return "A specialist returned an invalid response";
   return "A specialist service was unavailable";
+}
+
+function deadlineError(): Error {
+  return Object.assign(new Error("request deadline exceeded"), { code: "REQUEST_TIMEOUT" });
+}
+
+function requestTimeout(requestId: string): AssistantResponse {
+  return { requestId, answer: "The request exceeded its time budget before it could be routed.", citations: [], evidenceGaps: [{ source: "routing", reason: "REQUEST_TIMEOUT" }], degraded: true, metadata: { routedAgents: [], tierLUsed: false }, error: { code: "REQUEST_TIMEOUT", message: "Request timed out", retryable: false } };
 }
 
 function clarification(requestId: string): AssistantResponse {

@@ -25,22 +25,22 @@ describe("T5 bounded Round 2", () => {
   });
 
   it("rejects a second discovered request after the single budget is allocated", () => {
-    const plan = planRound2({ results: [result("active-directory", "network-observability"), result("openshift", "network-observability")], alreadyRun: ["active-directory", "openshift"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest });
+    const plan = planRound2({ results: [result("active-directory", "network-observability"), result("openshift", "network-observability")], alreadyRun: ["active-directory", "openshift"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest, allowedManagerAgents: managerAgent.spec.agents.allowed });
     expect(plan.request?.agentId).toBe("network-observability");
     expect(plan.rejections).toEqual([expect.objectContaining({ reason: "budget-exhausted" })]);
-    const exhausted = planRound2({ results: [result("active-directory", "network-observability")], alreadyRun: ["active-directory"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: true, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest });
+    const exhausted = planRound2({ results: [result("active-directory", "network-observability")], alreadyRun: ["active-directory"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: true, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest, allowedManagerAgents: managerAgent.spec.agents.allowed });
     expect(exhausted.request).toBeUndefined();
     expect(exhausted.rejections[0]?.reason).toBe("budget-exhausted");
-    const totalAgentBudget = planRound2({ results: [result("active-directory", "network-observability")], alreadyRun: ["active-directory", "openshift", "another-agent"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest });
+    const totalAgentBudget = planRound2({ results: [result("active-directory", "network-observability")], alreadyRun: ["active-directory", "openshift", "another-agent"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest, allowedManagerAgents: managerAgent.spec.agents.allowed });
     expect(totalAgentBudget.rejections[0]?.reason).toBe("budget-exhausted");
   });
 
   it("rejects unauthorized and non-allowlisted domains", () => {
     const bob = { subject: "bob", groups: [], roles: ["network-read"], requestId: "req-bob" };
     const bobCtx = { ...ctx, identity: bob, request: { question: ctx.request.question, identity: bob }, requestId: bob.requestId };
-    const unauthorized = planRound2({ results: [result("network-observability", "active-directory")], alreadyRun: ["network-observability"], ctx: bobCtx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest });
+    const unauthorized = planRound2({ results: [result("network-observability", "active-directory")], alreadyRun: ["network-observability"], ctx: bobCtx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest, allowedManagerAgents: managerAgent.spec.agents.allowed });
     expect(unauthorized.rejections[0]?.reason).toBe("unauthorized");
-    const invalid = planRound2({ results: [result("active-directory", "openshift")], alreadyRun: ["active-directory"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest });
+    const invalid = planRound2({ results: [result("active-directory", "openshift")], alreadyRun: ["active-directory"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest, allowedManagerAgents: managerAgent.spec.agents.allowed });
     expect(invalid.rejections[0]?.reason).toBe("not-allowed");
   });
 
