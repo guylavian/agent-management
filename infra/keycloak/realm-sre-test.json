@@ -43,6 +43,18 @@
       "redirectUris": ["http://localhost:*", "https://localhost:*"],
       "webOrigins": ["*"],
       "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "email"]
+    },
+    {
+      "clientId": "sre-mcp-reader",
+      "name": "SRE Keycloak MCP reader",
+      "description": "Read-only service account for the Keycloak MCP (view-* realm-management roles only)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "sre-mcp-reader-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
     }
   ],
   "users": [
@@ -61,6 +73,23 @@
         }
       ],
       "realmRoles": ["sre-test-role"]
+    },
+    {
+      "username": "service-account-sre-mcp-reader",
+      "enabled": true,
+      "serviceAccountClientId": "sre-mcp-reader",
+      "clientRoles": {
+        "realm-management": [
+          "view-realm",
+          "view-users",
+          "view-clients",
+          "view-identity-providers",
+          "view-authorization",
+          "query-users",
+          "query-clients",
+          "query-groups"
+        ]
+      }
     }
   ]
 }

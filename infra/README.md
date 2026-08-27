@@ -119,19 +119,34 @@ work for that direction).
 Smoke-tested with the MCP SDK: `execute_query up` returns the Keycloak target
 value `1`.
 
-### Keycloak MCP — configurable
+### Keycloak MCP (read-only) — VERIFIED
 
-Point the Keycloak specialist at your existing local Keycloak MCP:
+The local Keycloak MCP (`/Users/guylavian/Projects/Active/mcp/keycloak-mcp-server`)
+is read-only by default and **refuses cleartext http**, so it needs Keycloak on
+HTTPS. The realm import provisions a dedicated read-only service account
+(`sre-mcp-reader`, `view-*` realm-management roles only). Enable TLS and run it:
 
 ```bash
-export KEYCLOAK_MCP_ENDPOINT=...            # your local Keycloak MCP
-export KEYCLOAK_URL=http://localhost:8080
-export KEYCLOAK_REALM=sre-test
+# 1. self-signed localhost cert + Keycloak HTTPS on 8443 (dev only)
+./scripts/gen-keycloak-cert.sh
+docker compose -f docker-compose.yml -f infra/keycloak/tls.override.yml up -d
+
+# 2. run the Keycloak MCP against it (stdio)
+KEYCLOAK_URL=https://localhost:8443 \
+KEYCLOAK_REALM=sre-test \
+KEYCLOAK_CLIENT_ID=sre-mcp-reader \
+KEYCLOAK_CLIENT_SECRET=sre-mcp-reader-secret \
+KEYCLOAK_VERIFY_TLS=false \
+uv run --project /Users/guylavian/Projects/Active/mcp/keycloak-mcp-server keycloak-mcp-server
 ```
 
-`verify-local-stack.sh` probes `KEYCLOAK_MCP_ENDPOINT` when set. If it is not
-set/reachable, the real Keycloak MCP test is reported **BLOCKED** rather than
-faked.
+Smoke-tested with the MCP SDK: `keycloak_health` returns
+`visible_realms:["sre-test"], read_operations:148, secret_reads_enabled:false`
+and `list_clients` returns the realm's clients. No write tool is registered
+under the default config.
+
+`KEYCLOAK_MCP_ENDPOINT` remains available for an HTTP-fronted MCP; when unset the
+verify script reports the MCP check as SKIP rather than faking success.
 
 ## Docker networking (macOS)
 

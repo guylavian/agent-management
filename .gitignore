@@ -6,3 +6,4 @@ coverage/
 eval/results/
 sre-agent-platform-source.zip
 .env
+infra/keycloak/certs/

@@ -1,0 +1,12 @@
+# TLS overlay: adds HTTPS (8443) to Keycloak for the Keycloak MCP, which refuses
+# cleartext http. Run scripts/gen-keycloak-cert.sh first, then:
+#   docker compose -f docker-compose.yml -f infra/keycloak/tls.override.yml up -d
+services:
+  keycloak:
+    environment:
+      KC_HTTPS_CERTIFICATE_FILE: /etc/keycloak-certs/tls.crt
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /etc/keycloak-certs/tls.key
+    volumes:
+      - ./infra/keycloak/certs:/etc/keycloak-certs:ro
+    ports:
+      - "${KEYCLOAK_HTTPS_PORT:-8443}:8443"
