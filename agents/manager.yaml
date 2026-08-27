@@ -8,6 +8,6 @@ spec:
   model: { tier: small, profile: manager-router }
   prompt: { systemFile: prompts/manager.md }
   agents:
-    allowed: [active-directory, openshift, network-observability]
+    allowed: [active-directory, openshift, network-observability, wiki]
   execution: { maxAgentsPerRequest: 3, maxRounds: 1, timeoutMs: 1500 }
   output: { schema: ManagerDecision }

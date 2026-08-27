@@ -69,6 +69,9 @@ export const MOCK_TOOLS: McpTool[] = [
   { serverId: "network", name: "get_bgp_status", description: "Read BGP neighbor state", inputSchema: objectSchema({ device: { type: "string" }, mode: { type: "string" } }, ["device"]) },
   { serverId: "splunk", name: "search_network_logs", description: "Search network logs", inputSchema: objectSchema({ query: { type: "string" }, mode: { type: "string" } }, ["query"]) },
   { serverId: "network", name: "get_load_balancer_pool", description: "Read load balancer pool state", inputSchema: objectSchema({ pool: { type: "string" }, mode: { type: "string" } }, ["pool"]) },
+  { serverId: "wiki", name: "wiki_search", description: "Top-k internal wiki reference-note hits for a domain", inputSchema: objectSchema({ domain: { type: "string" }, q: { type: "string" }, k: { type: "integer" }, mode: { type: "string" } }, ["domain", "q"]) },
+  { serverId: "wiki", name: "wiki_read_page", description: "Read an internal wiki page/note by slug", inputSchema: objectSchema({ slug: { type: "string" }, offset: { type: "integer" }, mode: { type: "string" } }, ["slug"]) },
+  { serverId: "wiki", name: "wiki_route", description: "Route a query to its likely wiki domain(s)", inputSchema: objectSchema({ q: { type: "string" }, mode: { type: "string" } }, ["q"]) },
 ];
 
 export class MockToolHiveClient implements ToolHiveClient {
@@ -161,6 +164,9 @@ function canUse(identity: RequestIdentity, toolName: string): boolean {
 
 function cannedResult(call: ToolInvocation): unknown {
   const entity = Object.values(call.arguments).find((value) => typeof value === "string" && !["ok", "failure"].includes(value));
+  if (call.toolName === "wiki_route") return { domains: ["keycloak"], confident: true };
+  if (call.toolName === "wiki_search") return [{ id: "kc-login-troubleshooting", title: "Keycloak login failure troubleshooting", score: 0.91, snippet: "Documented procedure: check clock skew, LDAP federation, and realm event logs.", updatedAt: "2026-02-10" }];
+  if (call.toolName === "wiki_read_page") return { slug: call.arguments.slug ?? "kc-login-troubleshooting", title: "Keycloak login failure troubleshooting", version: "3", updatedAt: "2026-02-10", body: "Documented steps: 1) verify clock skew, 2) check LDAP federation, 3) review realm login events." };
   if (call.toolName === "get_replication_status") return { sourceDc: call.arguments.sourceDc ?? "DC-TLV-01", targetDc: call.arguments.targetDc ?? "DC-HFA-02", failures: 0, largestDeltaSeconds: 42, state: "healthy" };
   if (call.toolName.includes("pod")) return { namespace: call.arguments.namespace, pod: call.arguments.pod ?? "payments-api-0", phase: "Running", restarts: 0 };
   if (call.toolName.includes("prometheus") || call.toolName.includes("metrics")) return { query: call.arguments.query, samples: [{ value: 0.12, labels: { environment: call.environment } }] };

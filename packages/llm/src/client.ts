@@ -73,7 +73,8 @@ export class MockModelClient implements ModelClient {
       const agents = [
         ...(question.includes("openshift") || question.includes("pod") ? ["openshift"] : []),
         ...(question.includes("network") || question.includes("prometheus") || question.includes("slow") ? ["network-observability"] : []),
-        ...(question.includes("active directory") || question.includes("domain controller") || question.includes("ad ") || question.includes("ad ") || question.includes("authentication") ? ["active-directory"] : []),
+        ...(question.includes("active directory") || question.includes("domain controller") || question.includes("ad ") || question.includes("authentication") ? ["active-directory"] : []),
+        ...(question.includes("runbook") || question.includes("documentation") || question.includes("documented") || question.includes("procedure") || question.includes("wiki") || question.includes("according to our docs") ? ["wiki"] : []),
       ];
       const selected = [...new Set(agents)].slice(0, 2);
       const routes = selected.map((agent) => ({ agent, task: managerTask(agent) }));
@@ -100,13 +101,14 @@ function managerTask(agent: string): string {
   if (agent === "active-directory") return "Check AD, domain-controller and authentication-side causes.";
   if (agent === "openshift") return "Check OpenShift workloads, pods, routes and platform events.";
   if (agent === "network-observability") return "Check connectivity, latency, packet loss and network-path evidence.";
+  if (agent === "wiki") return "Retrieve the documented procedure/runbook relevant to the request.";
   return "Investigate within your domain and return cited evidence.";
 }
 
 /** Build valid arguments for exactly the properties a tool declares. */
 function argumentsForSchema(inputSchema: Record<string, unknown>, mode: string): Record<string, unknown> {
   const properties = (inputSchema.properties as Record<string, { type?: string; enum?: unknown[] }> | undefined) ?? {};
-  const sample: Record<string, string> = { sourceDc: "DC-TLV-01", targetDc: "DC-HFA-02", dc: "DC-TLV-01", namespace: "payments", pod: "payments-api-0", query: "latency", device: "core-sw-1", target: "10.0.0.1", pool: "web-pool", site: "TLV", interface: "eth0", route: "payments", deployment: "payments-api" };
+  const sample: Record<string, string> = { sourceDc: "DC-TLV-01", targetDc: "DC-HFA-02", dc: "DC-TLV-01", namespace: "payments", pod: "payments-api-0", query: "latency", device: "core-sw-1", target: "10.0.0.1", pool: "web-pool", site: "TLV", interface: "eth0", route: "payments", deployment: "payments-api", domain: "keycloak", q: "login failures", slug: "kc-login-troubleshooting" };
   const args: Record<string, unknown> = {};
   for (const [name, spec] of Object.entries(properties)) {
     if (name === "mode") { args.mode = spec.enum === undefined || spec.enum.includes(mode) ? mode : spec.enum[0]; continue; }

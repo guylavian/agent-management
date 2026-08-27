@@ -4,12 +4,13 @@ import { describe, expect, it } from "vitest";
 import { loadAgentRegistry, loadAppConfig, ConfigValidationError } from "../src/index.ts";
 
 describe("startup configuration", () => {
-  it("loads all four YAML agents and approved tools", () => {
+  it("loads all specialist YAML agents and approved tools", () => {
     const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
     expect(registry.manager.name).toBe("manager");
-    expect(registry.listSpecialists().map((agent) => agent.name).sort()).toEqual(["active-directory", "network-observability", "openshift"]);
+    expect(registry.listSpecialists().map((agent) => agent.name).sort()).toEqual(["active-directory", "network-observability", "openshift", "wiki"]);
     expect(registry.getSpecialist("active-directory")?.spec.execution.maxEvidenceBytes).toBe(262_144);
-    expect(registry.catalog.tools).toHaveLength(18);
+    expect(registry.catalog.tools).toHaveLength(21);
+    expect(registry.catalog.tools.filter((tool) => tool.serverId === "wiki").every((tool) => tool.evidenceKind === "wiki")).toBe(true);
   });
 
   it("publishes a strict JSON Schema", () => {

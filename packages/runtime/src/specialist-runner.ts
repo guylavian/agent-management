@@ -113,7 +113,7 @@ async function runSpecialistInternal(agent: SpecialistAgentConfig, catalog: Appr
         try {
           incrementMetric("sre_tool_calls_total");
           const result = await withSpan(`mcp.${invocation.serverId}.${invocation.toolName}`, { "request.id": ctx.requestId, "agent.id": agentId, "mcp.server": invocation.serverId, "mcp.tool": invocation.toolName, environment: ctx.environment }, () => withDeadline(Math.min(deadline, Date.now() + invocation.timeoutMs), (signal) => invokeVisibleToolForSpecialist(catalog, deps.authorization, deps.toolhive, agent, { ...invocation, signal }), ctx.signal));
-          evidence.push(toolResultToEvidence(invocation, result, agentId));
+          evidence.push(toolResultToEvidence(invocation, result, agentId, selected.approved.evidenceKind));
           succeeded = true;
           break;
         } catch (error) {

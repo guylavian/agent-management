@@ -140,6 +140,8 @@ export const approvedToolSchema = z
     environments: z.array(z.string().min(1)).min(1),
     timeoutMs: z.number().int().min(100).max(30_000),
     retryPolicy: z.enum(["none", "transient-once"]),
+    // Evidence.kind produced by this tool's results (default telemetry); knowledge tools use "wiki"
+    evidenceKind: z.enum(["telemetry", "config", "wiki"]).default("telemetry"),
   })
   .strict();
 
