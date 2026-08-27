@@ -38,3 +38,11 @@ Items are ordered by gate. Mock results do not replace real-environment verifica
 - TODO: Two-process HTTP smoke (manager + one specialist from the same image) in a runner that permits TCP listeners; the dev sandbox denies `listen` (EPERM).
 - TODO: Verify one distributed trace (W3C context) across manager and specialist pods in the selected observability backend.
 - TODO: Apply and test the per-agent NetworkPolicies on the target cluster, including the manager's denied ToolHive/RAG egress.
+
+## Rev 2.1 remediation blockers
+
+- INTEGRATION BLOCKER: enterprise RFC 8693 token-exchange endpoint for the Specialist → ToolHive credential. `RealTokenExchangeCredentialExchanger` is implemented but cannot mint credentials until the STS endpoint, workload subject-token source, and accepted `sre-toolhive:<server>` audiences are provisioned. Real ToolHive config now fails closed without `SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT`.
+- INTEGRATION BLOCKER: ToolHive-side verification of the delegated credential (issuer/JWKS, audience, subject binding) must be configured to match the token-exchange output; re-run the Gate #1 Alice/Bob cases against real ToolHive audit.
+- PENDING: real Tier-S/Tier-L endpoints to run the Track-2 real-model benchmark (`eval/real-benchmark.md`); wire the `SRE_EVAL_CORPUS` switch in `eval/run.ts` at that time.
+- PENDING: real MCP `callTool` cancellation — verify the pinned MCP SDK forwards the AbortSignal/timeout to the transport against a live server; the runtime already passes it.
+- DEFERRED (P2): MCP connection reuse/pooling and tool-schema TTL cache; measure discovery vs invocation latency against a real ToolHive before optimizing.

@@ -236,3 +236,53 @@ Attributes unchanged from Rev 1 §25 (`request.id`, `user.subject_hash`,
 | eval/adversarial through the distributed contract | `eval/tests/adversarial.test.ts`, `eval/run.ts` | migrated in this revision |
 | storm-profile refusal (real ToolHive or real agent client) | `eval/tests/load-safety.test.ts` | extended in this revision |
 | real two-process HTTP smoke (listener required) | manual/CI runner | open — sandbox denies TCP listeners; covered by contract-faithful in-process client |
+
+---
+
+# Revision 2.1 — remediation delta
+
+Supplements Rev 2.0 with the P0/P1 fixes. Code is authoritative; this records what changed.
+
+## Changelog against Rev 2.0
+
+| Area | Change |
+|---|---|
+| HTTP framework | Fastify → **Express 5** (`apps/api`); runtime stays Express-free; tests use `light-my-request`. |
+| Specialist → ToolHive identity | unsigned `x-effective-subject` removed; verified delegated credential (`@sre/auth` `ToolCredentialExchanger`/`Verifier`, `toolHiveAudience`). `ToolInvocation.credential` carries it; `MockToolHiveClient` verifies and audits the effective human; `RealToolHiveClient` sends `Bearer`. `RealTokenExchangeCredentialExchanger` = RFC 8693, INTEGRATION BLOCKER. |
+| Tool args | `validateToolArguments` (AJV) pre-flight in `specialist-runner`; invalid ⇒ `MCP_INVALID_CALL`, no backend call, counted in budget. |
+| Deadline | absolute deadline fixed at `executeRequest` entry; one AbortController through Manager LLM, fan-out, RAG, Tier-S, MCP, Tier-L; `MockToolHiveClient`/real `callTool` honour `signal`+`timeout`. |
+| Routing | `agents/registry.yaml` `routing:{exactTerms,entityPatterns,ambiguousTerms}`; `deterministicRoute(question, RoutingRule[])`; onboarding is config-only. |
+| Round 2 | `planRound2` adds `allowedManagerAgents` gate (`not-in-manager-allowlist`). |
+| Fallback | `deterministicMultiSpecialistResponse` on Tier-L failure with >1 contributor. |
+| Multi-turn | resolved entities injected into specialist context as `TRUSTED_RESOLVED_ENTITIES`. |
+| Metrics | `@sre/telemetry` counter/gauge/histogram; `observeDuration`/`observeInflight`; API records request/agent durations. |
+| Tracing | OTLP export via `BatchSpanProcessor`. |
+| Config | `toolCredential` block; real ToolHive fails closed without the token endpoint. |
+
+## New/updated interfaces
+
+```ts
+// @sre/auth
+interface ToolCredentialExchanger { readonly mode: "mock"|"real"; exchange(identity, audience, deadline): Promise<ToolCredential> }
+interface ToolCredentialVerifier  { verify(credential, expectedAudience, requestId): Promise<VerifiedToolPrincipal> }
+// @sre/mcp
+function toolHiveAudience(serverId: string): string        // "sre-toolhive:<serverId>"
+function validateToolArguments(tool, args): { valid: boolean; reason?: "SCHEMA_VALIDATION_FAILED" }
+// @sre/routing
+interface RoutingRule { agentId; exactTerms; entityPatterns; ambiguousTerms }
+```
+
+## Tests added this revision
+
+`packages/mcp/tests/arg-validator.test.ts`, `apps/api/tests/gate1-toolhive-identity.test.ts`,
+`apps/api/tests/gate1-e2e.test.ts`, `packages/runtime/tests/deadline.test.ts`,
+`packages/runtime/tests/manager-allowlist.test.ts`, `packages/telemetry/tests/metrics.test.ts`,
+new fallback cases in `packages/runtime/tests/fanout.test.ts`, onboard-by-config in
+`packages/routing/tests/router.test.ts`, invalid-args-no-backend in
+`packages/runtime/tests/specialist.test.ts`.
+
+## Still blocked / deferred
+
+Enterprise RFC 8693 STS and real ToolHive verification (Gate #1 real path);
+real Tier-S/Tier-L benchmark run; MCP pooling and tokenizer budgeting (P2). See
+`docs/INTEGRATION-POINTS.md`.

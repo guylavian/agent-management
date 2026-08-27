@@ -182,3 +182,18 @@ TDD §34 red lines hold verbatim: no workflow graphs, no configurable loops, no
 durable executions, no pause/resume, no specialist-to-specialist invocation,
 no dynamic code, no write actions. If the distributed model appears to demand
 one of these, raise an architecture decision — do not extend the runtime.
+
+---
+
+## Revision 2.1 — remediation note
+
+The following were implemented without changing the approved distributed
+architecture: Express 5 restored as the HTTP shell; the Specialist → ToolHive
+hop now carries a verified delegated credential instead of an unsigned header
+(ADR-014 extended to the tool-call hop; enterprise token exchange remains the
+production issuer and an INTEGRATION BLOCKER); pre-ToolHive tool-argument schema
+validation; a single absolute request deadline with end-to-end cancellation;
+config-driven routing metadata in the Agent Service Registry; deterministic
+multi-specialist degraded synthesis; bounded multi-turn context; and typed
+metrics with batched OTLP export. No red line was crossed and no orchestration
+framework was introduced.

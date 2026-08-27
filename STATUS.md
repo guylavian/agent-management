@@ -1,45 +1,85 @@
 # PoC status
 
-## Current phase
+## Honest completion state
 
-Distributed refactor (architecture Rev 2.0) complete on top of the finished
-T0–T6 PoC: every logical agent is an independently deployable instance of the
-one Generic Agent Runtime image, fanned out over the versioned internal Agent
-API. Docs: `docs/architecture-rev2.md`, `docs/poc-sdd-rev2.md`,
-`docs/poc-tdd-rev2.md`, `docs/contracts/internal-agent-api.md`.
+| Dimension | State |
+|---|---|
+| Distributed runtime implementation | **COMPLETE** (one image, per-agent Deployment, internal Agent API) |
+| Express 5 alignment | **COMPLETE** |
+| Mock integration tests | **PASS** — 106 unit/integration tests + 5 YAML checks + chart lint/render |
+| Tool-argument schema validation | **COMPLETE** (AJV, pre-ToolHive, backend never called on failure) |
+| Absolute deadline + cancellation | **COMPLETE** |
+| Manager `agents.allowed` enforcement | **COMPLETE** (all paths incl. Round 2) |
+| Config-driven routing | **COMPLETE** (vocabulary in registry; onboarding is config-only) |
+| Deterministic multi-specialist fallback | **COMPLETE** |
+| Multi-turn (bounded follow-up) | **COMPLETE** (Option A: entities transported and consumed; evidence always refreshed) |
+| Metrics (counter/histogram/gauge) + batched OTel | **COMPLETE** |
+| **End-to-end identity to ToolHive (Gate #1)** | **runtime path COMPLETE and tested with a mock authority; real enterprise token-exchange BLOCKED** |
+| Real vLLM (Tier-S/Tier-L) integration | **PENDING** (no mirrored model endpoint) |
+| Real RAG ACL integration | **PENDING** |
+| Real ToolHive/MCP integration | **PENDING** |
+| Real-model reliability benchmark | **PENDING** (Track 2, `eval/real-benchmark.md`) |
+| Production-like load validation (autocannon) | **PENDING** (sandbox denies TCP listeners) |
 
-## Gate results
+## What the mock numbers mean
+
+`pass@1 = pass^8 = 0.983` and 0 tool-policy violations come from the **mock
+regression track** (deterministic model). They validate harness and runtime
+behaviour, **not** real model reliability. Real small-model routing/tool
+accuracy is UNVALIDATED until Track 2 runs against the pinned models.
+
+Gate #1 is **proven for the runtime trust path** — the effective human is
+carried by a signed, audience-bound delegated JWT and verified by ToolHive
+itself (no unsigned header); Alice is allowed and audited, Bob/Carol are denied
+with no backend call. It is **not** proven end-to-end against the enterprise IdP
+and real ToolHive; that remains an INTEGRATION BLOCKER.
+
+## Gate results (against mocks)
 
 | Gate | Status | Evidence |
 |---|---|---|
-| Full repository check | PASS | `npm run check`: typecheck, lint, 22 files / 79 tests, YAML validation, helm lint + render of all four agent releases |
-| AG-01 identity propagation | PASS (mock) | Distinct Alice/Bob subjects and request IDs reach ToolHive audit; delegated JWT verified per specialist hop (audience, expiry, request-ID, subject-hash binding) |
-| AG-02 unauthorized tool denied | PASS (mock) | Denial occurs before backend invocation |
-| AG-03 no mutating tool | PASS (mock) | Approved catalog contains verified read-only tools only |
-| T2–T5 specialist/routing/fan-out/round 2 | PASS (mock) | Runtime suites now run through the distributed contract (`AgentClient`) |
-| Specialist internal API over HTTP | PASS (mock) | `fastify.inject`: admission 403/413/504 vs execution 500 separation, delegated end-to-end 200 |
-| T6 adversarial | PASS (mock) | Wiki/log injection, secret echo, catalog extraction, cross-user session isolation, confused deputy, write intent — via `InProcessAgentClient` |
-| T6 evaluation (distributed path) | PASS (mock) | 60 cases × 8 runs: pass@1 98.3%, pass^8 98.3%; all SDD §22 targets met (0 tool-policy violations, routing 98.3%, tool selection 100%, citations 100%, unsupported claims 0%, missing-evidence disclosure 100%) |
-| Load safety | PASS | Storm profile refuses real ToolHive **and** real agent client; autocannon execution still requires a runner that permits TCP listeners |
-| Generic Helm chart | PASS | One chart; manager/AD/OpenShift/network releases lint and render; per-mode NetworkPolicy, projected workload token, HPA/PDB options |
+| Full repository check | PASS | `npm run check` |
+| AG-01 identity to ToolHive | PASS (mock authority) | `apps/api/tests/gate1-toolhive-identity.test.ts`, `gate1-e2e.test.ts` |
+| AG-02 unauthorized tool denied | PASS (mock) | denial before backend call |
+| AG-03 no mutating tool | PASS (mock) | approved catalog is read-only-verified |
+| Tool-argument validation | PASS | `packages/mcp/tests/arg-validator.test.ts` + runtime no-backend-call test |
+| Absolute deadline / cancellation | PASS | `packages/runtime/tests/deadline.test.ts` |
+| Manager allowlist | PASS | `packages/runtime/tests/manager-allowlist.test.ts` |
+| Config-driven routing | PASS | `packages/routing/tests/router.test.ts` (incl. onboard-by-config) |
+| Multi-specialist Tier-L fallback | PASS | `packages/runtime/tests/fanout.test.ts` |
+| Mock eval (Track 1) | PASS | 60×8, pass@1/pass^8 0.983, all SDD §22 targets |
 
-## Open integration points
+## Open integration blockers
 
-See `docs/INTEGRATION-POINTS.md` — enterprise OIDC/token-exchange delegation,
-projected-token audience validation, distributed Gate #1 re-run, GitOps
-registry generation, two-process HTTP smoke, cluster NetworkPolicy
-verification.
+See `docs/INTEGRATION-POINTS.md`. Highest priority: enterprise RFC 8693 token
+exchange for the Specialist → ToolHive credential (real path is coded but
+BLOCKED and never falls back to unsigned identity).
 
-## Deviations
+## Remediation change classification (this round)
 
-None beyond the recorded decisions in `docs/DECISIONS.md` (notably:
-`Evidence.agentId` addition, manager production env carrying unused
-ToolHive/RAG variables to preserve fail-closed validation, environment
-authorization now rejected before fan-out).
+| Requirement | Classification |
+|---|---|
+| 1 Express 5 alignment | FIXED |
+| 2 Real identity to ToolHive | FIXED (runtime) / BLOCKED BY EXTERNAL INTEGRATION (enterprise STS) |
+| 3 Tool argument schema validation | FIXED |
+| 4 Absolute deadline semantics | FIXED |
+| 5 MCP cancellation reaches callTool | FIXED |
+| 6 Config-driven routing | FIXED |
+| 7 Manager `agents.allowed` enforcement | FIXED |
+| 8 Registry/config ownership | FIXED (registry already lightweight; routing metadata added there, not in specialist config) |
+| 9 Multi-turn | FIXED (Option A, bounded) |
+| 10 MCP connection reuse | DEFERRED (P2; not started until Gate #1 real path unblocks) |
+| 11 Deterministic multi-specialist fallback | FIXED |
+| 12 Precise tokenizer context budgeting | DEFERRED (P2; byte + item budgets remain the enforced safety bound) |
+| 13 Metrics types | FIXED |
+| 14 OTel batching + propagation | FIXED |
+| 15 STATUS/completion honesty | FIXED |
+| 16 Real evaluation set | PARTIALLY FIXED — set authored + documented; RUN is BLOCKED BY EXTERNAL INTEGRATION |
+| 17 Preserve distributed architecture | PRESERVED |
 
 ## Repository operation constraints
 
-- This environment cannot bind TCP listeners (`listen EPERM`), so the
-  two-process HTTP smoke and autocannon profiles run only in CI/dev runners;
-  HTTP-level behavior is covered by `fastify.inject` and the
-  contract-faithful `InProcessAgentClient`.
+This environment cannot bind TCP listeners (`listen EPERM`); the two-process
+HTTP smoke and autocannon profiles run only in CI/dev runners. HTTP-level
+behaviour is covered by `light-my-request` injection and the contract-faithful
+`InProcessAgentClient`.

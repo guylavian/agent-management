@@ -24,3 +24,16 @@ Deferred decisions: vector store, enterprise DLP integration depth, Tier-L produ
 | Manager production config | Fail-closed `loadAppConfig` still requires every client `real` in production, so manager pods set ToolHive/RAG env vars they never use; the manager process builds no such clients and NetworkPolicy denies the path. Chosen over weakening fail-closed validation. |
 | Local/eval parity | `InProcessAgentClient` implements the exact internal-API admission semantics without a TCP listener; eval, adversarial, and dev flows run through it. |
 | Environment authorization | An environment absent from the registry is now rejected before fan-out (explicit `AUTHZ_DENIED`, zero specialist executions) instead of routing and failing per-tool. |
+
+## Rev 2.1 remediation decisions
+
+| Topic | Decision |
+|---|---|
+| HTTP framework (reversal) | **Express 5 restored** as the approved stack (SDD §5.4 / TDD §2). Fastify is removed; the runtime remains framework-independent and `light-my-request` provides socketless injection for tests. Supersedes the earlier "Fastify pinned" decision. |
+| Specialist → ToolHive identity | The unsigned `x-effective-subject` header is removed. Specialists present a signed, audience-bound (`sre-toolhive:<server>`), short-lived delegated credential that ToolHive verifies itself and derives the effective human from. Mock authority (HS256) proves the path; `RealTokenExchangeCredentialExchanger` (RFC 8693) is the production shape and is an INTEGRATION BLOCKER until the enterprise STS is provisioned — it never falls back to unsigned identity. |
+| Tool argument validation | Model-generated arguments are validated against the tool `inputSchema` with AJV before ToolHive; failure yields `MCP_INVALID_CALL`/`SCHEMA_VALIDATION_FAILED` and no backend call. |
+| Request deadline | One absolute deadline is fixed at request entry (before Stage-1) and a single AbortController covers routing, fan-out, RAG, Tier-S, MCP and Tier-L. Routing time counts against the budget. |
+| Routing ownership | Agent routing vocabulary (exactTerms/entityPatterns/ambiguousTerms) lives in `agents/registry.yaml`; the generic precision-biased algorithm stays in code. Onboarding a specialist is config-only. This is metadata, not a workflow DSL. |
+| Multi-turn | Option A (bounded follow-up) is implemented and consumed end to end: session entities are transported and injected into specialist context as a trusted scalar block; every follow-up reruns routing + authz and refreshes live evidence with no reuse. |
+| Tier-L fallback | On synthesis failure with more than one contributor, all specialist summaries and merged evidence are rendered deterministically (never collapsed to the first specialist). |
+| Deferred (P2) | MCP connection reuse/pooling and model-family tokenizer context budgeting are deferred per the priority rule (not before Gate #1's real path unblocks). Byte/item budgets remain the enforced safety bound. |

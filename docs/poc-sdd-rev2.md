@@ -155,3 +155,16 @@ SIEM) remains separate from application tracing.
 Unchanged vision, new outputs: creating an agent produces the agent YAML, a
 registry entry, and a Helm values file — consumed by GitOps. The GUI generates
 configuration, never runtime code.
+
+---
+
+# Revision 2.1 — remediation delta
+
+- **HTTP shell:** Express 5 (as originally specified in SDD §5.4); the domain layer remains framework-independent.
+- **Identity to ToolHive (Gate #1):** the effective human now reaches ToolHive as a signed, audience-bound, short-lived credential that ToolHive verifies itself. No unsigned header is trusted. Runtime path proven with a mock authority; enterprise token exchange is an INTEGRATION BLOCKER. This strengthens SDD §11.3 across the Specialist → ToolHive hop.
+- **Behavioural integrity (SDD §16):** model-generated tool arguments are schema-validated before ToolHive; on failure the backend is never called.
+- **Control-plane determinism (SDD §6.1 / §21):** a single absolute request deadline covers all stages including routing; cancellation propagates to every downstream call.
+- **Failure transparency (SDD §15.8):** Tier-L failure with multiple contributors renders all specialist summaries and merged gaps, never only the first.
+- **Config ownership (SDD §6.2):** routing vocabulary is declarative registry config; onboarding a specialist needs no runtime code change.
+- **Conversation state (SDD §14):** bounded follow-up (Option A) is implemented and consumed end to end with evidence always refreshed.
+- **Honest status:** mock pass@1/pass^8 validate the harness/runtime, not real model reliability; a separate real-model benchmark track is defined and PENDING (`eval/real-benchmark.md`).
