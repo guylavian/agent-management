@@ -61,7 +61,7 @@ export class MockModelClient implements ModelClient {
         return { content: JSON.stringify({ claims: [{ claim: "The answer is grounded in the supplied evidence.", supported: true, supportingEvidenceIds: [], reasonCode: "mock-judge-supported" }] }), usage: { promptTokens: 64, completionTokens: 20 } };
       }
       if (request.guidedJsonSchema.title === "SpecialistAction") {
-        const tools = (extractJsonBlock(request.messages, "AVAILABLE_TOOLS") as Array<{ name: string; inputSchema?: Record<string, unknown> }> | undefined) ?? [];
+        const tools = (extractJsonBlock(request.messages, "AVAILABLE_TOOLS") as Array<{ name: string; parameters?: Record<string, string> }> | undefined) ?? [];
         const evidenceItems = (extractJsonBlock(request.messages, "ACCUMULATED_EVIDENCE") as Array<{ id?: string; status?: string }> | undefined) ?? [];
         const okEvidence = evidenceItems.filter((item) => item && item.status === "ok");
         const mode = question.includes("timeout") ? "timeout" : question.includes("failure") ? "failure" : question.includes("empty") ? "empty" : "ok";
@@ -80,7 +80,8 @@ export class MockModelClient implements ModelClient {
             || ((question.includes("wiki") || question.includes("documentation") || question.includes("documented") || question.includes("runbook") || question.includes("procedure")) && tool.name === "wiki_search"),
           ) ?? tools[0];
           if (preferred !== undefined) {
-            return { content: JSON.stringify({ action: "tool_call", purpose: "Collect the smallest useful evidence for the task.", tool: preferred.name, arguments: argumentsForSchema(preferred.inputSchema ?? {}, mode) }), usage: { promptTokens: 48, completionTokens: 20 } };
+            const pseudoSchema = { properties: Object.fromEntries(Object.entries(preferred.parameters ?? {}).map(([key, type]) => [key, { type }])) };
+            return { content: JSON.stringify({ action: "tool_call", purpose: "Collect the smallest useful evidence for the task.", tool: preferred.name, arguments: argumentsForSchema(pseudoSchema, mode) }), usage: { promptTokens: 48, completionTokens: 20 } };
           }
         }
         return { content: JSON.stringify({ action: "insufficient_evidence", reason: "No tools are available to investigate the request." }), usage: { promptTokens: 32, completionTokens: 12 } };

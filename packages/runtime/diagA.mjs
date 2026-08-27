@@ -1,0 +1,17 @@
+import { loadAgentRegistry } from "@sre/config";
+import { AuthorizationService } from "@sre/auth";
+import { RealOpenAiCompatibleClient } from "@sre/llm";
+import { DirectMcpClient, MockToolHiveClient } from "@sre/mcp";
+import { runSpecialistInstance } from "./src/index.ts";
+const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
+const base = registry.getSpecialist("active-directory");
+const agent = { ...base, spec: { ...base.spec, execution: { ...base.spec.execution, timeoutMs: 180000, maxToolCalls: 2, maxModelTurns: 4 } } };
+const identity = { subject: "alice", groups: [], roles: ["infra-read"], requestId: "dA" };
+const ctx = { request: { question: "How should Keycloak login failures be investigated per docs?", identity }, identity, environment: "prod", intent: "factual", requestId: "dA", deadline: Date.now() + 180000 };
+const model = new RealOpenAiCompatibleClient("http://localhost:11434", undefined, "qwen3:8b", "/no_think");
+const toolhive = new DirectMcpClient({ wiki: "http://localhost:8642/mcp" }, new MockToolHiveClient());
+const s=Date.now();
+const res = await runSpecialistInstance(agent, registry.catalog, ctx, { authorization: new AuthorizationService(registry), model, toolhive });
+console.log("elapsed:", ((Date.now()-s)/1000).toFixed(0)+"s | status:", res.status);
+console.log("summary:", (res.summary||"").slice(0,220));
+console.log("evidence:", res.evidence.map(e=>({tool:e.tool, kind:e.kind, status:e.status})));

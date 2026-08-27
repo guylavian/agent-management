@@ -17,7 +17,7 @@ export const appConfigSchema = z
     agentRegistryFile: z.string().min(1).default("agents/registry.yaml"),
     promptsDir: z.string().min(1).default("prompts"),
     approvedCatalogFile: z.string().min(1).default("policies/approved-tools.yaml"),
-    requestDeadlineMs: z.coerce.number().int().min(1_000).max(120_000).default(45_000),
+    requestDeadlineMs: z.coerce.number().int().min(1_000).max(600_000).default(45_000),
     defaultEnvironment: z.string().min(1).default("prod"),
     clients: z
       .object({

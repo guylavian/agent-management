@@ -81,7 +81,9 @@ async function runSpecialistLoop(agent: SpecialistAgentConfig, catalog: Approved
 
   // tool visibility is fixed for the whole loop: YAML allowlist ∩ approved catalog ∩ authz ∩ environment
   const available = await visibleToolsForSpecialist(catalog, deps.authorization, deps.toolhive, agent, ctx.identity, ctx.environment);
-  const toolCatalog = available.map(({ schema }) => ({ name: schema.name, description: schema.description, inputSchema: schema.inputSchema }));
+  // compact tool catalog (names + param names/types only) keeps the model context
+  // small for local models; the runtime still validates args against the full schema
+  const toolCatalog = available.map(({ schema }) => compactTool(schema.name, schema.description, schema.inputSchema));
 
   try {
     while (modelTurns < budget.maxModelTurns) {
@@ -130,7 +132,16 @@ async function runSpecialistLoop(agent: SpecialistAgentConfig, catalog: Approved
   }
 }
 
-async function requestAction(agent: SpecialistAgentConfig, ctx: ExecutionContext, model: ModelClient, evidence: Evidence[], toolCatalog: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>, handoff: DomainHandoff | undefined, deadline: number): Promise<SpecialistAction> {
+interface CompactTool { name: string; description: string; parameters: Record<string, string>; required: string[] }
+
+function compactTool(name: string, description: string, inputSchema: Record<string, unknown>): CompactTool {
+  const props = (inputSchema.properties as Record<string, { type?: string }> | undefined) ?? {};
+  const parameters = Object.fromEntries(Object.entries(props).map(([key, spec]) => [key, spec.type ?? "string"]));
+  const required = Array.isArray(inputSchema.required) ? inputSchema.required.filter((value): value is string => typeof value === "string") : [];
+  return { name, description: description.slice(0, 160), parameters, required };
+}
+
+async function requestAction(agent: SpecialistAgentConfig, ctx: ExecutionContext, model: ModelClient, evidence: Evidence[], toolCatalog: CompactTool[], handoff: DomainHandoff | undefined, deadline: number): Promise<SpecialistAction> {
   const bounded = enforceEvidenceSetBudget(evidence, agent.spec.execution);
   const resolvedEntities = ctx.request.conversation?.resolvedEntities;
   const messages: ChatMessage[] = [

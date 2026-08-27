@@ -24,7 +24,7 @@ const specialistExecutionSchema = z
   .object({
     maxToolCalls: z.number().int().min(1).max(20).default(EXECUTION_DEFAULTS.maxToolCalls),
     maxModelTurns: z.number().int().min(1).max(10).default(EXECUTION_DEFAULTS.maxModelTurns),
-    timeoutMs: z.number().int().min(1_000).max(45_000).default(EXECUTION_DEFAULTS.timeoutMs),
+    timeoutMs: z.number().int().min(1_000).max(180_000).default(EXECUTION_DEFAULTS.timeoutMs),
     maxEvidenceBytes: z.number().int().min(4_096).max(4_194_304).default(EXECUTION_DEFAULTS.maxEvidenceBytes),
     maxContextTokens: z.number().int().min(1_000).max(64_000).default(EXECUTION_DEFAULTS.maxContextTokens),
     maxEvidenceItems: z.number().int().min(1).max(128).default(EXECUTION_DEFAULTS.maxEvidenceItems),
