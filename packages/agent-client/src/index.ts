@@ -40,6 +40,7 @@ export type AgentTransportErrorCode =
   | "AGENT_UNAVAILABLE"
   | "AGENT_TIMEOUT"
   | "AGENT_UNAUTHORIZED"
+  | "AGENT_EXECUTION_FAILED"
   | "AGENT_INVALID_RESPONSE"
   | "AGENT_RESPONSE_TOO_LARGE";
 
@@ -93,8 +94,11 @@ export class HttpAgentClient implements AgentClient {
           signal: combined,
         });
         if (response.status === 401 || response.status === 403) throw new AgentTransportError("AGENT_UNAUTHORIZED", "Agent service denied the request", false);
+        if (response.status === 500) throw new AgentTransportError("AGENT_EXECUTION_FAILED", "Agent service failed internally", false);
         if ([502, 503, 504].includes(response.status)) {
-          await response.body?.cancel().catch(() => undefined);
+          // a specialist's own 502 carries AGENT_RESPONSE_TOO_LARGE — terminal, not a transport blip
+          const body = await response.text().catch(() => "");
+          if (body.includes("AGENT_RESPONSE_TOO_LARGE")) throw new AgentTransportError("AGENT_RESPONSE_TOO_LARGE", "Agent response exceeds the size limit", false);
           if (attempt === 0) continue;
           throw new AgentTransportError("AGENT_UNAVAILABLE", "Agent service is unavailable", true);
         }

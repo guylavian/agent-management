@@ -51,6 +51,28 @@ describe("agent clients", () => {
     expect(calls).toBe(2);
   });
 
+  it("reports internal specialist failure distinctly and without retrying", async () => {
+    let calls = 0;
+    const client = new HttpAgentClient(
+      loadAgentServiceRegistry("agents/registry.yaml"),
+      { async getToken() { return "workload-token"; } },
+      async () => { calls += 1; return new Response(JSON.stringify({ code: "AGENT_EXECUTION_FAILED" }), { status: 500 }); },
+    );
+    await expect(client.execute("active-directory", request(), new AbortController().signal)).rejects.toMatchObject({ code: "AGENT_EXECUTION_FAILED", retryable: false });
+    expect(calls).toBe(1);
+  });
+
+  it("treats a specialist's oversized-response 502 as terminal, not transient", async () => {
+    let calls = 0;
+    const client = new HttpAgentClient(
+      loadAgentServiceRegistry("agents/registry.yaml"),
+      { async getToken() { return "workload-token"; } },
+      async () => { calls += 1; return new Response(JSON.stringify({ code: "AGENT_RESPONSE_TOO_LARGE" }), { status: 502 }); },
+    );
+    await expect(client.execute("active-directory", request(), new AbortController().signal)).rejects.toMatchObject({ code: "AGENT_RESPONSE_TOO_LARGE" });
+    expect(calls).toBe(1);
+  });
+
   it("exposes typed transport errors", () => {
     expect(new AgentTransportError("AGENT_TIMEOUT", "timeout", false).retryable).toBe(false);
   });

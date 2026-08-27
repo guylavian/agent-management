@@ -66,3 +66,9 @@ networkPolicy:
   platformNamespaceLabel: sre.ai/platform-service
   # namespaces labelled <key>: "true" may call the manager (API gateway / route)
   apiClientNamespaceLabel: sre.ai/api-client
+  # TCP ports the agent may reach in platform-service namespaces; set per
+  # environment to the actual service ports.
+  # manager: IdP/HTTPS 443, OTLP 4318, PostgreSQL 5432, vLLM 8000
+  managerPlatformPorts: [443, 4318, 5432, 8000]
+  # specialist: ToolHive/RAG/HTTPS 443, OTLP 4318, vLLM 8000
+  specialistPlatformPorts: [443, 4318, 8000]

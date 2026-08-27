@@ -47,18 +47,17 @@ spec:
         - namespaceSelector:
             matchLabels: { {{ .Values.networkPolicy.platformNamespaceLabel }}: "true" }
       ports:
-        - { protocol: TCP, port: 443 }
-        - { protocol: TCP, port: 4318 }
-        - { protocol: TCP, port: 5432 }
-        - { protocol: TCP, port: 8000 }
+        {{- range .Values.networkPolicy.managerPlatformPorts }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
     {{- else }}
     # specialist → ToolHive / RAG / vLLM / OTel; never to other agent pods
     - to:
         - namespaceSelector:
             matchLabels: { {{ .Values.networkPolicy.platformNamespaceLabel }}: "true" }
       ports:
-        - { protocol: TCP, port: 443 }
-        - { protocol: TCP, port: 4318 }
-        - { protocol: TCP, port: 8000 }
+        {{- range .Values.networkPolicy.specialistPlatformPorts }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
     {{- end }}
 {{- end }}

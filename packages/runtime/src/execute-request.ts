@@ -155,6 +155,7 @@ function mapAgentError(error: unknown): RuntimeError {
 function safeAgentError(code: AgentTransportError["code"]): string {
   if (code === "AGENT_TIMEOUT") return "A specialist service timed out";
   if (code === "AGENT_UNAUTHORIZED") return "A specialist service denied the request";
+  if (code === "AGENT_EXECUTION_FAILED") return "A specialist service failed internally";
   if (code === "AGENT_RESPONSE_TOO_LARGE") return "A specialist response exceeded the safe size limit";
   if (code === "AGENT_INVALID_RESPONSE") return "A specialist returned an invalid response";
   return "A specialist service was unavailable";

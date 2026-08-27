@@ -46,7 +46,7 @@ interface AgentClient {
 interface WorkloadTokenProvider { getToken(audience: string): Promise<string> }
 type AgentTransportErrorCode =
   | "AGENT_UNAVAILABLE" | "AGENT_TIMEOUT" | "AGENT_UNAUTHORIZED"
-  | "AGENT_INVALID_RESPONSE" | "AGENT_RESPONSE_TOO_LARGE";
+  | "AGENT_EXECUTION_FAILED" | "AGENT_INVALID_RESPONSE" | "AGENT_RESPONSE_TOO_LARGE";
 
 // agent-registry
 interface AgentRegistryEntry {
