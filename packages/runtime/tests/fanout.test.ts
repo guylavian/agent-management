@@ -24,7 +24,7 @@ describe("T4 fan-out and synthesis", () => {
     expect(response.metadata.routedAgents).toHaveLength(2);
     expect(response.degraded).toBe(true);
     expect(response.evidenceGaps.some((gap) => gap.source.includes("openshift"))).toBe(true);
-    expect(response.citations.some((citation) => citation.evidenceId.includes("query_prometheus"))).toBe(true);
+    expect(response.citations.some((citation) => citation.evidenceId.startsWith("mcp:net"))).toBe(true);
   });
 
   it("applies the deterministic synthesis gate", () => {

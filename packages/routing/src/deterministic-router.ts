@@ -13,12 +13,16 @@ export function classifyIntent(question: string, reasonCodes: string[] = []): Re
   return DIAGNOSTIC.test(question) || reasonCodes.some((code) => DIAGNOSTIC_REASON_CODES.has(code)) ? "diagnostic" : "factual";
 }
 
+export function extractEntities(question: string): Record<string, string> {
+  const hostname = question.match(/\b(?:DC|APP|OCP)-[A-Z0-9-]+\b/u)?.[0];
+  return hostname === undefined ? {} : { hostname };
+}
+
 export function deterministicRoute(question: string, authorizedCandidates: string[]): Stage1RoutingResult {
   const allowed = new Set(authorizedCandidates);
   const matches = RULES.filter((rule) => allowed.has(rule.agent) && rule.patterns.some((pattern) => pattern.test(question)));
   const candidates = [...new Set(matches.map((match) => match.agent))];
-  const hostname = question.match(/\b(?:DC|APP|OCP)-[A-Z0-9-]+\b/u)?.[0];
-  const entities: Record<string, string> = hostname === undefined ? {} : { hostname };
+  const entities = extractEntities(question);
   if (candidates.length === 1) {
     return { resolved: true, decision: { agents: candidates, reasonCode: matches[0]?.reasonCode ?? "lexicon" }, candidates, entities, intent: classifyIntent(question) };
   }

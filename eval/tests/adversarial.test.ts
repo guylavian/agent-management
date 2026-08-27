@@ -4,11 +4,13 @@ import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
 import { MockModelClient } from "@sre/llm";
 import { MockToolHiveClient, type ToolInvocation, type ToolResult } from "@sre/mcp";
 import { MockRagClient, type RagClient, type RetrievalHit, type RetrievalRequest } from "@sre/rag";
-import { executeRequest } from "@sre/runtime";
+import { loadAgentServiceRegistry } from "@sre/agent-registry";
+import { executeRequest, inProcessRuntimeDependencies } from "@sre/runtime";
 import { MockSessionStore } from "@sre/session";
 import { describe, expect, it } from "vitest";
 
 const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
+const serviceRegistry = loadAgentServiceRegistry("agents/registry.yaml");
 const authorization = new AuthorizationService(registry);
 const alice = { subject: "alice", groups: [], roles: ["infra-read"], requestId: "req-sec" };
 
@@ -19,7 +21,8 @@ class CapturingModel implements ModelClient {
   async chat(request: ChatRequest): Promise<ChatResponse> { this.requests.push(request); return this.#delegate.chat(request); }
 }
 
-const deps = (model: ModelClient, toolhive = new MockToolHiveClient(), rag: RagClient = new MockRagClient()) => ({ registry, authorization, model, synthesisModel: model, toolhive, rag, requestDeadlineMs: 5000, defaultEnvironment: "prod" });
+const deps = (model: ModelClient, toolhive = new MockToolHiveClient(), rag: RagClient = new MockRagClient()) =>
+  inProcessRuntimeDependencies({ registry, serviceRegistry, authorization, model, toolhive, rag, requestDeadlineMs: 5000, defaultEnvironment: "prod" });
 
 describe("T6 adversarial controls", () => {
   it("keeps wiki prompt injection as redacted evidence data", async () => {
@@ -72,8 +75,10 @@ describe("T6 adversarial controls", () => {
     const bob = { subject: "bob", groups: [], roles: ["network-read"], requestId: "req-bob" };
     const denied = await executeRequest({ question: "Check AD replication", identity: bob }, deps(new MockModelClient(), gateway));
     expect(denied.error?.code).toBe("AUTHZ_DENIED");
+    // an unregistered environment is now rejected before any fan-out: explicit gap, zero specialist executions
     const environmentDenied = await executeRequest({ question: "Check AD replication", environment: "qa", identity: alice }, deps(new MockModelClient(), gateway));
-    expect(environmentDenied.metadata.routedAgents).toEqual(["active-directory"]);
+    expect(environmentDenied.error?.code).toBe("AUTHZ_DENIED");
+    expect(environmentDenied.metadata.routedAgents).toEqual([]);
     expect(gateway.backendCalls).toHaveLength(0);
   });
 

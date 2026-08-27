@@ -12,6 +12,15 @@ describe("load safety", () => {
     expect(() => assertLoadProfileSafe(loadAppConfig({}), "storm")).not.toThrow();
   });
 
+  it("refuses the storm profile against a real agent client", () => {
+    const config = loadAppConfig({
+      SRE_CLIENT_AGENT: "real",
+      SRE_INTERNAL_OIDC_JWKS_URI: "https://workload-idp.internal/jwks",
+      SRE_WORKLOAD_TOKEN_FILE: "/var/run/secrets/sre/token",
+    });
+    expect(() => assertLoadProfileSafe(config, "storm", true)).toThrow(/mock agent client/iu);
+  });
+
   it("requires explicit approval for any real-backend load", () => {
     const config = loadAppConfig({ SRE_CLIENT_TOOLHIVE: "real", SRE_TOOLHIVE_URL: "https://toolhive.internal" });
     expect(() => assertLoadProfileSafe(config, "normal", false)).toThrow(/owner approval/iu);

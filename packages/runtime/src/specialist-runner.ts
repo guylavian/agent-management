@@ -1,6 +1,6 @@
 import { AuthorizationService, subjectHash } from "@sre/auth";
 import type { AgentRegistry, ApprovedCatalog, SpecialistAgentConfig } from "@sre/config";
-import { enforceEvidenceSetBudget, specialistResultSchema, type DomainHandoff, type Evidence, type RuntimeError, type SpecialistResult } from "@sre/evidence";
+import { enforceEvidenceSetBudget, redactText, specialistResultSchema, type DomainHandoff, type Evidence, type RuntimeError, type SpecialistResult } from "@sre/evidence";
 import type { ModelClient, ChatMessage } from "@sre/llm";
 import { invokeVisibleToolForSpecialist, toolFailureEvidence, toolResultToEvidence, visibleToolsForSpecialist, type ToolHiveClient, type ToolInvocation } from "@sre/mcp";
 import { ragEmptyEvidence, ragFailureEvidence, retrievalHitToEvidence, type RagClient } from "@sre/rag";
@@ -119,7 +119,8 @@ async function runSpecialistInternal(agent: SpecialistAgentConfig, catalog: Appr
       }
     }
     const normalized = enforceEvidenceSetBudget(evidence, agent.spec.execution);
-    return specialistResultSchema.parse({ agentId, status: errors.length === 0 ? "complete" : normalized.length > 0 ? "partial" : "failed", evidence: normalized, summary: control.summary, ...(control.needsDomain ? { needsDomain: control.needsDomain } : {}), ...(errors.length ? { errors } : {}) });
+    // defence in depth: the model only saw redacted evidence, but never let its prose re-introduce a secret-shaped value
+    return specialistResultSchema.parse({ agentId, status: errors.length === 0 ? "complete" : normalized.length > 0 ? "partial" : "failed", evidence: normalized, summary: redactText(control.summary).value, ...(control.needsDomain ? { needsDomain: control.needsDomain } : {}), ...(errors.length ? { errors } : {}) });
   } catch (error) {
     const code = error instanceof z.ZodError || error instanceof SyntaxError ? "MODEL_INVALID_OUTPUT" : errorCode(error) === "REQUEST_TIMEOUT" ? "REQUEST_TIMEOUT" : "MODEL_TIMEOUT";
     return failedWithEvidence(agentId, enforceEvidenceSetBudget(evidence, agent.spec.execution), errors, code, code === "MODEL_INVALID_OUTPUT" ? "Specialist returned invalid structured output" : "Specialist model unavailable");

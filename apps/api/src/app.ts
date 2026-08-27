@@ -3,7 +3,6 @@ import Fastify, { type FastifyInstance } from "fastify";
 import {
   HttpAgentClient,
   MockAgentClient,
-  MockWorkloadTokenProvider,
   ProjectedWorkloadTokenProvider,
   type AgentClient,
 } from "@sre/agent-client";
@@ -39,9 +38,10 @@ import { redactText } from "@sre/evidence";
 import { MockModelClient, RealOpenAiCompatibleClient, type ModelClient } from "@sre/llm";
 import { MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "@sre/mcp";
 import { MockRagClient, RealRagClient, type RagClient } from "@sre/rag";
-import { classifyIntent } from "@sre/routing";
+import { classifyIntent, extractEntities } from "@sre/routing";
 import { executeRequest, runSpecialistInstance, type ExecutionContext } from "@sre/runtime";
-import { incrementMetric, renderMetrics, withSpan } from "@sre/telemetry";
+import { MockSessionStore, PostgresSessionStore, type BoundedSessionContext, type SessionStore } from "@sre/session";
+import { incrementMetric, renderMetrics, withExtractedContext, withSpan } from "@sre/telemetry";
 import { z } from "zod";
 import { oidcAuthenticationMiddleware } from "./middleware/oidc.ts";
 
@@ -60,6 +60,7 @@ export interface ManagerDependencies extends CommonDependencies {
   registry: AgentServiceRegistry;
   agentClient: AgentClient;
   identityIssuer: DelegatedIdentityIssuer;
+  sessionStore: SessionStore;
 }
 
 export interface SpecialistDependencies extends CommonDependencies {
@@ -102,6 +103,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       model,
       synthesisModel: config.clients.llm === "mock" ? model : new RealOpenAiCompatibleClient(config.llm.tierLUrl as string),
       oidc: config.clients.oidc === "mock" ? new MockOidcClient(config.oidc) : new RealOidcClient(config.oidc),
+      sessionStore: config.clients.postgres === "mock" ? new MockSessionStore() : new PostgresSessionStore(config.postgres.connectionString as string),
     };
   }
 
@@ -154,8 +156,12 @@ function registerManagerRoutes(app: FastifyInstance, deps: ManagerDependencies):
         if (authenticated === undefined) return reply;
         const identity = { ...authenticated, ...(bodyResult.data.sessionId ? { sessionId: bodyResult.data.sessionId } : {}) };
         incrementMetric("sre_requests_total");
+        // bounded follow-up context (SDD §14): entities + previous request ID only, keyed by user + session
+        const session = bodyResult.data.sessionId === undefined ? undefined : await deps.sessionStore.get(authenticated.subject, bodyResult.data.sessionId);
+        const resolvedEntities = session === undefined || session.entities.length === 0 ? undefined : Object.fromEntries(session.entities.map((entity) => [entity.alias, entity.canonical]));
+        const conversation = resolvedEntities === undefined ? undefined : { resolvedEntities, ...(session?.previousRequestId ? { previousRequestId: session.previousRequestId } : {}) };
         const response = await withSpan("sre.query", { "request.id": requestId, "user.subject_hash": subjectHash(identity.subject), environment: bodyResult.data.environment ?? deps.config.defaultEnvironment }, () => executeRequest(
-          { question: bodyResult.data.question, environment: bodyResult.data.environment, identity },
+          { question: bodyResult.data.question, environment: bodyResult.data.environment, identity, ...(conversation ? { conversation } : {}) },
           {
             manager: deps.agent,
             registry: deps.registry,
@@ -167,6 +173,9 @@ function registerManagerRoutes(app: FastifyInstance, deps: ManagerDependencies):
             defaultEnvironment: deps.config.defaultEnvironment,
           },
         ));
+        if (bodyResult.data.sessionId !== undefined) {
+          await deps.sessionStore.put(mergeSessionEntities(session, authenticated.subject, bodyResult.data.sessionId, bodyResult.data.question, requestId));
+        }
         return reply.code(response.error?.code === "AUTHZ_DENIED" ? 403 : response.error?.code === "ROUTE_INVALID" ? 422 : 200).send(response);
       } catch {
         return reply.code(401).send({ requestId, code: "AUTHN_FAILED", message: "Authentication failed" });
@@ -179,43 +188,69 @@ function registerSpecialistRoutes(app: FastifyInstance, deps: SpecialistDependen
   app.post("/internal/v1/execute", async (request, reply) => {
     const parsed = agentExecutionRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ code: "AGENT_INVALID_RESPONSE", message: "Invalid agent request" });
-    try {
-      assertSerializedLimit(parsed.data, MAX_AGENT_REQUEST_BYTES, "agent request");
-      await verifyWorkloadIdentity(deps, request.headers.authorization, parsed.data.requestId);
-      const identity = await deps.identityVerifier.verify(parsed.data.identityContext, `sre-agent:${deps.agent.name}`, parsed.data.requestId);
+    // continue the Manager's W3C trace context so one distributed trace covers the whole request
+    return withExtractedContext(request.headers, async () => {
+      // phase 1 — admission: size, workload identity, delegated user identity, deadline.
+      // Failures here are authorization/timeout signals, never execution failures.
+      let identity;
+      try {
+        assertSerializedLimit(parsed.data, MAX_AGENT_REQUEST_BYTES, "agent request");
+        await verifyWorkloadIdentity(deps, request.headers.authorization, parsed.data.requestId);
+        identity = await deps.identityVerifier.verify(parsed.data.identityContext, `sre-agent:${deps.agent.name}`, parsed.data.requestId);
+      } catch (error) {
+        const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "AGENT_UNAUTHORIZED";
+        const status = code === "AGENT_REQUEST_TOO_LARGE" ? 413 : code === "AGENT_TIMEOUT" ? 504 : 403;
+        return reply.code(status).send({ code: status === 403 ? "AGENT_UNAUTHORIZED" : code, message: "Internal agent request rejected" });
+      }
       const deadline = Date.parse(parsed.data.deadline);
       if (deadline <= Date.now()) return reply.code(504).send({ code: "AGENT_TIMEOUT", message: "Request deadline expired" });
-      const abort = new AbortController();
-      request.raw.once("aborted", () => abort.abort());
-      const safeQuestion = redactText(parsed.data.question).value;
-      const executionContext: ExecutionContext = {
-        request: {
-          question: safeQuestion,
-          environment: parsed.data.environment,
+      // phase 2 — execution: internal failures are reported as such, not as authorization denials
+      try {
+        const abort = new AbortController();
+        request.raw.once("aborted", () => abort.abort());
+        const safeQuestion = redactText(parsed.data.question).value;
+        const executionContext: ExecutionContext = {
+          request: {
+            question: safeQuestion,
+            environment: parsed.data.environment,
+            identity,
+            ...(parsed.data.conversationContext ? { conversation: parsed.data.conversationContext } : {}),
+          },
           identity,
-          ...(parsed.data.conversationContext ? { conversation: parsed.data.conversationContext } : {}),
-        },
-        identity,
-        environment: parsed.data.environment,
-        intent: classifyIntent(safeQuestion),
-        requestId: parsed.data.requestId,
-        deadline,
-        signal: abort.signal,
-      };
-      const response = await runSpecialistInstance(deps.agent, deps.catalog, executionContext, {
-        authorization: deps.authorization,
-        model: deps.model,
-        toolhive: deps.toolhive,
-        rag: deps.rag,
-      }, parsed.data.handoff);
-      assertSerializedLimit(response, MAX_AGENT_RESPONSE_BYTES, "agent response");
-      return reply.send(response);
-    } catch (error) {
-      const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "AGENT_UNAUTHORIZED";
-      const status = code === "AGENT_RESPONSE_TOO_LARGE" ? 502 : code === "AGENT_TIMEOUT" ? 504 : 403;
-      return reply.code(status).send({ code, message: "Internal agent request rejected" });
-    }
+          environment: parsed.data.environment,
+          intent: classifyIntent(safeQuestion),
+          requestId: parsed.data.requestId,
+          deadline,
+          signal: abort.signal,
+        };
+        const response = await runSpecialistInstance(deps.agent, deps.catalog, executionContext, {
+          authorization: deps.authorization,
+          model: deps.model,
+          toolhive: deps.toolhive,
+          rag: deps.rag,
+        }, parsed.data.handoff);
+        assertSerializedLimit(response, MAX_AGENT_RESPONSE_BYTES, "agent response");
+        return reply.send(response);
+      } catch (error) {
+        const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "AGENT_EXECUTION_FAILED";
+        if (code === "AGENT_RESPONSE_TOO_LARGE") return reply.code(502).send({ code, message: "Internal agent response rejected" });
+        if (code === "AGENT_TIMEOUT" || code === "REQUEST_TIMEOUT") return reply.code(504).send({ code: "AGENT_TIMEOUT", message: "Internal agent request timed out" });
+        return reply.code(500).send({ code: "AGENT_EXECUTION_FAILED", message: "Internal agent execution failed" });
+      }
+    });
   });
+}
+
+function mergeSessionEntities(session: BoundedSessionContext | undefined, subject: string, sessionId: string, question: string, requestId: string): BoundedSessionContext {
+  const merged = new Map((session?.entities ?? []).map((entity) => [entity.alias, entity]));
+  for (const [type, value] of Object.entries(extractEntities(question))) merged.set(value, { alias: value, canonical: value, type });
+  return {
+    sessionId,
+    subject,
+    entities: [...merged.values()].slice(0, 32),
+    previousRequestId: requestId,
+    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+  };
 }
 
 async function verifyWorkloadIdentity(deps: SpecialistDependencies, authorization: string | undefined, requestId: string): Promise<void> {

@@ -79,6 +79,8 @@ export function loadAgentRegistry(opts: LoadOptions): AgentRegistry {
     } catch (err) {
       throw new ConfigValidationError(`YAML parse failed for ${file}: ${String(err)}`);
     }
+    // the co-located service registry is a distinct, separately validated kind; anything else non-Agent still fails closed
+    if (typeof parsed === "object" && parsed !== null && (parsed as { kind?: unknown }).kind === "AgentServiceRegistry") continue;
     const result = agentDocumentSchema.safeParse(parsed);
     if (!result.success) {
       throw new ConfigValidationError(`schema validation failed for ${file}: ${result.error.message}`);

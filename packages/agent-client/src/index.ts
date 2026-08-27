@@ -94,6 +94,7 @@ export class HttpAgentClient implements AgentClient {
         });
         if (response.status === 401 || response.status === 403) throw new AgentTransportError("AGENT_UNAUTHORIZED", "Agent service denied the request", false);
         if ([502, 503, 504].includes(response.status)) {
+          await response.body?.cancel().catch(() => undefined);
           if (attempt === 0) continue;
           throw new AgentTransportError("AGENT_UNAVAILABLE", "Agent service is unavailable", true);
         }

@@ -8,6 +8,7 @@ export type LoadProfile = "normal" | "burst" | "storm";
 
 export function assertLoadProfileSafe(config: AppConfig, profile: LoadProfile, realApproved = false): void {
   if (profile === "storm" && config.clients.toolhive !== "mock") throw new Error("REFUSED: the 50-user storm profile requires mock ToolHive mode");
+  if (profile === "storm" && config.clients.agent !== "mock") throw new Error("REFUSED: the 50-user storm profile requires the mock agent client; a real client would storm deployed specialist services");
   if (config.clients.toolhive === "real" && !realApproved) throw new Error("REFUSED: real ToolHive load requires explicit owner approval");
 }
 

@@ -6,7 +6,8 @@ import type { Evidence, RuntimeError, SpecialistResult } from "@sre/evidence";
 import { MockModelClient, type ChatRequest, type ChatResponse, type ModelClient } from "@sre/llm";
 import { MockToolHiveClient } from "@sre/mcp";
 import { MockRagClient } from "@sre/rag";
-import { executeRequest, type AssistantResponse } from "@sre/runtime";
+import { loadAgentServiceRegistry } from "@sre/agent-registry";
+import { executeRequest, inProcessRuntimeDependencies, type AssistantResponse } from "@sre/runtime";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { exportHumanReviewJsonl, MockGrader, TierLJudgeGrader, type GradeResult, type Grader, type HumanReviewRecord } from "./graders/index.ts";
@@ -48,6 +49,7 @@ class CountingModel implements ModelClient {
 }
 
 const corpus = corpusSchema.parse(parseYaml(readFileSync("eval/questions/cases.yaml", "utf8")));
+const serviceRegistry = loadAgentServiceRegistry("agents/registry.yaml");
 const records: HarnessRecord[] = [];
 const humanReview: HumanReviewRecord[] = [];
 for (const [caseIndex, benchmark] of corpus.cases.entries()) {
@@ -58,7 +60,10 @@ for (const [caseIndex, benchmark] of corpus.cases.entries()) {
     const rag = new MockRagClient();
     let specialistResults: SpecialistResult[] = [];
     const started = performance.now();
-    const response = await executeRequest({ question: benchmark.question, environment: benchmark.environment, identity: identityFor(benchmark.identity, `${benchmark.id}-${run}`) }, { registry, authorization: new AuthorizationService(registry), model, synthesisModel: model, toolhive, rag, requestDeadlineMs: 5000, defaultEnvironment: "prod", onResults: (results) => { specialistResults = results; } });
+    const response = await executeRequest(
+      { question: benchmark.question, environment: benchmark.environment, identity: identityFor(benchmark.identity, `${benchmark.id}-${run}`) },
+      inProcessRuntimeDependencies({ registry, serviceRegistry, authorization: new AuthorizationService(registry), model, toolhive, rag, requestDeadlineMs: 5000, defaultEnvironment: "prod", onResults: (results) => { specialistResults = results; } }),
+    );
     const latencyMs = performance.now() - started;
     const evidence = specialistResults.flatMap((result) => result.evidence);
     const errors = [...specialistResults.flatMap((result) => result.errors ?? []), ...(response.error ? [response.error] : [])];

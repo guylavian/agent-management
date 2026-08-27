@@ -1,4 +1,4 @@
-import { context, trace, SpanStatusCode, type Attributes } from "@opentelemetry/api";
+import { context, propagation, trace, SpanStatusCode, type Attributes } from "@opentelemetry/api";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import { ConsoleSpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
@@ -13,6 +13,11 @@ export async function initializeTelemetry(options: { exporter: "console" | "otlp
 }
 
 export async function shutdownTelemetry(): Promise<void> { await sdk?.shutdown(); }
+
+/** Continue the caller's W3C trace context (traceparent/tracestate headers) so one distributed trace spans Manager and Specialist processes. */
+export async function withExtractedContext<T>(carrier: Record<string, string | string[] | undefined>, action: () => Promise<T>): Promise<T> {
+  return context.with(propagation.extract(context.active(), carrier), action);
+}
 
 export async function withSpan<T>(name: string, attributes: Attributes, action: () => Promise<T>): Promise<T> {
   const tracer = trace.getTracer("sre-agent-platform", "0.1.0");
