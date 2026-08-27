@@ -1,0 +1,17 @@
+{
+  "name": "@sre/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@sre/auth": "*",
+    "@sre/config": "*",
+    "@sre/evidence": "*",
+    "@sre/telemetry": "*",
+    "zod": "4.4.3"
+  }
+}

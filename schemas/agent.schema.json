@@ -1,0 +1,353 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "sre.ai/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Agent"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "name",
+        "owner"
+      ],
+      "additionalProperties": false
+    },
+    "spec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "manager"
+            },
+            "model": {
+              "type": "object",
+              "properties": {
+                "tier": {
+                  "type": "string",
+                  "const": "small"
+                },
+                "profile": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "tier",
+                "profile"
+              ],
+              "additionalProperties": false
+            },
+            "prompt": {
+              "type": "object",
+              "properties": {
+                "systemFile": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "systemFile"
+              ],
+              "additionalProperties": false
+            },
+            "agents": {
+              "type": "object",
+              "properties": {
+                "allowed": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*$"
+                  }
+                }
+              },
+              "required": [
+                "allowed"
+              ],
+              "additionalProperties": false
+            },
+            "execution": {
+              "type": "object",
+              "properties": {
+                "maxAgentsPerRequest": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 3
+                },
+                "maxRounds": {
+                  "type": "number",
+                  "const": 1
+                },
+                "timeoutMs": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 5000
+                }
+              },
+              "required": [
+                "maxAgentsPerRequest",
+                "maxRounds",
+                "timeoutMs"
+              ],
+              "additionalProperties": false
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "schema": {
+                  "type": "string",
+                  "const": "ManagerDecision"
+                }
+              },
+              "required": [
+                "schema"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "model",
+            "prompt",
+            "agents",
+            "execution",
+            "output"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "specialist"
+            },
+            "model": {
+              "type": "object",
+              "properties": {
+                "tier": {
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "large"
+                  ]
+                },
+                "profile": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "tier",
+                "profile"
+              ],
+              "additionalProperties": false
+            },
+            "prompt": {
+              "type": "object",
+              "properties": {
+                "systemFile": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "systemFile"
+              ],
+              "additionalProperties": false
+            },
+            "rag": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "collections": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "baselineRetrieval": {
+                  "type": "boolean"
+                },
+                "maxFollowupRetrievals": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "topK": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 20
+                }
+              },
+              "required": [
+                "enabled",
+                "collections",
+                "baselineRetrieval",
+                "maxFollowupRetrievals",
+                "topK"
+              ],
+              "additionalProperties": false
+            },
+            "mcp": {
+              "type": "object",
+              "properties": {
+                "servers": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "allowedTools": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "required": [
+                "servers",
+                "allowedTools"
+              ],
+              "additionalProperties": false
+            },
+            "execution": {
+              "type": "object",
+              "properties": {
+                "maxToolCalls": {
+                  "default": 6,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 20
+                },
+                "maxModelTurns": {
+                  "default": 3,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "timeoutMs": {
+                  "default": 25000,
+                  "type": "integer",
+                  "minimum": 1000,
+                  "maximum": 45000
+                },
+                "maxEvidenceBytes": {
+                  "default": 262144,
+                  "type": "integer",
+                  "minimum": 4096,
+                  "maximum": 4194304
+                },
+                "maxContextTokens": {
+                  "default": 12000,
+                  "type": "integer",
+                  "minimum": 1000,
+                  "maximum": 64000
+                },
+                "maxEvidenceItems": {
+                  "default": 32,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 128
+                },
+                "maxRawExcerptBytes": {
+                  "default": 8192,
+                  "type": "integer",
+                  "minimum": 256,
+                  "maximum": 65536
+                }
+              },
+              "required": [
+                "maxToolCalls",
+                "maxModelTurns",
+                "timeoutMs",
+                "maxEvidenceBytes",
+                "maxContextTokens",
+                "maxEvidenceItems",
+                "maxRawExcerptBytes"
+              ],
+              "additionalProperties": false
+            },
+            "discovery": {
+              "type": "object",
+              "properties": {
+                "allowedNeedsDomains": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*$"
+                  }
+                }
+              },
+              "required": [
+                "allowedNeedsDomains"
+              ],
+              "additionalProperties": false
+            },
+            "authorization": {
+              "type": "object",
+              "properties": {
+                "requiredRoles": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "required": [
+                "requiredRoles"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "model",
+            "prompt",
+            "rag",
+            "mcp",
+            "execution",
+            "authorization"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "additionalProperties": false
+}

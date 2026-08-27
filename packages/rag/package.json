@@ -1,0 +1,15 @@
+{
+  "name": "@sre/rag",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sre/auth": "*",
+    "@sre/config": "*",
+    "@sre/evidence": "*",
+    "zod": "4.4.3"
+  }
+}

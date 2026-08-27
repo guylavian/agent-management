@@ -1,0 +1,53 @@
+import { loadAgentServiceRegistry } from "@sre/agent-registry";
+import { loadAgentInstance, type ManagerAgentConfig } from "@sre/config";
+import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
+import { MockModelClient } from "@sre/llm";
+import { describe, expect, it } from "vitest";
+import { classifyIntent, deterministicRoute, ManagerRouter } from "../src/index.ts";
+
+const ids = ["active-directory", "openshift", "network-observability"];
+const registry = loadAgentServiceRegistry("agents/registry.yaml");
+const manager = loadAgentInstance({ configFile: "agents/manager.yaml" }) as ManagerAgentConfig;
+
+describe("Stage-1 routing", () => {
+  it.each([
+    ["Check AD replication between DC-TLV-01 and DC-HFA-02", "active-directory"],
+    ["Why is this OpenShift pod in CrashLoopBackOff?", "openshift"],
+    ["Show packet loss from Prometheus", "network-observability"],
+  ])("routes precise vocabulary", (question, expected) => {
+    expect(deterministicRoute(question, ids)).toMatchObject({ resolved: true, decision: { agents: [expected] } });
+  });
+
+  it.each(["cluster status", "replication status", "certificate policy", "gateway node"])("does not guess from ambiguous phrase %s", (question) => {
+    expect(deterministicRoute(question, ids).resolved).toBe(false);
+  });
+
+  it("extracts trusted entity syntax and classifies intent deterministically", () => {
+    const result = deterministicRoute("Why is DC-TLV-01 intermittently slow?", ids);
+    expect(result.entities).toEqual({ hostname: "DC-TLV-01" });
+    expect(result.intent).toBe("diagnostic");
+    expect(classifyIntent("Show current status", ["causal-question"])).toBe("diagnostic");
+    expect(classifyIntent("Show current status")).toBe("factual");
+  });
+});
+
+describe("Manager", () => {
+  it("receives authorized descriptors but no tool schemas or payloads", async () => {
+    class InspectingModel implements ModelClient {
+      readonly mode = "mock" as const;
+      request?: ChatRequest;
+      async chat(request: ChatRequest): Promise<ChatResponse> { this.request = request; return { content: JSON.stringify({ agents: ["active-directory"], confidence: 0.9, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } }; }
+    }
+    const model = new InspectingModel();
+    await new ManagerRouter(model, registry, manager).selectAgents("certificate issue", ["active-directory"], {});
+    expect(model.request?.tools).toBeUndefined();
+    expect(model.request?.messages.at(-1)?.content).toContain("authorizedSpecialists");
+    expect(model.request?.messages.at(-1)?.content).not.toContain("allowedTools");
+  });
+
+  it("rejects unknown or unauthorized agent IDs", async () => {
+    const model = new MockModelClient();
+    model.enqueue({ content: JSON.stringify({ agents: ["unknown"], confidence: 1, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
+    await expect(new ManagerRouter(model, registry, manager).selectAgents("unknown", ids, {})).rejects.toMatchObject({ code: "ROUTE_INVALID" });
+  });
+});

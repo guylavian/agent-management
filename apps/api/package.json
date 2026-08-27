@@ -1,0 +1,22 @@
+{
+  "name": "@sre/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@sre/agent-client": "*",
+    "@sre/agent-protocol": "*",
+    "@sre/agent-registry": "*",
+    "@sre/auth": "*",
+    "@sre/config": "*",
+    "@sre/evidence": "*",
+    "@sre/llm": "*",
+    "@sre/mcp": "*",
+    "@sre/rag": "*",
+    "@sre/runtime": "*",
+    "@sre/session": "*",
+    "@sre/telemetry": "*",
+    "fastify": "5.12.1",
+    "zod": "4.4.3"
+  }
+}

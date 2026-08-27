@@ -1,0 +1,24 @@
+{
+  "name": "@sre/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sre/agent-client": "*",
+    "@sre/agent-protocol": "*",
+    "@sre/agent-registry": "*",
+    "@sre/auth": "*",
+    "@sre/config": "*",
+    "@sre/evidence": "*",
+    "@sre/llm": "*",
+    "@sre/mcp": "*",
+    "@sre/rag": "*",
+    "@sre/routing": "*",
+    "@sre/session": "*",
+    "@sre/telemetry": "*",
+    "zod": "4.4.3"
+  }
+}

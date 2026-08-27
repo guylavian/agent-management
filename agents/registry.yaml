@@ -1,0 +1,27 @@
+apiVersion: sre.ai/v1alpha1
+kind: AgentServiceRegistry
+agents:
+  - agentId: active-directory
+    endpoint: http://sre-agent-active-directory.sre-assistant.svc.cluster.local
+    owner: domain-services
+    description: Active Directory, LDAP, Kerberos, domain controllers, identity, and AD replication
+    enabled: true
+    environments: [prod, dr, lab]
+    requiredRoles: [infra-read]
+    allowedNeedsDomains: [network-observability]
+  - agentId: openshift
+    endpoint: http://sre-agent-openshift.sre-assistant.svc.cluster.local
+    owner: paas
+    description: OpenShift clusters, namespaces, pods, workloads, routes, and platform events
+    enabled: true
+    environments: [prod, dr, lab]
+    requiredRoles: [infra-read]
+    allowedNeedsDomains: [network-observability]
+  - agentId: network-observability
+    endpoint: http://sre-agent-network-observability.sre-assistant.svc.cluster.local
+    owner: network-observability
+    description: Network paths, interfaces, load balancers, Prometheus, Splunk, and observability
+    enabled: true
+    environments: [prod, dr, lab]
+    requiredRoles: [network-read]
+    allowedNeedsDomains: [openshift, active-directory]

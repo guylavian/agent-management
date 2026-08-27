@@ -1,0 +1,14 @@
+{
+  "name": "@sre/agent-client",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@sre/agent-protocol": "*",
+    "@sre/agent-registry": "*"
+  }
+}

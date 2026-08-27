@@ -1,0 +1,15 @@
+{
+  "name": "@sre/auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sre/agent-protocol": "*",
+    "@sre/config": "*",
+    "jose": "6.2.10",
+    "zod": "4.4.3"
+  }
+}

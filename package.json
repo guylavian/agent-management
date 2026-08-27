@@ -1,0 +1,38 @@
+{
+  "name": "sre-agent-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.20.0"
+  },
+  "packageManager": "npm@11.7.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:local": "node --import tsx --env-file-if-exists=.env.local apps/api/src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint apps packages scripts eval",
+    "test": "vitest run",
+    "validate:yaml": "vitest run packages/config/tests/yaml-validation.test.ts",
+    "validate:deploy": "helm lint deploy/helm",
+    "gen:schema": "node --import tsx scripts/gen-schema.ts",
+    "gen:supply-chain": "node --import tsx scripts/gen-supply-chain.ts",
+    "gen:eval-cases": "node --import tsx scripts/gen-eval-cases.ts",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run validate:yaml && npm run validate:deploy",
+    "eval": "node --import tsx eval/run.ts",
+    "load": "node --import tsx eval/load/run-load.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@types/pg": "8.21.0",
+    "autocannon": "8.0.0",
+    "oxlint": "1.80.0",
+    "tsx": "4.23.11",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "zod": "4.4.3"
+  }
+}

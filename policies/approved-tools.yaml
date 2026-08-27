@@ -1,0 +1,21 @@
+apiVersion: sre.ai/v1alpha1
+kind: ApprovedToolCatalog
+tools:
+  - { serverId: active-directory, toolName: get_replication_status, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: active-directory, toolName: get_dc_health, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: active-directory, toolName: list_domain_controllers, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: none }
+  - { serverId: active-directory, toolName: get_dns_health, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: splunk, toolName: search_ad_events, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 15000, retryPolicy: transient-once }
+  - { serverId: prometheus, toolName: query_ad_metrics, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: openshift, toolName: get_pod_status, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: openshift, toolName: list_namespace_events, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: openshift, toolName: get_route_status, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: openshift, toolName: get_deployment_status, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: prometheus, toolName: query_cluster_metrics, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: splunk, toolName: search_platform_logs, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 15000, retryPolicy: transient-once }
+  - { serverId: prometheus, toolName: query_prometheus, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: network, toolName: get_interface_status, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: network, toolName: get_path_health, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: network, toolName: get_bgp_status, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: splunk, toolName: search_network_logs, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 15000, retryPolicy: transient-once }
+  - { serverId: network, toolName: get_load_balancer_pool, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
