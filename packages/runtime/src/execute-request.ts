@@ -49,9 +49,13 @@ async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies
   const rules = enabledAllowed.map((agent) => ({ agentId: agent.agentId, ...agent.routing }));
   const stage1 = await withSpan("manager.route.stage1", { "request.id": req.identity.requestId, environment }, async () => deterministicRoute(req.question, rules));
   const authorizedCandidates = deps.registry.filterAuthorized(allAgentIds, req.identity.roles, environment);
+  const defaultTask = `Investigate this request within your domain and return cited evidence: ${modelSafeQuestion}`.slice(0, 2000);
   let routing: ManagerDecision;
-  if (stage1.resolved && stage1.decision !== undefined) {
-    routing = { agents: stage1.decision.agents, confidence: 1, abstain: false, reasonCodes: [stage1.decision.reasonCode] };
+  // deterministic fast path applies ONLY to narrow factual requests; diagnostic,
+  // causal, ambiguous or potentially cross-domain questions go to the Manager
+  const fastPath = stage1.resolved && stage1.decision !== undefined && stage1.intent === "factual";
+  if (fastPath && stage1.decision !== undefined) {
+    routing = { routes: stage1.decision.agents.map((agent) => ({ agent, task: defaultTask })), confidence: 1, abstain: false, reasonCodes: [stage1.decision.reasonCode] };
   } else {
     if (authorizedCandidates.length === 0) return authorizationDenied(req.identity.requestId);
     try {
@@ -73,18 +77,20 @@ async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies
     deadline,
     signal,
   };
-  let requestedAgents = routing.agents;
+  let requestedRoutes = routing.routes;
   if (routing.abstain) {
     incrementMetric("sre_manager_abstentions_total");
     const ambiguityFanout = resolveAbstentionFanout(routing, authorizedCandidates, deps.manager.spec.execution.maxAgentsPerRequest);
     if (ambiguityFanout.length === 0) return clarification(ctx.requestId);
-    requestedAgents = ambiguityFanout;
+    requestedRoutes = ambiguityFanout.map((agent) => ({ agent, task: defaultTask }));
   }
-  const authorizedAgents = deps.registry.filterAuthorized(requestedAgents, ctx.identity.roles, ctx.environment);
-  if (authorizedAgents.length === 0) return authorizationDenied(ctx.requestId);
+  const authorizedSet = new Set(deps.registry.filterAuthorized(requestedRoutes.map((route) => route.agent), ctx.identity.roles, ctx.environment));
+  const authorizedRoutes = requestedRoutes.filter((route) => authorizedSet.has(route.agent));
+  const authorizedAgents = authorizedRoutes.map((route) => route.agent);
+  if (authorizedRoutes.length === 0) return authorizationDenied(ctx.requestId);
 
-  const settled = await withSpan("manager.fanout", { "request.id": ctx.requestId, "agent.count": authorizedAgents.length }, () => Promise.allSettled(
-    authorizedAgents.map((agentId) => executeAgent(agentId, ctx, deps, signal)),
+  const settled = await withSpan("manager.fanout", { "request.id": ctx.requestId, "agent.count": authorizedRoutes.length }, () => Promise.allSettled(
+    authorizedRoutes.map((route) => executeAgent(route.agent, ctx, deps, signal, undefined, route.task)),
   ));
   const results: SpecialistResult[] = settled.map((item, index): SpecialistResult => item.status === "fulfilled" ? item.value : specialistFailure(authorizedAgents[index] as string, ctx, item.reason));
 
@@ -133,13 +139,14 @@ async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies
   return { ...response, metadata: { ...response.metadata, routedAgents: results.map((result) => result.agentId) } };
 }
 
-async function executeAgent(agentId: string, ctx: ExecutionContext, deps: RuntimeDependencies, signal: AbortSignal, handoff?: AgentExecutionRequest["handoff"]): Promise<SpecialistResult> {
+async function executeAgent(agentId: string, ctx: ExecutionContext, deps: RuntimeDependencies, signal: AbortSignal, handoff?: AgentExecutionRequest["handoff"], task?: string): Promise<SpecialistResult> {
   const identityContext = await deps.identityIssuer.issue(ctx.identity, `sre-agent:${agentId}`, ctx.deadline);
   const request: AgentExecutionRequest = {
     requestId: ctx.requestId,
     question: ctx.request.question,
     environment: ctx.environment,
     identityContext,
+    ...(task ? { task } : {}),
     ...(ctx.request.conversation?.resolvedEntities ? { conversationContext: { resolvedEntities: ctx.request.conversation.resolvedEntities } } : {}),
     ...(handoff ? { handoff } : {}),
     deadline: new Date(ctx.deadline).toISOString(),

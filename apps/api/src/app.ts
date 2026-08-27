@@ -266,6 +266,7 @@ function registerSpecialistRoutes(app: Express, deps: SpecialistDependencies): v
           requestId: parsed.data.requestId,
           deadline,
           signal: abort.signal,
+          ...(parsed.data.task ? { task: parsed.data.task } : {}),
         };
         const result = await runSpecialistInstance(deps.agent, deps.catalog, executionContext, {
           authorization: deps.authorization,

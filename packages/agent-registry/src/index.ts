@@ -10,6 +10,9 @@ export const agentRoutingSchema = z.object({
   entityPatterns: z.array(z.string().min(1)).default([]),
   // overloaded terms that MUST NOT resolve routing on their own (precision guard, documentation)
   ambiguousTerms: z.array(z.string().min(1)).default([]),
+  // free-text routing hints supplied to the Manager (what this specialist covers / does not)
+  capabilities: z.array(z.string().min(1)).default([]),
+  exclusions: z.array(z.string().min(1)).default([]),
 }).strict();
 export type AgentRouting = z.infer<typeof agentRoutingSchema>;
 
@@ -22,7 +25,7 @@ export const agentRegistryEntrySchema = z.object({
   environments: z.array(z.string().min(1)).min(1),
   requiredRoles: z.array(z.string().min(1)).min(1),
   allowedNeedsDomains: z.array(z.string().regex(/^[a-z][a-z0-9-]*$/u)).max(8).default([]),
-  routing: agentRoutingSchema.default({ exactTerms: [], entityPatterns: [], ambiguousTerms: [] }),
+  routing: agentRoutingSchema.default({ exactTerms: [], entityPatterns: [], ambiguousTerms: [], capabilities: [], exclusions: [] }),
 }).strict();
 export type AgentRegistryEntry = z.infer<typeof agentRegistryEntrySchema>;
 

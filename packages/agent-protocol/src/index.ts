@@ -19,6 +19,8 @@ export type DelegatedIdentityContext = z.infer<typeof delegatedIdentityContextSc
 export const agentExecutionRequestSchema = z.object({
   requestId: z.string().min(1).max(128),
   question: z.string().min(1).max(8_000),
+  // focused investigation task assigned by the Manager to this specialist (optional)
+  task: z.string().min(1).max(2_000).optional(),
   environment: z.string().min(1).max(128),
   identityContext: delegatedIdentityContextSchema,
   conversationContext: z.object({

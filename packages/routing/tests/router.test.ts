@@ -44,7 +44,7 @@ describe("Manager", () => {
     class InspectingModel implements ModelClient {
       readonly mode = "mock" as const;
       request?: ChatRequest;
-      async chat(request: ChatRequest): Promise<ChatResponse> { this.request = request; return { content: JSON.stringify({ agents: ["active-directory"], confidence: 0.9, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } }; }
+      async chat(request: ChatRequest): Promise<ChatResponse> { this.request = request; return { content: JSON.stringify({ routes: [{ agent: "active-directory", task: "Check AD-side causes." }], confidence: 0.9, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } }; }
     }
     const model = new InspectingModel();
     await new ManagerRouter(model, registry, manager).selectAgents("certificate issue", ["active-directory"], {});
@@ -53,9 +53,32 @@ describe("Manager", () => {
     expect(model.request?.messages.at(-1)?.content).not.toContain("allowedTools");
   });
 
+  it("supplies the dynamic catalog with capabilities, not hardcoded names in the prompt", async () => {
+    class InspectingModel implements ModelClient {
+      readonly mode = "mock" as const;
+      request?: ChatRequest;
+      async chat(request: ChatRequest): Promise<ChatResponse> { this.request = request; return { content: JSON.stringify({ routes: [{ agent: "active-directory", task: "t" }], confidence: 0.9, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } }; }
+    }
+    const model = new InspectingModel();
+    await new ManagerRouter(model, registry, manager).selectAgents("AD question", ["active-directory", "network-observability"], {});
+    const systemPrompt = model.request?.messages[0]?.content ?? "";
+    expect(systemPrompt).not.toContain("active-directory");
+    const userPayload = model.request?.messages.at(-1)?.content ?? "";
+    expect(userPayload).toContain("active-directory");
+    expect(userPayload).toContain("capabilities");
+  });
+
+  it("returns a distinct task per selected agent and enforces bounds", async () => {
+    const model = new MockModelClient();
+    model.enqueue({ content: JSON.stringify({ routes: [{ agent: "active-directory", task: "Check AD-side causes." }, { agent: "network-observability", task: "Check network path." }], confidence: 0.9, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
+    const decision = await new ManagerRouter(model, registry, manager).selectAgents("auth failing from site B", ids, {});
+    expect(decision.routes.map((route) => route.agent)).toEqual(["active-directory", "network-observability"]);
+    expect(decision.routes[0]?.task).not.toEqual(decision.routes[1]?.task);
+  });
+
   it("rejects unknown or unauthorized agent IDs", async () => {
     const model = new MockModelClient();
-    model.enqueue({ content: JSON.stringify({ agents: ["unknown"], confidence: 1, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
+    model.enqueue({ content: JSON.stringify({ routes: [{ agent: "unknown", task: "x" }], confidence: 1, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
     await expect(new ManagerRouter(model, registry, manager).selectAgents("unknown", ids, {})).rejects.toMatchObject({ code: "ROUTE_INVALID" });
   });
 });

@@ -68,6 +68,8 @@ async function runSpecialistInternal(agent: SpecialistAgentConfig, catalog: Appr
   const messages: ChatMessage[] = [
     { role: "system", content: agent.systemPrompt },
     { role: "user", content: ctx.request.question },
+    // Manager-assigned focused task, alongside (never replacing) the original question
+    ...(ctx.task ? [{ role: "user" as const, content: `FOCUSED_TASK\n${ctx.task}\nEND_FOCUSED_TASK` }] : []),
     // trusted, scalar-only session context (SDD §14): lets a follow-up like "what about DC2" resolve
     ...(resolvedEntities && Object.keys(resolvedEntities).length > 0 ? [{ role: "user" as const, content: `TRUSTED_RESOLVED_ENTITIES\n${JSON.stringify(resolvedEntities)}\nEND_TRUSTED_RESOLVED_ENTITIES` }] : []),
     ...(handoff === undefined ? [] : [{ role: "user" as const, content: `TRUSTED_DOMAIN_HANDOFF\n${JSON.stringify(handoff)}\nEND_TRUSTED_DOMAIN_HANDOFF` }]),

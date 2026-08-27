@@ -73,9 +73,11 @@ export class MockModelClient implements ModelClient {
       const agents = [
         ...(question.includes("openshift") || question.includes("pod") ? ["openshift"] : []),
         ...(question.includes("network") || question.includes("prometheus") || question.includes("slow") ? ["network-observability"] : []),
-        ...(question.includes("active directory") || question.includes("domain controller") || question.includes("ad ") ? ["active-directory"] : []),
+        ...(question.includes("active directory") || question.includes("domain controller") || question.includes("ad ") || question.includes("ad ") || question.includes("authentication") ? ["active-directory"] : []),
       ];
-      return { content: JSON.stringify({ agents: [...new Set(agents)].slice(0, 2), confidence: agents.length ? 0.92 : 0.3, abstain: agents.length === 0, alternates: agents.length === 0 ? ["active-directory", "network-observability"] : undefined, reasonCodes: question.includes("slow") ? ["diagnostic-language"] : ["semantic-match"] }), usage: { promptTokens: 32, completionTokens: 24 } };
+      const selected = [...new Set(agents)].slice(0, 2);
+      const routes = selected.map((agent) => ({ agent, task: managerTask(agent) }));
+      return { content: JSON.stringify({ routes, confidence: routes.length ? 0.92 : 0.3, abstain: routes.length === 0, alternates: routes.length === 0 ? ["active-directory", "network-observability"] : undefined, reasonCodes: question.includes("slow") ? ["diagnostic-language"] : ["semantic-match"] }), usage: { promptTokens: 32, completionTokens: 24 } };
     }
     if (request.tools !== undefined && request.tools.length > 0) {
       const preferred = request.tools.find((tool) =>
@@ -91,6 +93,14 @@ export class MockModelClient implements ModelClient {
     }
     return { content: "Mock model response grounded in the supplied evidence.", usage: { promptTokens: 32, completionTokens: 12 } };
   }
+}
+
+/** Distinct focused task per specialist for the mock Manager decision. */
+function managerTask(agent: string): string {
+  if (agent === "active-directory") return "Check AD, domain-controller and authentication-side causes.";
+  if (agent === "openshift") return "Check OpenShift workloads, pods, routes and platform events.";
+  if (agent === "network-observability") return "Check connectivity, latency, packet loss and network-path evidence.";
+  return "Investigate within your domain and return cited evidence.";
 }
 
 /** Build valid arguments for exactly the properties a tool declares. */

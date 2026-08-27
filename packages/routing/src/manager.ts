@@ -7,9 +7,20 @@ const jsonSchema = {
   title: "ManagerDecision",
   type: "object",
   additionalProperties: false,
-  required: ["agents", "confidence", "abstain"],
+  required: ["routes", "confidence", "abstain"],
   properties: {
-    agents: { type: "array", items: { type: "string" } },
+    routes: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["agent", "task"],
+        properties: {
+          agent: { type: "string" },
+          task: { type: "string", minLength: 1, maxLength: 2000 },
+        },
+      },
+    },
     confidence: { type: "number", minimum: 0, maximum: 1 },
     alternates: { type: "array", items: { type: "string" } },
     abstain: { type: "boolean" },
@@ -29,13 +40,19 @@ export class ManagerRouter {
 
   async selectAgents(question: string, authorizedAgentIds: string[], entities: Record<string, string>, signal?: AbortSignal): Promise<ManagerDecision> {
     const allowed = new Set(authorizedAgentIds);
-    const descriptors = this.#registry.listEnabled().filter((agent) => allowed.has(agent.agentId)).map((agent) => ({ id: agent.agentId, description: agent.description }));
+    // descriptors are supplied dynamically from the registry (config), never hardcoded in the prompt
+    const descriptors = this.#registry.listEnabled().filter((agent) => allowed.has(agent.agentId)).map((agent) => ({
+      id: agent.agentId,
+      description: agent.description,
+      ...(agent.routing.capabilities.length > 0 ? { capabilities: agent.routing.capabilities } : {}),
+      ...(agent.routing.exclusions.length > 0 ? { exclusions: agent.routing.exclusions } : {}),
+    }));
     const response = await this.#model.chat({ model: this.#manager.spec.model.profile, messages: [{ role: "system", content: this.#manager.systemPrompt }, { role: "user", content: JSON.stringify({ question, trustedEntities: entities, authorizedSpecialists: descriptors }) }], guidedJsonSchema: jsonSchema, signal });
     const decision = managerDecisionSchema.parse(JSON.parse(response.content ?? ""));
-    const allIds = [...decision.agents, ...(decision.alternates ?? [])];
-    if (allIds.some((id) => !allowed.has(id))) throw Object.assign(new Error("Manager selected an unavailable agent"), { code: "ROUTE_INVALID" });
+    const agents = decision.routes.map((route) => route.agent);
     const alternates = decision.alternates ?? [];
-    if (new Set(decision.agents).size !== decision.agents.length || new Set(alternates).size !== alternates.length || decision.agents.length > this.#manager.spec.execution.maxAgentsPerRequest || alternates.length > this.#manager.spec.execution.maxAgentsPerRequest) throw Object.assign(new Error("Manager selection violates bounds"), { code: "ROUTE_INVALID" });
+    if ([...agents, ...alternates].some((id) => !allowed.has(id))) throw Object.assign(new Error("Manager selected an unavailable agent"), { code: "ROUTE_INVALID" });
+    if (new Set(agents).size !== agents.length || new Set(alternates).size !== alternates.length || agents.length > this.#manager.spec.execution.maxAgentsPerRequest || alternates.length > this.#manager.spec.execution.maxAgentsPerRequest) throw Object.assign(new Error("Manager selection violates bounds"), { code: "ROUTE_INVALID" });
     return decision;
   }
 }

@@ -71,6 +71,7 @@ export class InProcessAgentClient implements AgentClient {
       requestId: request.requestId,
       deadline,
       signal,
+      ...(request.task ? { task: request.task } : {}),
     };
     const result = await runSpecialistInstance(specialist, this.#registry.catalog, ctx, this.#deps, request.handoff);
     try {

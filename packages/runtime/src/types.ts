@@ -19,6 +19,8 @@ export interface ExecutionContext {
   requestId: string;
   deadline: number;
   signal?: AbortSignal;
+  /** Manager-assigned focused task for this specialist, if any */
+  task?: string;
 }
 
 export type { ManagerDecision } from "@sre/routing";
