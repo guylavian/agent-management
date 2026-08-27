@@ -28,3 +28,13 @@ Items are ordered by gate. Mock results do not replace real-environment verifica
 - TODO: Validate default-deny OpenShift NetworkPolicies and non-root/read-only filesystem settings in the target cluster.
 - TODO: Decide the controlled PoC vector store before enabling the real RAG implementation.
 - TODO: Run the autocannon normal, burst, and mock-only storm profiles in a CI/dev runner that permits TCP listeners; this sandbox returns `listen EPERM`.
+
+## Distributed deployment (architecture Rev 2.0)
+
+- TODO: Stand up the enterprise token-exchange/delegation issuer (RS256) and verify `JwksDelegatedIdentityVerifier` against it; confirm audience-per-agent tokens and 60-second expiry are accepted by policy.
+- TODO: Verify projected ServiceAccount token audience (`sre-agent-runtime`) is issued and validated by the cluster/internal OIDC; confirm rotation is observed (token re-read per call).
+- TODO: Re-run Gate #1 across the full distributed path: two users through API → manager → specialist → ToolHive with distinguishable audit identities at every hop.
+- TODO: Generate `agents/registry.yaml` from GitOps and verify Service DNS endpoints match `sre-agent-<name>` releases per namespace.
+- TODO: Two-process HTTP smoke (manager + one specialist from the same image) in a runner that permits TCP listeners; the dev sandbox denies `listen` (EPERM).
+- TODO: Verify one distributed trace (W3C context) across manager and specialist pods in the selected observability backend.
+- TODO: Apply and test the per-agent NetworkPolicies on the target cluster, including the manager's denied ToolHive/RAG egress.
