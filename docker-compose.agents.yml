@@ -1,0 +1,87 @@
+# Local DISTRIBUTED deployment of the SRE agent platform.
+# Manager + specialists each run as their own container from ONE runtime image.
+# Real backends used locally: qwen3:8b via Ollama (host) and the wikikb MCP (host).
+# Identity is mock-but-shared (local dev); the real path uses enterprise IdP + ToolHive.
+#
+#   docker compose -f docker-compose.agents.yml up -d
+#   TOKEN=$(curl -s -X POST http://localhost:3000/dev/token/alice | sed -E 's/.*"token":"([^"]+)".*/\1/')
+#   curl -s -X POST http://localhost:3000/v1/query -H "authorization: Bearer $TOKEN" -H "content-type: application/json" -d '{"question":"What does the internal wiki say about Keycloak authentication troubleshooting?","environment":"prod"}'
+x-agent-base: &agent-base
+  image: sre-agent-runtime:local
+  restart: unless-stopped
+  extra_hosts:
+    - "host.docker.internal:host-gateway"   # reach Ollama + wikikb on the Mac host
+  volumes:
+    - ./agents:/app/agents:ro
+    - ./prompts:/app/prompts:ro
+    - ./policies:/app/policies:ro
+  healthcheck:
+    test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    interval: 10s
+    timeout: 5s
+    retries: 12
+    start_period: 15s
+
+x-specialist-env: &specialist-env
+  SRE_ENV: local
+  SRE_CLIENT_OIDC: mock
+  SRE_CLIENT_LLM: real
+  SRE_LLM_TIER_S_URL: http://host.docker.internal:11434
+  SRE_LLM_TIER_L_URL: http://host.docker.internal:11434
+  SRE_LLM_MODEL: qwen3:8b
+  SRE_LLM_SYSTEM_SUFFIX: "/no_think"        # disable qwen3 chain-of-thought for speed
+  SRE_REQUEST_DEADLINE_MS: "120000"          # generous local budget for slow local inference
+  SRE_CLIENT_DELEGATION: mock
+  SRE_DELEGATION_MOCK_SECRET: local-shared-delegation-secret-change-me-0001
+  SRE_CLIENT_POSTGRES: mock
+  SRE_CLIENT_AGENT: mock          # specialist accepts the manager's fixed local workload token
+
+services:
+  sre-agent-manager:
+    <<: *agent-base
+    container_name: sre-agent-manager
+    environment:
+      <<: *specialist-env
+      AGENT_CONFIG: agents/manager.yaml
+      SRE_AGENT_REGISTRY: agents/registry.local.yaml
+      SRE_CLIENT_AGENT: http-local          # HTTP fan-out to specialist services (mock local identity)
+    ports:
+      - "${MANAGER_PORT:-3000}:3000"
+    depends_on:
+      sre-agent-wiki: { condition: service_healthy }
+      sre-agent-active-directory: { condition: service_healthy }
+      sre-agent-openshift: { condition: service_healthy }
+      sre-agent-network-observability: { condition: service_healthy }
+
+  sre-agent-wiki:
+    <<: *agent-base
+    container_name: sre-agent-wiki
+    environment:
+      <<: *specialist-env
+      AGENT_CONFIG: agents/wiki.yaml
+      SRE_CLIENT_TOOLHIVE: direct                                   # no ToolHive locally
+      SRE_MCP_ENDPOINT_WIKI: http://host.docker.internal:8642/mcp   # the real wikikb MCP
+
+  sre-agent-active-directory:
+    <<: *agent-base
+    container_name: sre-agent-active-directory
+    environment:
+      <<: *specialist-env
+      AGENT_CONFIG: agents/active-directory.yaml
+      SRE_CLIENT_TOOLHIVE: mock     # no real AD backend locally
+
+  sre-agent-openshift:
+    <<: *agent-base
+    container_name: sre-agent-openshift
+    environment:
+      <<: *specialist-env
+      AGENT_CONFIG: agents/openshift.yaml
+      SRE_CLIENT_TOOLHIVE: mock
+
+  sre-agent-network-observability:
+    <<: *agent-base
+    container_name: sre-agent-network-observability
+    environment:
+      <<: *specialist-env
+      AGENT_CONFIG: agents/network-observability.yaml
+      SRE_CLIENT_TOOLHIVE: mock

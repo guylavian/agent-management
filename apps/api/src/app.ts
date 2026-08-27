@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
-import { inject, type DispatchFunc, type InjectOptions, type Response as InjectResponse } from "light-my-request";
+import type { DispatchFunc, InjectOptions, Response as InjectResponse } from "light-my-request";
 import {
   HttpAgentClient,
   MockAgentClient,
+  MockWorkloadTokenProvider,
   ProjectedWorkloadTokenProvider,
   type AgentClient,
 } from "@sre/agent-client";
@@ -41,7 +42,7 @@ import {
 } from "@sre/config";
 import { redactText } from "@sre/evidence";
 import { MockModelClient, RealOpenAiCompatibleClient, type ModelClient } from "@sre/llm";
-import { MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "@sre/mcp";
+import { DirectMcpClient, mcpEndpointsFromEnv, MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "@sre/mcp";
 import { MockRagClient, RealRagClient, type RagClient } from "@sre/rag";
 import { classifyIntent, extractEntities } from "@sre/routing";
 import { executeRequest, InProcessAgentClient, runSpecialistInstance, type ExecutionContext } from "@sre/runtime";
@@ -91,7 +92,7 @@ export type ApiDependencies = ManagerDependencies | SpecialistDependencies;
 export function buildDependencies(env: Record<string, string | undefined> = process.env): ApiDependencies {
   const config = loadAppConfig(env);
   const agent = loadAgentInstance({ configFile: config.agentConfigFile, approvedCatalogFile: config.approvedCatalogFile });
-  const model = config.clients.llm === "mock" ? new MockModelClient() : new RealOpenAiCompatibleClient(config.llm.tierSUrl as string);
+  const model = config.clients.llm === "mock" ? new MockModelClient() : new RealOpenAiCompatibleClient(config.llm.tierSUrl as string, undefined, config.llm.model, config.llm.systemSuffix);
   const mockDelegation = new MockDelegationAuthority({ issuer: config.delegation.issuer, secret: config.delegation.mockSecret });
 
   if (agent.spec.type === "manager") {
@@ -110,13 +111,16 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
         {
           authorization: new AuthorizationService(fullRegistry),
           model,
-          toolhive: config.clients.toolhive === "mock" ? new MockToolHiveClient() : new RealToolHiveClient(config.toolhive.url as string),
+          toolhive: buildToolhive(config, env),
           rag: config.clients.rag === "mock" ? new MockRagClient() : new RealRagClient(config.rag.url as string),
         },
         mockDelegation,
       );
     } else if (config.clients.agent === "mock") {
       agentClient = new MockAgentClient();
+    } else if (config.clients.agent === "http-local") {
+      // distributed local PoC: HTTP fan-out with a fixed mock workload token
+      agentClient = new HttpAgentClient(registry, new MockWorkloadTokenProvider());
     } else {
       agentClient = new HttpAgentClient(registry, new ProjectedWorkloadTokenProvider(config.agentTransport.workloadTokenFile as string));
     }
@@ -130,7 +134,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       agentClient,
       identityIssuer,
       model,
-      synthesisModel: config.clients.llm === "mock" ? model : new RealOpenAiCompatibleClient(config.llm.tierLUrl as string),
+      synthesisModel: config.clients.llm === "mock" ? model : new RealOpenAiCompatibleClient(config.llm.tierLUrl as string, undefined, config.llm.tierLModel ?? config.llm.model, config.llm.systemSuffix),
       oidc: config.clients.oidc === "mock" ? new MockOidcClient(config.oidc) : new RealOidcClient(config.oidc),
       sessionStore: config.clients.postgres === "mock" ? new MockSessionStore() : new PostgresSessionStore(config.postgres.connectionString as string),
     };
@@ -152,12 +156,18 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     catalog,
     model,
     authorization: new AuthorizationService(),
-    toolhive: config.clients.toolhive === "mock" ? new MockToolHiveClient(toolAuthority) : new RealToolHiveClient(config.toolhive.url as string),
+    toolhive: buildToolhive(config, env, toolAuthority),
     credentialExchanger,
     rag: config.clients.rag === "mock" ? new MockRagClient() : new RealRagClient(config.rag.url as string),
     identityVerifier,
     ...(config.clients.agent === "real" ? { workloadOidc: new RealOidcClient(config.internalOidc) } : {}),
   };
+}
+
+function buildToolhive(config: AppConfig, env: Record<string, string | undefined>, verifier?: import("@sre/auth").ToolCredentialVerifier): ToolHiveClient {
+  if (config.clients.toolhive === "mock") return new MockToolHiveClient(verifier);
+  if (config.clients.toolhive === "direct") return new DirectMcpClient(mcpEndpointsFromEnv(env));
+  return new RealToolHiveClient(config.toolhive.url as string);
 }
 
 export function createApp(deps: ApiDependencies): TestableApp {
@@ -189,7 +199,12 @@ export function createApp(deps: ApiDependencies): TestableApp {
 
 function attachInject(app: Express): TestableApp {
   const testable = app as TestableApp;
-  testable.inject = (options) => inject(app as unknown as DispatchFunc, typeof options === "string" ? { url: options } : options);
+  // light-my-request is a dev/test-only dependency; load it lazily so the
+  // production image (npm ci --omit=dev) never needs it.
+  testable.inject = async (options) => {
+    const { inject } = await import("light-my-request");
+    return inject(app as unknown as DispatchFunc, typeof options === "string" ? { url: options } : options);
+  };
   testable.close = async () => {};
   return testable;
 }

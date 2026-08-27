@@ -13,5 +13,5 @@ spec:
     servers: [wiki]
     # read-only tools only; wiki_ask is excluded because it can write when file_back=true
     allowedTools: [wiki_search, wiki_read_page, wiki_route]
-  execution: { maxToolCalls: 5, maxModelTurns: 3, timeoutMs: 20000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 24, maxRawExcerptBytes: 8192 }
+  execution: { maxToolCalls: 5, maxModelTurns: 3, timeoutMs: 45000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 24, maxRawExcerptBytes: 8192 }
   authorization: { requiredRoles: [infra-read] }

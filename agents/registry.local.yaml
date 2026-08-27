@@ -1,0 +1,62 @@
+apiVersion: sre.ai/v1alpha1
+kind: AgentServiceRegistry
+agents:
+  - agentId: active-directory
+    endpoint: http://sre-agent-active-directory:3000
+    owner: domain-services
+    description: Active Directory, LDAP, Kerberos, domain controllers, identity, and AD replication
+    enabled: true
+    environments: [prod, dr, lab]
+    requiredRoles: [infra-read]
+    allowedNeedsDomains: [network-observability]
+    routing:
+      exactTerms: ["active directory", "domain controller", "domain controllers", "kerberos", "ldap", "ad replication"]
+      entityPatterns: ["\\bDC-[A-Z0-9-]+\\b"]
+      ambiguousTerms: ["replication", "policy", "certificate", "cluster"]
+      capabilities: ["AD replication and domain-controller health", "Kerberos/LDAP authentication", "AD-integrated DNS"]
+      exclusions: ["network transport and routing", "OpenShift workloads"]
+  - agentId: openshift
+    endpoint: http://sre-agent-openshift:3000
+    owner: paas
+    description: OpenShift clusters, namespaces, pods, workloads, routes, and platform events
+    enabled: true
+    environments: [prod, dr, lab]
+    requiredRoles: [infra-read]
+    allowedNeedsDomains: [network-observability]
+    routing:
+      exactTerms: ["openshift", "crashloopbackoff", "ocp", "kubernetes pod"]
+      entityPatterns: ["\\bnamespace\\s+[a-z0-9-]+\\b", "\\bOCP-[A-Z0-9-]+\\b"]
+      ambiguousTerms: ["cluster", "node", "policy"]
+      capabilities: ["pod/namespace/route/workload health", "platform events", "OpenShift ingress"]
+      exclusions: ["identity/authentication", "physical network devices"]
+  - agentId: network-observability
+    endpoint: http://sre-agent-network-observability:3000
+    owner: network-observability
+    description: Network paths, interfaces, load balancers, Prometheus, Splunk, and observability
+    enabled: true
+    environments: [prod, dr, lab]
+    requiredRoles: [network-read]
+    allowedNeedsDomains: [openshift, active-directory]
+    routing:
+      exactTerms: ["promql", "prometheus", "packet loss", "bgp", "interface errors", "interface error", "splunk", "network latency"]
+      entityPatterns: []
+      ambiguousTerms: ["gateway", "policy", "latency"]
+      capabilities: ["connectivity/latency/packet-loss", "Prometheus/Splunk queries", "network-path evidence"]
+      exclusions: ["identity/authentication", "OpenShift workload internals"]
+  - agentId: wiki
+    endpoint: http://sre-agent-wiki:3000
+    owner: sre-platform
+    description: >-
+      Internal knowledge and documentation specialist. Searches enterprise wiki
+      documentation, architecture, procedures, runbooks and troubleshooting
+      guidance. Reports documented/expected state, never live infrastructure state.
+    enabled: true
+    environments: [prod, dr, lab]
+    requiredRoles: [infra-read]
+    allowedNeedsDomains: []
+    routing:
+      exactTerms: ["runbook", "documentation", "documented", "procedure", "wiki", "according to our docs", "architecture doc"]
+      entityPatterns: []
+      ambiguousTerms: ["policy", "guide"]
+      capabilities: ["internal documentation", "runbooks", "procedures", "architecture documentation", "troubleshooting guides", "operational knowledge"]
+      exclusions: ["current live infrastructure state", "live metrics", "direct Keycloak state", "Prometheus metrics"]

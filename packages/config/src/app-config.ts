@@ -23,11 +23,13 @@ export const appConfigSchema = z
       .object({
         oidc: clientMode.default("mock"),
         llm: clientMode.default("mock"),
-        toolhive: clientMode.default("mock"),
+        // "direct" reaches standalone MCP servers without ToolHive (local dev only)
+        toolhive: z.enum(["mock", "real", "direct"]).default("mock"),
         rag: clientMode.default("mock"),
         postgres: clientMode.default("mock"),
         // "inprocess" runs specialists in the manager process (single-process local PoC)
-        agent: z.enum(["mock", "real", "inprocess"]).default("mock"),
+        // "http-local" fans out over HTTP with mock local identity (distributed local PoC)
+        agent: z.enum(["mock", "real", "inprocess", "http-local"]).default("mock"),
         delegation: clientMode.default("mock"),
       })
       .strict(),
@@ -47,6 +49,11 @@ export const appConfigSchema = z
       .object({
         tierSUrl: z.string().optional(),
         tierLUrl: z.string().optional(),
+        // served model name override (e.g. "qwen3:8b" for Ollama); applies to both tiers unless tierLModel is set
+        model: z.string().optional(),
+        tierLModel: z.string().optional(),
+        // prepended system message (e.g. "/no_think" for fast local qwen3)
+        systemSuffix: z.string().optional(),
       })
       .strict(),
     toolhive: z.object({ url: z.string().optional() }).strict(),
@@ -114,7 +121,7 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
       audience: env.SRE_INTERNAL_OIDC_AUDIENCE,
       jwksUri: env.SRE_INTERNAL_OIDC_JWKS_URI,
     },
-    llm: { tierSUrl: env.SRE_LLM_TIER_S_URL, tierLUrl: env.SRE_LLM_TIER_L_URL },
+    llm: { tierSUrl: env.SRE_LLM_TIER_S_URL, tierLUrl: env.SRE_LLM_TIER_L_URL, model: env.SRE_LLM_MODEL, tierLModel: env.SRE_LLM_TIER_L_MODEL, systemSuffix: env.SRE_LLM_SYSTEM_SUFFIX },
     toolhive: { url: env.SRE_TOOLHIVE_URL },
     toolCredential: { issuer: env.SRE_TOOL_CREDENTIAL_ISSUER, audiencePrefix: env.SRE_TOOL_CREDENTIAL_AUDIENCE_PREFIX, tokenEndpoint: env.SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT },
     rag: { url: env.SRE_RAG_URL },
@@ -144,8 +151,9 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
     for (const [name, mode] of Object.entries(config.clients)) {
       if (mode === "mock") problems.push(`client "${name}" is mock in production`);
     }
-    // in-process specialist execution is a local-dev convenience only
-    if (config.clients.agent === "inprocess") problems.push('client "agent" is inprocess in production (use real distributed agents)');
+    // local-dev conveniences are forbidden in production
+    if (config.clients.agent === "inprocess" || config.clients.agent === "http-local") problems.push(`client "agent" is ${config.clients.agent} in production (use real distributed agents)`);
+    if (config.clients.toolhive === "direct") problems.push('client "toolhive" is direct in production (route through ToolHive)');
   }
   if (config.clients.oidc === "real" && !config.oidc.jwksUri) {
     problems.push("oidc client is real but SRE_OIDC_JWKS_URI is unset");

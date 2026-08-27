@@ -122,16 +122,23 @@ export class RealOpenAiCompatibleClient implements ModelClient {
   readonly mode = "real" as const;
   readonly #baseUrl: string;
   readonly #apiKey?: string;
+  readonly #modelOverride?: string;
+  readonly #systemSuffix?: string;
 
-  constructor(baseUrl: string, apiKey?: string) {
+  // modelOverride forces the served model name (e.g. "qwen3:8b" for Ollama).
+  // systemSuffix prepends a system message (e.g. "/no_think" to disable qwen3 CoT).
+  constructor(baseUrl: string, apiKey?: string, modelOverride?: string, systemSuffix?: string) {
     this.#baseUrl = baseUrl.replace(/\/$/u, "");
     this.#apiKey = apiKey;
+    this.#modelOverride = modelOverride;
+    this.#systemSuffix = systemSuffix;
   }
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
+    const suffixMessages = this.#systemSuffix ? [{ role: "system", content: this.#systemSuffix }] : [];
     const body = {
-      model: request.model,
-      messages: request.messages.map(({ role, content, toolCallId }) => ({ role, content, ...(toolCallId ? { tool_call_id: toolCallId } : {}) })),
+      model: this.#modelOverride ?? request.model,
+      messages: [...suffixMessages, ...request.messages.map(({ role, content, toolCallId }) => ({ role, content, ...(toolCallId ? { tool_call_id: toolCallId } : {}) }))],
       ...(request.tools ? { tools: request.tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })) } : {}),
       ...(request.guidedJsonSchema ? { response_format: { type: "json_schema", json_schema: { name: "structured_output", schema: request.guidedJsonSchema, strict: true } } } : {}),
       ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
