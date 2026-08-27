@@ -1,10 +1,68 @@
-replicaCount: 2
+# One release per logical agent. All resources are named sre-agent-<agent.name>,
+# which must match the endpoint recorded for it in agents/registry.yaml.
+agent:
+  # logical agent id (manager | active-directory | openshift | network-observability | ...)
+  name: manager
+  # manager | specialist — selects env wiring, workload identity and network policy shape
+  mode: manager
+  # agent YAML baked into the runtime image; AGENT_CONFIG points here
+  configFile: agents/manager.yaml
+  # optional inline agent YAML; when non-empty it is mounted as /config/agent.yaml
+  # (GitOps override without an image rebuild) and AGENT_CONFIG points there instead
+  configOverride: ""
+
 image:
-  repository: image-registry.openshift-image-registry.svc:5000/sre-assistant/sre-agent-api
-  tag: 0.1.0
+  # same image for every agent — independent deployment, not independent implementation
+  repository: registry.internal/sre-agent-runtime
+  tag: 0.2.0
   pullPolicy: IfNotPresent
+
+replicaCount: 2
+
 service:
   port: 3000
+
 resources:
   requests: { cpu: 250m, memory: 256Mi }
   limits: { cpu: "1", memory: 1Gi }
+
+# SRE_ENV inside the pod; production forbids every mock client (fail-closed)
+environment: production
+defaultEnvironment: prod
+
+# Secret carrying the per-mode integration endpoints and keys:
+# manager: SRE_OIDC_*, SRE_LLM_TIER_S_URL, SRE_LLM_TIER_L_URL, SRE_POSTGRES_URL,
+#          SRE_DELEGATION_ISSUER, SRE_DELEGATION_PRIVATE_KEY_PKCS8,
+#          SRE_TOOLHIVE_URL, SRE_RAG_URL (unused by the manager process but required
+#          by fail-closed production validation; NetworkPolicy denies the path)
+# specialist: SRE_TOOLHIVE_URL, SRE_RAG_URL, SRE_LLM_TIER_S_URL, SRE_LLM_TIER_L_URL,
+#          SRE_DELEGATION_ISSUER, SRE_DELEGATION_JWKS_URI, SRE_INTERNAL_OIDC_*,
+#          SRE_OIDC_*, SRE_POSTGRES_URL
+integrationsSecret: sre-agent-integrations
+
+telemetry:
+  otlpEndpoint: http://otel-collector.sre-observability.svc.cluster.local:4318
+
+# manager only: projected ServiceAccount token presented to specialist services
+workloadIdentity:
+  audience: sre-agent-runtime
+  expirationSeconds: 600
+  mountPath: /var/run/secrets/sre-workload
+
+hpa:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 75
+
+pdb:
+  enabled: false
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  # namespaces labelled <key>: "true" host shared platform services (vLLM, RAG,
+  # ToolHive, OTel collector, IdP, PostgreSQL)
+  platformNamespaceLabel: sre.ai/platform-service
+  # namespaces labelled <key>: "true" may call the manager (API gateway / route)
+  apiClientNamespaceLabel: sre.ai/api-client

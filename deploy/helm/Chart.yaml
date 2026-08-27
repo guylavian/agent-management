@@ -1,6 +1,10 @@
 apiVersion: v2
-name: sre-agent-api
-description: Air-gapped SRE Agent Platform PoC API
+name: sre-agent-runtime
+description: >-
+  Generic Agent Runtime chart. One chart deploys any logical agent (manager or
+  specialist) of the air-gapped SRE Agent Platform: one runtime image + one
+  agent YAML configuration = one independently scaled, isolated Deployment.
+  Install one release per agent (sre-agent-manager, sre-agent-active-directory, ...).
 type: application
-version: 0.1.0
-appVersion: 0.1.0
+version: 0.2.0
+appVersion: 0.2.0

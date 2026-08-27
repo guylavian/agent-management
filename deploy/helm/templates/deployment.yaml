@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sre-agent.fullname" . }}
+  labels: {{- include "sre-agent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "sre-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "sre-agent.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "sre-agent.fullname" . }}
+      containers:
+        - name: runtime
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - { name: http, containerPort: 3000 }
+          env:
+            - name: AGENT_CONFIG
+              value: {{ if .Values.agent.configOverride }}/config/agent.yaml{{ else }}{{ .Values.agent.configFile }}{{ end }}
+            - { name: SRE_ENV, value: {{ .Values.environment | quote }} }
+            - { name: SRE_DEFAULT_ENVIRONMENT, value: {{ .Values.defaultEnvironment | quote }} }
+            - { name: SRE_OTEL_EXPORTER, value: otlp }
+            - { name: SRE_OTEL_ENDPOINT, value: {{ .Values.telemetry.otlpEndpoint | quote }} }
+            - { name: SRE_OTEL_SERVICE_NAME, value: {{ include "sre-agent.fullname" . | quote }} }
+            # production is fail-closed: every client must be explicitly real.
+            # The manager process constructs only oidc/llm/agent/delegation/postgres;
+            # its ToolHive/RAG path additionally stays blocked by NetworkPolicy.
+            - { name: SRE_CLIENT_OIDC, value: real }
+            - { name: SRE_CLIENT_LLM, value: real }
+            - { name: SRE_CLIENT_TOOLHIVE, value: real }
+            - { name: SRE_CLIENT_RAG, value: real }
+            - { name: SRE_CLIENT_POSTGRES, value: real }
+            - { name: SRE_CLIENT_AGENT, value: real }
+            - { name: SRE_CLIENT_DELEGATION, value: real }
+            {{- if eq .Values.agent.mode "manager" }}
+            - { name: SRE_AGENT_REGISTRY, value: agents/registry.yaml }
+            - { name: SRE_WORKLOAD_TOKEN_FILE, value: {{ printf "%s/token" .Values.workloadIdentity.mountPath | quote }} }
+            {{- end }}
+          envFrom:
+            - secretRef: { name: {{ .Values.integrationsSecret | quote }} }
+          livenessProbe: { httpGet: { path: /health/live, port: http } }
+          readinessProbe: { httpGet: { path: /health/ready, port: http } }
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            seccompProfile: { type: RuntimeDefault }
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            {{- if eq .Values.agent.mode "manager" }}
+            - { name: workload-identity, mountPath: {{ .Values.workloadIdentity.mountPath | quote }}, readOnly: true }
+            {{- end }}
+            {{- if .Values.agent.configOverride }}
+            - { name: agent-config, mountPath: /config, readOnly: true }
+            {{- end }}
+      volumes:
+        {{- if eq .Values.agent.mode "manager" }}
+        - name: workload-identity
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: {{ .Values.workloadIdentity.audience | quote }}
+                  expirationSeconds: {{ .Values.workloadIdentity.expirationSeconds }}
+        {{- end }}
+        {{- if .Values.agent.configOverride }}
+        - name: agent-config
+          configMap: { name: {{ include "sre-agent.fullname" . }}-config }
+        {{- end }}

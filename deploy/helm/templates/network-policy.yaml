@@ -1,19 +1,64 @@
+{{- if .Values.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ .Release.Name }}-default-deny
+  name: {{ include "sre-agent.fullname" . }}
+  labels: {{- include "sre-agent.labels" . | nindent 4 }}
 spec:
-  podSelector: { matchLabels: { app: {{ .Release.Name }} } }
+  podSelector:
+    matchLabels: {{- include "sre-agent.selectorLabels" . | nindent 6 }}
   policyTypes: [Ingress, Egress]
   ingress:
+    {{- if eq .Values.agent.mode "manager" }}
+    # only the API gateway namespace(s) may reach the manager
     - from:
-        - namespaceSelector: { matchLabels: { sre.ai/api-client: "true" } }
+        - namespaceSelector:
+            matchLabels: { {{ .Values.networkPolicy.apiClientNamespaceLabel }}: "true" }
       ports:
         - { protocol: TCP, port: 3000 }
+    {{- else }}
+    # only manager pods in this namespace may reach a specialist —
+    # the internal Agent API is not exposed to anything else
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sre-agent-runtime
+              sre.ai/mode: manager
+      ports:
+        - { protocol: TCP, port: 3000 }
+    {{- end }}
   egress:
+    # cluster DNS
+    - ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    {{- if eq .Values.agent.mode "manager" }}
+    # manager → specialist services in this namespace
     - to:
-        - namespaceSelector: { matchLabels: { sre.ai/platform-service: "true" } }
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sre-agent-runtime
+              sre.ai/mode: specialist
+      ports:
+        - { protocol: TCP, port: 3000 }
+    # manager → IdP / vLLM / OTel / PostgreSQL. Deliberately NOT ToolHive/RAG:
+    # the manager never accumulates the specialists' data-plane access.
+    - to:
+        - namespaceSelector:
+            matchLabels: { {{ .Values.networkPolicy.platformNamespaceLabel }}: "true" }
       ports:
         - { protocol: TCP, port: 443 }
         - { protocol: TCP, port: 4318 }
         - { protocol: TCP, port: 5432 }
+        - { protocol: TCP, port: 8000 }
+    {{- else }}
+    # specialist → ToolHive / RAG / vLLM / OTel; never to other agent pods
+    - to:
+        - namespaceSelector:
+            matchLabels: { {{ .Values.networkPolicy.platformNamespaceLabel }}: "true" }
+      ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 4318 }
+        - { protocol: TCP, port: 8000 }
+    {{- end }}
+{{- end }}

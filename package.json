@@ -17,7 +17,7 @@
     "lint": "oxlint apps packages scripts eval",
     "test": "vitest run",
     "validate:yaml": "vitest run packages/config/tests/yaml-validation.test.ts",
-    "validate:deploy": "helm lint deploy/helm",
+    "validate:deploy": "helm lint deploy/helm && helm template sre-agent-manager deploy/helm -f deploy/helm/values/manager.yaml > /dev/null && helm template sre-agent-active-directory deploy/helm -f deploy/helm/values/active-directory.yaml > /dev/null && helm template sre-agent-openshift deploy/helm -f deploy/helm/values/openshift.yaml > /dev/null && helm template sre-agent-network-observability deploy/helm -f deploy/helm/values/network-observability.yaml > /dev/null",
     "gen:schema": "node --import tsx scripts/gen-schema.ts",
     "gen:supply-chain": "node --import tsx scripts/gen-supply-chain.ts",
     "gen:eval-cases": "node --import tsx scripts/gen-eval-cases.ts",
