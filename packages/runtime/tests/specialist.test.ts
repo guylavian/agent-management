@@ -76,6 +76,21 @@ describe("T2 AD specialist", () => {
     expect(failedGateway.attempts).toBe(2);
   });
 
+  it("never calls the backend when model arguments fail schema validation", async () => {
+    const toolhive = new MockToolHiveClient();
+    class BadArgsModel implements ModelClient {
+      readonly mode = "mock" as const;
+      async chat(request: ChatRequest): Promise<ChatResponse> {
+        if (request.guidedJsonSchema) return { content: JSON.stringify({ summary: "Bounded." }), usage: { promptTokens: 1, completionTokens: 1 } };
+        // unknown property + missing required "dc" for get_dc_health
+        return { toolCalls: [{ id: "1", name: "get_dc_health", arguments: { wrongKey: true } }], usage: { promptTokens: 1, completionTokens: 1 } };
+      }
+    }
+    const result = await runSpecialist("active-directory", context("AD health"), deps(new BadArgsModel(), toolhive));
+    expect(toolhive.backendCalls).toHaveLength(0);
+    expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "MCP_INVALID_CALL" })]));
+  });
+
   it("bounds follow-up RAG to one", async () => {
     class CountingRag implements RagClient {
       readonly mode = "mock" as const;

@@ -4,7 +4,7 @@ import { assertLoadProfileSafe } from "../load/run-load.ts";
 
 describe("load safety", () => {
   it("refuses the storm profile against real ToolHive", () => {
-    const config = loadAppConfig({ SRE_CLIENT_TOOLHIVE: "real", SRE_TOOLHIVE_URL: "https://toolhive.internal" });
+    const config = loadAppConfig({ SRE_CLIENT_TOOLHIVE: "real", SRE_TOOLHIVE_URL: "https://toolhive.internal", SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT: "https://sts.internal/token" });
     expect(() => assertLoadProfileSafe(config, "storm", true)).toThrow(/50-user storm.*mock ToolHive/iu);
   });
 
@@ -22,7 +22,7 @@ describe("load safety", () => {
   });
 
   it("requires explicit approval for any real-backend load", () => {
-    const config = loadAppConfig({ SRE_CLIENT_TOOLHIVE: "real", SRE_TOOLHIVE_URL: "https://toolhive.internal" });
+    const config = loadAppConfig({ SRE_CLIENT_TOOLHIVE: "real", SRE_TOOLHIVE_URL: "https://toolhive.internal", SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT: "https://sts.internal/token" });
     expect(() => assertLoadProfileSafe(config, "normal", false)).toThrow(/owner approval/iu);
   });
 });

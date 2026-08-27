@@ -1,22 +1,27 @@
-import type { RequestIdentity } from "@sre/auth";
-import type { OidcClient } from "@sre/auth";
-import type { FastifyReply, FastifyRequest } from "fastify";
+import type { NextFunction, Request, Response } from "express";
+import type { OidcClient, RequestIdentity } from "@sre/auth";
 
-declare module "fastify" {
-  interface FastifyRequest { identity?: RequestIdentity }
+declare global {
+  namespace Express {
+    interface Request {
+      requestId: string;
+      identity?: RequestIdentity;
+    }
+  }
 }
 
 export function oidcAuthenticationMiddleware(oidc: OidcClient) {
-  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+  return async (request: Request, response: Response, next: NextFunction): Promise<void> => {
     const authorization = request.headers.authorization;
     if (!authorization?.startsWith("Bearer ")) {
-      await reply.code(401).send({ requestId: request.id, code: "AUTHN_FAILED", message: "Authentication required" });
+      response.status(401).json({ requestId: request.requestId, code: "AUTHN_FAILED", message: "Authentication required" });
       return;
     }
     try {
-      request.identity = await oidc.verify(authorization.slice(7), request.id);
+      request.identity = await oidc.verify(authorization.slice(7), request.requestId);
+      next();
     } catch {
-      await reply.code(401).send({ requestId: request.id, code: "AUTHN_FAILED", message: "Authentication failed" });
+      response.status(401).json({ requestId: request.requestId, code: "AUTHN_FAILED", message: "Authentication failed" });
     }
   };
 }

@@ -17,19 +17,24 @@ export async function runLoad(profile: LoadProfile, env: Record<string, string |
   if (deps.mode !== "manager") throw new Error("load harness requires manager mode");
   assertLoadProfileSafe(deps.config, profile, env.SRE_LOAD_REAL_APPROVED === "true");
   const profileSettings = { normal: { connections: 5, duration: 10 }, burst: { connections: 20, duration: 15 }, storm: { connections: 50, duration: 20 } }[profile];
-  let target = env.SRE_LOAD_URL;
+  const target = env.SRE_LOAD_URL;
   let close: (() => Promise<void>) | undefined;
   let token = env.SRE_LOAD_TOKEN;
+  let url = target;
   if (target === undefined) {
     const app = createApp(deps);
-    const address = await app.listen({ host: "127.0.0.1", port: 0 });
-    target = address;
-    close = () => app.close();
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => server.once("listening", () => resolve()));
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("could not bind a loopback listener");
+    url = `http://127.0.0.1:${address.port}`;
+    close = () => new Promise<void>((resolve) => server.close(() => resolve()));
     if (deps.oidc instanceof MockOidcClient) token = await deps.oidc.issueTestToken("alice");
   }
+  if (url === undefined) throw new Error("SRE_LOAD_URL could not be resolved");
   if (token === undefined) throw new Error("SRE_LOAD_TOKEN is required for an external target");
   try {
-    const result = await autocannon({ url: `${target.replace(/\/$/u, "")}/v1/query`, connections: profileSettings.connections, duration: Number(env.SRE_LOAD_DURATION_SECONDS ?? profileSettings.duration), method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ question: "Is AD replication healthy?", environment: "prod" }) });
+    const result = await autocannon({ url: `${url.replace(/\/$/u, "")}/v1/query`, connections: profileSettings.connections, duration: Number(env.SRE_LOAD_DURATION_SECONDS ?? profileSettings.duration), method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ question: "Is AD replication healthy?", environment: "prod" }) });
     return { profile, clientMode: deps.config.clients.toolhive, connections: profileSettings.connections, requests: result.requests, latency: result.latency, errors: result.errors, timeouts: result.timeouts };
   } finally { await close?.(); }
 }

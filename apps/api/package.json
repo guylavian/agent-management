@@ -16,7 +16,7 @@
     "@sre/runtime": "*",
     "@sre/session": "*",
     "@sre/telemetry": "*",
-    "fastify": "5.12.1",
+    "express": "5.2.1",
     "zod": "4.4.3"
   }
 }

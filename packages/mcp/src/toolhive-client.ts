@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { RequestIdentity } from "@sre/auth";
+import type { RequestIdentity, ToolCredential, ToolCredentialVerifier } from "@sre/auth";
 
 export interface McpTool {
   serverId: string;
@@ -16,8 +16,15 @@ export interface ToolInvocation {
   environment: string;
   requestId: string;
   identity: RequestIdentity;
+  /** verified delegated credential ToolHive checks itself; replaces any x-effective-subject header */
+  credential?: ToolCredential;
   timeoutMs: number;
   signal?: AbortSignal;
+}
+
+/** ToolHive audience for a given MCP server; the credential is scoped to exactly this value. */
+export function toolHiveAudience(serverId: string): string {
+  return `sre-toolhive:${serverId}`;
 }
 
 export interface ToolResult {
@@ -68,14 +75,38 @@ export class MockToolHiveClient implements ToolHiveClient {
   readonly mode = "mock" as const;
   readonly audit: AuditEvent[] = [];
   readonly backendCalls: ToolInvocation[] = [];
+  readonly #verifier?: ToolCredentialVerifier;
+
+  /**
+   * When a verifier is supplied the gateway derives the effective principal
+   * from the presented credential (Gate #1), never from a caller-supplied
+   * header. Without one it authorizes from the invocation identity — used only
+   * by narrow unit tests that do not exercise the credential path.
+   */
+  constructor(verifier?: ToolCredentialVerifier) {
+    this.#verifier = verifier;
+  }
 
   async listTools(serverId: string, identity: RequestIdentity, _environment: string): Promise<McpTool[]> {
     return MOCK_TOOLS.filter((tool) => tool.serverId === serverId && canUse(identity, tool.name));
   }
 
   async invoke(call: ToolInvocation): Promise<ToolResult> {
-    const allowed = canUse(call.identity, call.toolName) && MOCK_TOOLS.some((tool) => tool.serverId === call.serverId && tool.name === call.toolName) && call.arguments.mode !== "denied";
-    this.audit.push({ requestId: call.requestId, subject: call.identity.subject, serverId: call.serverId, toolName: call.toolName, decision: allowed ? "allowed" : "denied", backendCalled: allowed });
+    // effective principal comes from the verified credential when a verifier is configured
+    let principalSubject = call.identity.subject;
+    let principalRoles = call.identity.roles;
+    if (this.#verifier !== undefined) {
+      try {
+        const verified = await this.#verifier.verify(requireCredential(call), toolHiveAudience(call.serverId), call.requestId);
+        principalSubject = verified.subject;
+        principalRoles = verified.roles;
+      } catch {
+        this.audit.push({ requestId: call.requestId, subject: call.credential?.subjectHash ?? "unverified", serverId: call.serverId, toolName: call.toolName, decision: "denied", backendCalled: false });
+        throw Object.assign(new Error("tool access denied"), { code: "TOOL_DENIED" });
+      }
+    }
+    const allowed = canUse({ ...call.identity, subject: principalSubject, roles: principalRoles }, call.toolName) && MOCK_TOOLS.some((tool) => tool.serverId === call.serverId && tool.name === call.toolName) && call.arguments.mode !== "denied";
+    this.audit.push({ requestId: call.requestId, subject: principalSubject, serverId: call.serverId, toolName: call.toolName, decision: allowed ? "allowed" : "denied", backendCalled: allowed });
     if (!allowed) throw Object.assign(new Error("tool access denied"), { code: "TOOL_DENIED" });
     this.backendCalls.push(call);
     if (call.arguments.mode === "timeout") await new Promise<never>((_resolve, reject) => {
@@ -92,27 +123,35 @@ export class RealToolHiveClient implements ToolHiveClient {
   readonly mode = "real" as const;
   readonly baseUrl: string;
   constructor(baseUrl: string) { this.baseUrl = baseUrl; }
-  async listTools(serverId: string, identity: RequestIdentity, environment: string): Promise<McpTool[]> {
-    const client = await this.#connect(serverId, identity, environment, identity.requestId);
-    try {
-      const result = await client.listTools();
-      return result.tools.map((tool) => ({ serverId, name: tool.name, description: tool.description ?? "", inputSchema: tool.inputSchema as Record<string, unknown> }));
-    } finally { await client.close(); }
-  }
   async invoke(call: ToolInvocation): Promise<ToolResult> {
-    const client = await this.#connect(call.serverId, call.identity, call.environment, call.requestId);
+    const client = await this.#connect(call.serverId, requireCredential(call), call.environment, call.requestId, call.signal);
     try {
-      const result = await client.callTool({ name: call.toolName, arguments: call.arguments });
+      // the MCP SDK forwards this AbortSignal to the underlying HTTP request, so a
+      // client disconnect or deadline cancels the in-flight backend call
+      const result = await client.callTool({ name: call.toolName, arguments: call.arguments }, undefined, call.signal ? { signal: call.signal, timeout: call.timeoutMs } : { timeout: call.timeoutMs });
       return { content: result.content, isError: result.isError === true, observedAt: new Date().toISOString() };
     } finally { await client.close(); }
   }
-  async #connect(serverId: string, identity: RequestIdentity, environment: string, requestId: string): Promise<Client> {
+  async #connect(serverId: string, credential: ToolCredential, environment: string, requestId: string, signal?: AbortSignal): Promise<Client> {
     const client = new Client({ name: "sre-agent-runtime", version: "0.1.0" });
     const url = new URL(`/mcp/${encodeURIComponent(serverId)}`, this.baseUrl);
-    const transport = new StreamableHTTPClientTransport(url, { requestInit: { headers: { "x-request-id": requestId, "x-effective-subject": identity.subject, "x-sre-environment": environment } } });
+    // ToolHive verifies this bearer credential itself and derives the effective human;
+    // no unsigned identity header is sent.
+    const transport = new StreamableHTTPClientTransport(url, { requestInit: { headers: { "x-request-id": requestId, authorization: `Bearer ${credential.token}`, "x-sre-environment": environment }, ...(signal ? { signal } : {}) } });
     await client.connect(transport);
     return client;
   }
+  async listTools(serverId: string, identity: RequestIdentity, environment: string): Promise<McpTool[]> {
+    void identity;
+    void environment;
+    void serverId;
+    throw Object.assign(new Error("INTEGRATION BLOCKER: real ToolHive tool discovery requires a verified credential; resolve visibility from the approved catalog"), { code: "MCP_UNAVAILABLE" });
+  }
+}
+
+function requireCredential(call: ToolInvocation): ToolCredential {
+  if (call.credential === undefined) throw Object.assign(new Error("tool credential missing"), { code: "TOOL_DENIED" });
+  return call.credential;
 }
 
 function canUse(identity: RequestIdentity, toolName: string): boolean {

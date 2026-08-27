@@ -1,8 +1,8 @@
-import { AuthorizationService, subjectHash } from "@sre/auth";
+import { AuthorizationService, subjectHash, type ToolCredential, type ToolCredentialExchanger } from "@sre/auth";
 import type { AgentRegistry, ApprovedCatalog, SpecialistAgentConfig } from "@sre/config";
 import { enforceEvidenceSetBudget, redactText, specialistResultSchema, type DomainHandoff, type Evidence, type RuntimeError, type SpecialistResult } from "@sre/evidence";
 import type { ModelClient, ChatMessage } from "@sre/llm";
-import { invokeVisibleToolForSpecialist, toolFailureEvidence, toolResultToEvidence, visibleToolsForSpecialist, type ToolHiveClient, type ToolInvocation } from "@sre/mcp";
+import { invokeVisibleToolForSpecialist, toolHiveAudience, toolFailureEvidence, toolResultToEvidence, validateToolArguments, visibleToolsForSpecialist, type ToolHiveClient, type ToolInvocation } from "@sre/mcp";
 import { ragEmptyEvidence, ragFailureEvidence, retrievalHitToEvidence, type RagClient } from "@sre/rag";
 import { z } from "zod";
 import { incrementMetric, withSpan } from "@sre/telemetry";
@@ -32,6 +32,7 @@ export interface SpecialistDependencies {
   model: ModelClient;
   toolhive: ToolHiveClient;
   rag: RagClient;
+  credentialExchanger?: ToolCredentialExchanger;
 }
 
 export async function runSpecialist(agentId: string, ctx: ExecutionContext, deps: SpecialistDependencies, handoff?: DomainHandoff): Promise<SpecialistResult> {
@@ -75,6 +76,7 @@ async function runSpecialistInternal(agent: SpecialistAgentConfig, catalog: Appr
     const selection = await withSpan(`llm.specialist.${agentId}`, { "request.id": ctx.requestId, "agent.id": agentId, "model.tier": "small" }, () => withDeadline(deadline, (signal) => deps.model.chat({ model: agent.spec.model.profile, messages, tools: available.map(({ schema }) => ({ name: schema.name, description: schema.description, inputSchema: schema.inputSchema })), signal }), ctx.signal));
     modelTurns += 1;
     const calls = selection.toolCalls ?? [];
+    const credentials = new Map<string, ToolCredential>();
     for (const call of calls) {
       if (toolAttempts >= agent.spec.execution.maxToolCalls) break;
       const selected = available.find(({ schema }) => schema.name === call.name);
@@ -82,7 +84,22 @@ async function runSpecialistInternal(agent: SpecialistAgentConfig, catalog: Appr
         errors.push({ code: "MCP_INVALID_CALL", message: "Model selected a non-visible tool", retryable: false });
         continue;
       }
-      const invocation: ToolInvocation = { serverId: selected.approved.serverId, toolName: call.name, arguments: call.arguments, environment: ctx.environment, requestId: ctx.requestId, identity: ctx.identity, timeoutMs: Math.min(selected.approved.timeoutMs, Math.max(1, deadline - Date.now())) };
+      // pre-flight: validate model-generated arguments against the tool inputSchema BEFORE ToolHive (TDD §13)
+      const argCheck = validateToolArguments(selected.schema, call.arguments);
+      if (!argCheck.valid) {
+        toolAttempts += 1;
+        incrementMetric("sre_invalid_tool_arguments_total");
+        evidence.push(toolArgumentEvidence(selected.approved.serverId, call.name, ctx, agentId));
+        // the schema-failure evidence is re-observed on the next bounded model turn, giving one correction chance
+        errors.push({ code: "MCP_INVALID_CALL", message: `Tool arguments failed schema validation (${argCheck.reason})`, retryable: false });
+        continue;
+      }
+      let credential = credentials.get(selected.approved.serverId);
+      if (credential === undefined && deps.credentialExchanger !== undefined) {
+        credential = await deps.credentialExchanger.exchange(ctx.identity, toolHiveAudience(selected.approved.serverId), deadline);
+        credentials.set(selected.approved.serverId, credential);
+      }
+      const invocation: ToolInvocation = { serverId: selected.approved.serverId, toolName: call.name, arguments: call.arguments, environment: ctx.environment, requestId: ctx.requestId, identity: ctx.identity, ...(credential ? { credential } : {}), timeoutMs: Math.min(selected.approved.timeoutMs, Math.max(1, deadline - Date.now())) };
       const maxAttempts = selected.approved.retryPolicy === "transient-once" ? 2 : 1;
       let succeeded = false;
       let lastError: unknown;
@@ -169,6 +186,10 @@ function safeToolError(code: string): string {
 
 function isTransient(code: string): boolean {
   return ["MCP_TIMEOUT", "MCP_UNAVAILABLE", "REQUEST_TIMEOUT", "ECONNRESET"].includes(code);
+}
+
+function toolArgumentEvidence(serverId: string, toolName: string, ctx: ExecutionContext, agentId: string): Evidence {
+  return { id: `mcp:${ctx.requestId}:${toolName}:invalid-args`, kind: "missing", source: `${serverId}/${toolName}`, system: serverId, environment: ctx.environment, tool: toolName, citation: `mcp://${serverId}/${toolName}?request=${ctx.requestId}`, status: "failed", requestId: ctx.requestId, agentId };
 }
 
 function failed(agentId: string, code: RuntimeError["code"], message: string): SpecialistResult {

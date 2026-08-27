@@ -85,11 +85,25 @@ export class MockModelClient implements ModelClient {
       ) ?? request.tools[0];
       if (preferred !== undefined) {
         const mode = question.includes("timeout") ? "timeout" : question.includes("failure") ? "failure" : question.includes("empty") ? "empty" : "ok";
-        return { toolCalls: [{ id: "mock-call-1", name: preferred.name, arguments: { sourceDc: "DC-TLV-01", targetDc: "DC-HFA-02", namespace: "payments", query: "latency", mode } }], usage: { promptTokens: 48, completionTokens: 16 } };
+        // emit only properties the selected tool declares, so schema validation (which is now enforced) passes
+        return { toolCalls: [{ id: "mock-call-1", name: preferred.name, arguments: argumentsForSchema(preferred.inputSchema, mode) }], usage: { promptTokens: 48, completionTokens: 16 } };
       }
     }
     return { content: "Mock model response grounded in the supplied evidence.", usage: { promptTokens: 32, completionTokens: 12 } };
   }
+}
+
+/** Build valid arguments for exactly the properties a tool declares. */
+function argumentsForSchema(inputSchema: Record<string, unknown>, mode: string): Record<string, unknown> {
+  const properties = (inputSchema.properties as Record<string, { type?: string; enum?: unknown[] }> | undefined) ?? {};
+  const sample: Record<string, string> = { sourceDc: "DC-TLV-01", targetDc: "DC-HFA-02", dc: "DC-TLV-01", namespace: "payments", pod: "payments-api-0", query: "latency", device: "core-sw-1", target: "10.0.0.1", pool: "web-pool", site: "TLV", interface: "eth0", route: "payments", deployment: "payments-api" };
+  const args: Record<string, unknown> = {};
+  for (const [name, spec] of Object.entries(properties)) {
+    if (name === "mode") { args.mode = spec.enum === undefined || spec.enum.includes(mode) ? mode : spec.enum[0]; continue; }
+    if (sample[name] !== undefined) args[name] = sample[name];
+  }
+  if ("mode" in properties && args.mode === undefined) args.mode = mode;
+  return args;
 }
 
 export class RealOpenAiCompatibleClient implements ModelClient {

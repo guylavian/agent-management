@@ -49,6 +49,11 @@ export const appConfigSchema = z
       })
       .strict(),
     toolhive: z.object({ url: z.string().optional() }).strict(),
+    toolCredential: z.object({
+      issuer: z.string().min(1).default("https://mock-toolhive-sts.sre.local"),
+      audiencePrefix: z.string().min(1).default("sre-toolhive"),
+      tokenEndpoint: z.string().optional(),
+    }).strict(),
     rag: z.object({ url: z.string().optional() }).strict(),
     postgres: z.object({ connectionString: z.string().optional() }).strict(),
     agentTransport: z.object({ workloadTokenFile: z.string().optional() }).strict(),
@@ -110,6 +115,7 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
     },
     llm: { tierSUrl: env.SRE_LLM_TIER_S_URL, tierLUrl: env.SRE_LLM_TIER_L_URL },
     toolhive: { url: env.SRE_TOOLHIVE_URL },
+    toolCredential: { issuer: env.SRE_TOOL_CREDENTIAL_ISSUER, audiencePrefix: env.SRE_TOOL_CREDENTIAL_AUDIENCE_PREFIX, tokenEndpoint: env.SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT },
     rag: { url: env.SRE_RAG_URL },
     postgres: { connectionString: env.SRE_POSTGRES_URL },
     agentTransport: { workloadTokenFile: env.SRE_WORKLOAD_TOKEN_FILE },
@@ -149,6 +155,9 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
   }
   if (config.clients.toolhive === "real" && !config.toolhive.url) {
     problems.push("toolhive client is real but SRE_TOOLHIVE_URL is unset");
+  }
+  if (config.clients.toolhive === "real" && !config.toolCredential.tokenEndpoint) {
+    problems.push("toolhive client is real but SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT (RFC 8693 token exchange) is unset — see INTEGRATION BLOCKER");
   }
   if (config.clients.rag === "real" && !config.rag.url) {
     problems.push("rag client is real but SRE_RAG_URL is unset");

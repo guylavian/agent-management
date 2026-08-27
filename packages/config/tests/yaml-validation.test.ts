@@ -30,9 +30,9 @@ describe("startup configuration", () => {
     const corpus = parseYaml(readFileSync("eval/questions/cases.yaml", "utf8")) as { cases?: unknown[] };
     expect(corpus.cases).toHaveLength(60);
     for (const agent of ["manager", "active-directory", "openshift", "network-observability"]) {
-      const values = parseAllDocuments(readFileSync(`deploy/helm/values/${agent}.yaml`, "utf8"));
-      expect(values.every((document) => document.errors.length === 0)).toBe(true);
-      expect((values[0]?.toJS() as { agent: { name: string } }).agent.name).toBe(agent);
+      const parsed = parseYaml(readFileSync(`deploy/helm/values/${agent}.yaml`, "utf8")) as { agent: { name: string } };
+      expect(parseAllDocuments(readFileSync(`deploy/helm/values/${agent}.yaml`, "utf8")).every((document) => document.errors.length === 0)).toBe(true);
+      expect(parsed.agent.name).toBe(agent);
     }
     expect(parseYaml(readFileSync("deploy/helm/Chart.yaml", "utf8"))).toMatchObject({ apiVersion: "v2", name: "sre-agent-runtime", version: "0.2.0" });
     expect(parseYaml(readFileSync("deploy/helm/values.yaml", "utf8"))).toMatchObject({ image: { tag: "0.2.0" }, agent: { mode: "manager" } });
