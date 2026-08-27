@@ -43,20 +43,3 @@ agents:
       ambiguousTerms: ["gateway", "policy", "latency"]
       capabilities: ["connectivity/latency/packet-loss", "Prometheus/Splunk queries", "network-path evidence"]
       exclusions: ["identity/authentication", "OpenShift workload internals"]
-  - agentId: wiki
-    endpoint: http://sre-agent-wiki:3000
-    owner: sre-platform
-    description: >-
-      Internal knowledge and documentation specialist. Searches enterprise wiki
-      documentation, architecture, procedures, runbooks and troubleshooting
-      guidance. Reports documented/expected state, never live infrastructure state.
-    enabled: true
-    environments: [prod, dr, lab]
-    requiredRoles: [infra-read]
-    allowedNeedsDomains: []
-    routing:
-      exactTerms: ["runbook", "documentation", "documented", "procedure", "wiki", "according to our docs", "architecture doc"]
-      entityPatterns: []
-      ambiguousTerms: ["policy", "guide"]
-      capabilities: ["internal documentation", "runbooks", "procedures", "architecture documentation", "troubleshooting guides", "operational knowledge"]
-      exclusions: ["current live infrastructure state", "live metrics", "direct Keycloak state", "Prometheus metrics"]

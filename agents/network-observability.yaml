@@ -9,8 +9,8 @@ spec:
   prompt: { systemFile: prompts/network-observability.md }
   rag: { enabled: true, collections: [network-wiki], baselineRetrieval: true, maxFollowupRetrievals: 1, topK: 8 }
   mcp:
-    servers: [network, prometheus, splunk]
-    allowedTools: [query_prometheus, get_interface_status, get_path_health, get_bgp_status, search_network_logs, get_load_balancer_pool]
+    servers: [network, prometheus, splunk, wiki]
+    allowedTools: [query_prometheus, get_interface_status, get_path_health, get_bgp_status, search_network_logs, get_load_balancer_pool, wiki_search, wiki_read_page]
   execution: { maxToolCalls: 6, maxModelTurns: 3, timeoutMs: 25000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
   discovery: { allowedNeedsDomains: [openshift, active-directory] }
   authorization: { requiredRoles: [network-read] }

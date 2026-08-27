@@ -166,7 +166,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
 
 function buildToolhive(config: AppConfig, env: Record<string, string | undefined>, verifier?: import("@sre/auth").ToolCredentialVerifier): ToolHiveClient {
   if (config.clients.toolhive === "mock") return new MockToolHiveClient(verifier);
-  if (config.clients.toolhive === "direct") return new DirectMcpClient(mcpEndpointsFromEnv(env));
+  if (config.clients.toolhive === "direct") return new DirectMcpClient(mcpEndpointsFromEnv(env), new MockToolHiveClient(verifier));
   return new RealToolHiveClient(config.toolhive.url as string);
 }
 

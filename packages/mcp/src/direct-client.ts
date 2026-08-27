@@ -14,9 +14,13 @@ import type { McpTool, ToolHiveClient, ToolInvocation, ToolResult } from "./tool
 export class DirectMcpClient implements ToolHiveClient {
   readonly mode = "real" as const;
   readonly #endpoints: ReadonlyMap<string, string>;
+  readonly #fallback?: ToolHiveClient;
 
-  constructor(endpoints: Record<string, string>) {
+  // fallback handles servers with no configured direct endpoint (local dev: real
+  // wiki via direct endpoint, mock domain backends via the fallback).
+  constructor(endpoints: Record<string, string>, fallback?: ToolHiveClient) {
     this.#endpoints = new Map(Object.entries(endpoints));
+    this.#fallback = fallback;
   }
 
   #endpointFor(serverId: string): string {
@@ -25,7 +29,8 @@ export class DirectMcpClient implements ToolHiveClient {
     return endpoint;
   }
 
-  async listTools(serverId: string, identity: RequestIdentity, _environment: string): Promise<McpTool[]> {
+  async listTools(serverId: string, identity: RequestIdentity, environment: string): Promise<McpTool[]> {
+    if (!this.#endpoints.has(serverId) && this.#fallback !== undefined) return this.#fallback.listTools(serverId, identity, environment);
     const client = await this.#connect(serverId, identity.requestId);
     try {
       const result = await client.listTools();
@@ -36,6 +41,7 @@ export class DirectMcpClient implements ToolHiveClient {
   }
 
   async invoke(call: ToolInvocation): Promise<ToolResult> {
+    if (!this.#endpoints.has(call.serverId) && this.#fallback !== undefined) return this.#fallback.invoke(call);
     const client = await this.#connect(call.serverId, call.requestId, call.signal);
     try {
       const result = await client.callTool(

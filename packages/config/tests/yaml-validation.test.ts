@@ -7,7 +7,9 @@ describe("startup configuration", () => {
   it("loads all specialist YAML agents and approved tools", () => {
     const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
     expect(registry.manager.name).toBe("manager");
-    expect(registry.listSpecialists().map((agent) => agent.name).sort()).toEqual(["active-directory", "network-observability", "openshift", "wiki"]);
+    expect(registry.listSpecialists().map((agent) => agent.name).sort()).toEqual(["active-directory", "network-observability", "openshift"]);
+    // wiki is a shared MCP tool on the specialists, not a standalone agent
+    expect(registry.getSpecialist("active-directory")?.spec.mcp.allowedTools).toContain("wiki_search");
     expect(registry.getSpecialist("active-directory")?.spec.execution.maxEvidenceBytes).toBe(262_144);
     expect(registry.catalog.tools).toHaveLength(21);
     expect(registry.catalog.tools.filter((tool) => tool.serverId === "wiki").every((tool) => tool.evidenceKind === "wiki")).toBe(true);

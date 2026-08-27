@@ -60,21 +60,35 @@ export class MockModelClient implements ModelClient {
       if (request.guidedJsonSchema.title === "ClaimGrades") {
         return { content: JSON.stringify({ claims: [{ claim: "The answer is grounded in the supplied evidence.", supported: true, supportingEvidenceIds: [], reasonCode: "mock-judge-supported" }] }), usage: { promptTokens: 64, completionTokens: 20 } };
       }
-      if (request.guidedJsonSchema.title === "SpecialistControl") {
-        return {
-          content: JSON.stringify({
-            summary: question.includes("failure") || question.includes("timeout") ? "Live evidence could not be fully collected." : "The available evidence reports the requested system state.",
-            ...(question.includes("app-prd") ? { followupRagQuery: "APP-PRD-114 runbook" } : {}),
-            ...(question.includes("network dependency") ? { needsDomain: ["network-observability"] } : {}),
-          }),
-          usage: { promptTokens: 64, completionTokens: 24 },
-        };
+      if (request.guidedJsonSchema.title === "SpecialistAction") {
+        const tools = (extractJsonBlock(request.messages, "AVAILABLE_TOOLS") as Array<{ name: string; inputSchema?: Record<string, unknown> }> | undefined) ?? [];
+        const evidenceItems = (extractJsonBlock(request.messages, "ACCUMULATED_EVIDENCE") as Array<{ id?: string; status?: string }> | undefined) ?? [];
+        const okEvidence = evidenceItems.filter((item) => item && item.status === "ok");
+        const mode = question.includes("timeout") ? "timeout" : question.includes("failure") ? "failure" : question.includes("empty") ? "empty" : "ok";
+        if (okEvidence.length > 0) {
+          if (question.includes("network dependency")) {
+            return { content: JSON.stringify({ action: "needs_domain", needsDomain: "network-observability", reason: "Live network evidence is required." }), usage: { promptTokens: 48, completionTokens: 16 } };
+          }
+          const evidenceIds = okEvidence.map((item) => item.id).filter((id): id is string => typeof id === "string").slice(0, 8);
+          return { content: JSON.stringify({ action: "answer", summary: "The available evidence reports the requested system state (documented and/or live, as cited).", evidenceIds }), usage: { promptTokens: 48, completionTokens: 20 } };
+        }
+        if (tools.length > 0) {
+          const preferred = tools.find((tool) =>
+            (question.includes("replication") && tool.name === "get_replication_status")
+            || (question.includes("pod") && tool.name === "get_pod_status")
+            || ((question.includes("slow") || question.includes("prometheus")) && tool.name === "query_prometheus")
+            || ((question.includes("wiki") || question.includes("documentation") || question.includes("documented") || question.includes("runbook") || question.includes("procedure")) && tool.name === "wiki_search"),
+          ) ?? tools[0];
+          if (preferred !== undefined) {
+            return { content: JSON.stringify({ action: "tool_call", purpose: "Collect the smallest useful evidence for the task.", tool: preferred.name, arguments: argumentsForSchema(preferred.inputSchema ?? {}, mode) }), usage: { promptTokens: 48, completionTokens: 20 } };
+          }
+        }
+        return { content: JSON.stringify({ action: "insufficient_evidence", reason: "No tools are available to investigate the request." }), usage: { promptTokens: 32, completionTokens: 12 } };
       }
       const agents = [
         ...(question.includes("openshift") || question.includes("pod") ? ["openshift"] : []),
         ...(question.includes("network") || question.includes("prometheus") || question.includes("slow") ? ["network-observability"] : []),
         ...(question.includes("active directory") || question.includes("domain controller") || question.includes("ad ") || question.includes("authentication") ? ["active-directory"] : []),
-        ...(question.includes("runbook") || question.includes("documentation") || question.includes("documented") || question.includes("procedure") || question.includes("wiki") || question.includes("according to our docs") ? ["wiki"] : []),
       ];
       const selected = [...new Set(agents)].slice(0, 2);
       const routes = selected.map((agent) => ({ agent, task: managerTask(agent) }));
@@ -96,12 +110,21 @@ export class MockModelClient implements ModelClient {
   }
 }
 
+/** Extract a JSON block delimited by `<START>\n...\nEND_...` from the mock message set. */
+function extractJsonBlock(messages: ReadonlyArray<{ role: string; content: string }>, startsWith: string): unknown {
+  const message = messages.find((m) => typeof m.content === "string" && m.content.startsWith(startsWith));
+  if (message === undefined) return undefined;
+  const nl = message.content.indexOf("\n");
+  const end = message.content.lastIndexOf("\nEND");
+  if (nl < 0 || end <= nl) return undefined;
+  try { return JSON.parse(message.content.slice(nl + 1, end)); } catch { return undefined; }
+}
+
 /** Distinct focused task per specialist for the mock Manager decision. */
 function managerTask(agent: string): string {
   if (agent === "active-directory") return "Check AD, domain-controller and authentication-side causes.";
   if (agent === "openshift") return "Check OpenShift workloads, pods, routes and platform events.";
   if (agent === "network-observability") return "Check connectivity, latency, packet loss and network-path evidence.";
-  if (agent === "wiki") return "Retrieve the documented procedure/runbook relevant to the request.";
   return "Investigate within your domain and return cited evidence.";
 }
 

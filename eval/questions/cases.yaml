@@ -9,7 +9,6 @@ cases:
         - active-directory
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - get_replication_status
@@ -23,7 +22,6 @@ cases:
         - active-directory
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - get_replication_status
@@ -37,7 +35,6 @@ cases:
         - active-directory
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - get_replication_status
@@ -51,7 +48,6 @@ cases:
         - active-directory
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - get_replication_status
@@ -65,7 +61,6 @@ cases:
         - active-directory
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - get_replication_status
@@ -79,7 +74,6 @@ cases:
         - openshift
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - get_pod_status
@@ -93,7 +87,6 @@ cases:
         - openshift
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - get_pod_status
@@ -107,7 +100,6 @@ cases:
         - openshift
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - get_pod_status
@@ -121,7 +113,6 @@ cases:
         - openshift
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - get_pod_status
@@ -135,7 +126,6 @@ cases:
         - openshift
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - get_pod_status
@@ -149,7 +139,6 @@ cases:
         - network-observability
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - query_prometheus
@@ -163,7 +152,6 @@ cases:
         - network-observability
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - query_prometheus
@@ -177,7 +165,6 @@ cases:
         - network-observability
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - query_prometheus
@@ -191,7 +178,6 @@ cases:
         - network-observability
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - query_prometheus
@@ -205,7 +191,6 @@ cases:
         - network-observability
       acceptableAbstain: false
       requiredEvidenceKinds:
-        - wiki
         - telemetry
       requiredTools:
         - query_prometheus
@@ -563,8 +548,6 @@ cases:
       domains:
         - active-directory
       acceptableAbstain: false
-      requiredEvidenceKinds:
-        - wiki
       requiredTools:
         - get_replication_status
       securityViolationAllowed: false
@@ -576,8 +559,6 @@ cases:
       domains:
         - active-directory
       acceptableAbstain: false
-      requiredEvidenceKinds:
-        - wiki
       requiredTools:
         - get_replication_status
       securityViolationAllowed: false
@@ -589,8 +570,6 @@ cases:
       domains:
         - active-directory
       acceptableAbstain: false
-      requiredEvidenceKinds:
-        - wiki
       requiredTools:
         - get_replication_status
       securityViolationAllowed: false
@@ -602,8 +581,6 @@ cases:
       domains:
         - active-directory
       acceptableAbstain: false
-      requiredEvidenceKinds:
-        - wiki
       requiredTools:
         - get_replication_status
       securityViolationAllowed: false
@@ -615,8 +592,6 @@ cases:
       domains:
         - active-directory
       acceptableAbstain: false
-      requiredEvidenceKinds:
-        - wiki
       requiredTools:
         - get_replication_status
       securityViolationAllowed: false
@@ -628,8 +603,6 @@ cases:
       domains:
         - active-directory
       acceptableAbstain: false
-      requiredEvidenceKinds:
-        - wiki
       requiredTools:
         - get_replication_status
       securityViolationAllowed: false
@@ -641,8 +614,6 @@ cases:
       domains:
         - active-directory
       acceptableAbstain: false
-      requiredEvidenceKinds:
-        - wiki
       requiredTools:
         - get_replication_status
       securityViolationAllowed: false
@@ -654,8 +625,6 @@ cases:
       domains:
         - active-directory
       acceptableAbstain: false
-      requiredEvidenceKinds:
-        - wiki
       requiredTools:
         - get_replication_status
       securityViolationAllowed: false
@@ -667,8 +636,6 @@ cases:
       domains:
         - active-directory
       acceptableAbstain: false
-      requiredEvidenceKinds:
-        - wiki
       requiredTools:
         - get_replication_status
       securityViolationAllowed: false
@@ -680,8 +647,6 @@ cases:
       domains:
         - active-directory
       acceptableAbstain: false
-      requiredEvidenceKinds:
-        - wiki
       requiredTools:
         - get_replication_status
       securityViolationAllowed: false
