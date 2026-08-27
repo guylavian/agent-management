@@ -31,6 +31,7 @@ import {
 } from "@sre/auth";
 import {
   loadAgentInstance,
+  loadAgentRegistry,
   loadAppConfig,
   loadApprovedCatalog,
   type AppConfig,
@@ -43,7 +44,7 @@ import { MockModelClient, RealOpenAiCompatibleClient, type ModelClient } from "@
 import { MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "@sre/mcp";
 import { MockRagClient, RealRagClient, type RagClient } from "@sre/rag";
 import { classifyIntent, extractEntities } from "@sre/routing";
-import { executeRequest, runSpecialistInstance, type ExecutionContext } from "@sre/runtime";
+import { executeRequest, InProcessAgentClient, runSpecialistInstance, type ExecutionContext } from "@sre/runtime";
 import { MockSessionStore, PostgresSessionStore, type BoundedSessionContext, type SessionStore } from "@sre/session";
 import { incrementMetric, observeDuration, observeInflight, renderMetrics, withExtractedContext, withSpan } from "@sre/telemetry";
 import { z } from "zod";
@@ -99,9 +100,26 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     for (const agentId of managerAgent.spec.agents.allowed) {
       if (registry.resolve(agentId) === undefined) throw new Error(`manager allows unregistered agent ${agentId}`);
     }
-    const agentClient = config.clients.agent === "mock"
-      ? new MockAgentClient()
-      : new HttpAgentClient(registry, new ProjectedWorkloadTokenProvider(config.agentTransport.workloadTokenFile as string));
+    let agentClient: AgentClient;
+    if (config.clients.agent === "inprocess") {
+      // single-process local PoC: the manager executes specialists in-process.
+      // Uses the same delegation authority so the per-agent identity JWT verifies.
+      const fullRegistry = loadAgentRegistry({ agentsDir: config.agentsDir, promptsDir: config.promptsDir, approvedCatalogFile: config.approvedCatalogFile });
+      agentClient = new InProcessAgentClient(
+        fullRegistry,
+        {
+          authorization: new AuthorizationService(fullRegistry),
+          model,
+          toolhive: config.clients.toolhive === "mock" ? new MockToolHiveClient() : new RealToolHiveClient(config.toolhive.url as string),
+          rag: config.clients.rag === "mock" ? new MockRagClient() : new RealRagClient(config.rag.url as string),
+        },
+        mockDelegation,
+      );
+    } else if (config.clients.agent === "mock") {
+      agentClient = new MockAgentClient();
+    } else {
+      agentClient = new HttpAgentClient(registry, new ProjectedWorkloadTokenProvider(config.agentTransport.workloadTokenFile as string));
+    }
     if (config.clients.delegation === "real" && config.delegation.privateKeyPkcs8 === undefined) throw new Error("manager mode requires SRE_DELEGATION_PRIVATE_KEY_PKCS8");
     const identityIssuer = config.clients.delegation === "mock" ? mockDelegation : new PrivateKeyDelegatedIdentityIssuer({ issuer: config.delegation.issuer, privateKeyPkcs8: config.delegation.privateKeyPkcs8 as string });
     return {

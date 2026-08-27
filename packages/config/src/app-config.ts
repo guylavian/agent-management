@@ -26,7 +26,8 @@ export const appConfigSchema = z
         toolhive: clientMode.default("mock"),
         rag: clientMode.default("mock"),
         postgres: clientMode.default("mock"),
-        agent: clientMode.default("mock"),
+        // "inprocess" runs specialists in the manager process (single-process local PoC)
+        agent: z.enum(["mock", "real", "inprocess"]).default("mock"),
         delegation: clientMode.default("mock"),
       })
       .strict(),
@@ -143,6 +144,8 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
     for (const [name, mode] of Object.entries(config.clients)) {
       if (mode === "mock") problems.push(`client "${name}" is mock in production`);
     }
+    // in-process specialist execution is a local-dev convenience only
+    if (config.clients.agent === "inprocess") problems.push('client "agent" is inprocess in production (use real distributed agents)');
   }
   if (config.clients.oidc === "real" && !config.oidc.jwksUri) {
     problems.push("oidc client is real but SRE_OIDC_JWKS_URI is unset");
