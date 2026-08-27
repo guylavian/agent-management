@@ -7,7 +7,7 @@ import { redactText, reduceEvidence, type Evidence, type RuntimeError, type Spec
 import type { ModelClient } from "@sre/llm";
 import { classifyIntent, deterministicRoute, ManagerRouter, resolveAbstentionFanout, type ManagerDecision } from "@sre/routing";
 import { incrementMetric, withSpan } from "@sre/telemetry";
-import { deterministicResponseBuilder } from "./deterministic-response-builder.ts";
+import { deterministicMultiSpecialistResponse, deterministicResponseBuilder } from "./deterministic-response-builder.ts";
 import { planRound2, round2RejectionEvidence } from "./round2.ts";
 import { shouldEscalate } from "./synthesis-gate.ts";
 import { synthesizeResponse } from "./synthesis.ts";
@@ -43,8 +43,11 @@ async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies
   const modelSafeQuestion = redactText(req.question).value;
   const environment = req.environment ?? deps.defaultEnvironment;
   const configured = new Set(deps.manager.spec.agents.allowed);
-  const allAgentIds = deps.registry.listEnabled(environment).map((agent) => agent.agentId).filter((agentId) => configured.has(agentId));
-  const stage1 = await withSpan("manager.route.stage1", { "request.id": req.identity.requestId, environment }, async () => deterministicRoute(req.question, allAgentIds));
+  const enabledAllowed = deps.registry.listEnabled(environment).filter((agent) => configured.has(agent.agentId));
+  const allAgentIds = enabledAllowed.map((agent) => agent.agentId);
+  // routing rules come from the registry (config), not from code — see agents/registry.yaml
+  const rules = enabledAllowed.map((agent) => ({ agentId: agent.agentId, ...agent.routing }));
+  const stage1 = await withSpan("manager.route.stage1", { "request.id": req.identity.requestId, environment }, async () => deterministicRoute(req.question, rules));
   const authorizedCandidates = deps.registry.filterAuthorized(allAgentIds, req.identity.roles, environment);
   let routing: ManagerDecision;
   if (stage1.resolved && stage1.decision !== undefined) {
@@ -111,11 +114,16 @@ async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies
   const escalate = await withSpan("synthesis.gate", { "request.id": ctx.requestId, "evidence.count": reduced.evidence.length }, async () => shouldEscalate(ctx, reduced));
   if (escalate) {
     try { return await synthesizeResponse(ctx, reduced, results, deps.synthesisModel); }
-    catch {
+    catch (error) {
+      incrementMetric("sre_tier_l_failures_total");
+      const reason = tierLFailureReason(error, signal);
+      const contributing = results.filter((result) => result.status !== "failed");
+      // more than one contributor → keep every summary; never collapse to the first specialist
+      if (contributing.length > 1 || results.length > 1) return deterministicMultiSpecialistResponse(ctx, results, reason);
       const fallback = results[0];
       if (fallback !== undefined) {
         const response = deterministicResponseBuilder(ctx, fallback);
-        return { ...response, evidenceGaps: [...response.evidenceGaps, { source: "tier-l", reason: "MODEL_TIMEOUT" }], degraded: true };
+        return { ...response, evidenceGaps: [...response.evidenceGaps, { source: "tier-l", reason }], degraded: true };
       }
     }
   }
@@ -172,6 +180,14 @@ function safeAgentError(code: AgentTransportError["code"]): string {
 
 function deadlineError(): Error {
   return Object.assign(new Error("request deadline exceeded"), { code: "REQUEST_TIMEOUT" });
+}
+
+function tierLFailureReason(error: unknown, signal: AbortSignal): string {
+  if (signal.aborted) return "MODEL_TIMEOUT";
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
+  if (code === "MODEL_INVALID_OUTPUT") return "MODEL_INVALID_OUTPUT";
+  if (code === "REQUEST_TIMEOUT" || code === "MODEL_TIMEOUT") return "MODEL_TIMEOUT";
+  return "MODEL_UNAVAILABLE";
 }
 
 function requestTimeout(requestId: string): AssistantResponse {

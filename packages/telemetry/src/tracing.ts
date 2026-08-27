@@ -1,14 +1,18 @@
 import { context, propagation, trace, SpanStatusCode, type Attributes } from "@opentelemetry/api";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { NodeSDK } from "@opentelemetry/sdk-node";
-import { ConsoleSpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 
 let sdk: NodeSDK | undefined;
 
 export async function initializeTelemetry(options: { exporter: "console" | "otlp" | "none"; endpoint?: string; serviceName: string }): Promise<void> {
   if (options.exporter === "none") return;
-  const exporter = options.exporter === "console" ? new ConsoleSpanExporter() : new OTLPTraceExporter({ url: options.endpoint });
-  sdk = new NodeSDK({ serviceName: options.serviceName, spanProcessors: [new SimpleSpanProcessor(exporter)] });
+  // OTLP export is batched/non-blocking so span export never sits on the request
+  // path; console stays synchronous for readable local dev output.
+  const processor = options.exporter === "console"
+    ? new SimpleSpanProcessor(new ConsoleSpanExporter())
+    : new BatchSpanProcessor(new OTLPTraceExporter({ url: options.endpoint }));
+  sdk = new NodeSDK({ serviceName: options.serviceName, spanProcessors: [processor] });
   sdk.start();
 }
 

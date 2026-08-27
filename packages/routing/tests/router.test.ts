@@ -5,9 +5,11 @@ import { MockModelClient } from "@sre/llm";
 import { describe, expect, it } from "vitest";
 import { classifyIntent, deterministicRoute, ManagerRouter } from "../src/index.ts";
 
-const ids = ["active-directory", "openshift", "network-observability"];
 const registry = loadAgentServiceRegistry("agents/registry.yaml");
 const manager = loadAgentInstance({ configFile: "agents/manager.yaml" }) as ManagerAgentConfig;
+const ids = ["active-directory", "openshift", "network-observability"];
+// routing rules are sourced entirely from registry config, never from code
+const rules = registry.listEnabled().map((entry) => ({ agentId: entry.agentId, ...entry.routing }));
 
 describe("Stage-1 routing", () => {
   it.each([
@@ -15,19 +17,25 @@ describe("Stage-1 routing", () => {
     ["Why is this OpenShift pod in CrashLoopBackOff?", "openshift"],
     ["Show packet loss from Prometheus", "network-observability"],
   ])("routes precise vocabulary", (question, expected) => {
-    expect(deterministicRoute(question, ids)).toMatchObject({ resolved: true, decision: { agents: [expected] } });
+    expect(deterministicRoute(question, rules)).toMatchObject({ resolved: true, decision: { agents: [expected] } });
   });
 
   it.each(["cluster status", "replication status", "certificate policy", "gateway node"])("does not guess from ambiguous phrase %s", (question) => {
-    expect(deterministicRoute(question, ids).resolved).toBe(false);
+    expect(deterministicRoute(question, rules).resolved).toBe(false);
   });
 
   it("extracts trusted entity syntax and classifies intent deterministically", () => {
-    const result = deterministicRoute("Why is DC-TLV-01 intermittently slow?", ids);
-    expect(result.entities).toEqual({ hostname: "DC-TLV-01" });
+    const result = deterministicRoute("Why is DC-TLV-01 intermittently slow?", rules);
+    expect(result.entities).toMatchObject({ hostname: "DC-TLV-01" });
     expect(result.intent).toBe("diagnostic");
     expect(classifyIntent("Show current status", ["causal-question"])).toBe("diagnostic");
     expect(classifyIntent("Show current status")).toBe("factual");
+  });
+
+  it("onboards a new specialist from config alone — no routing code change", () => {
+    // an Exchange specialist added purely as a registry rule routes immediately
+    const withExchange = [...rules, { agentId: "exchange", exactTerms: ["exchange", "mailbox", "outlook"], entityPatterns: [], ambiguousTerms: [] }];
+    expect(deterministicRoute("Is the Exchange mailbox database mounted?", withExchange)).toMatchObject({ resolved: true, decision: { agents: ["exchange"] } });
   });
 });
 

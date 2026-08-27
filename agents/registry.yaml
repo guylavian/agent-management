@@ -9,6 +9,10 @@ agents:
     environments: [prod, dr, lab]
     requiredRoles: [infra-read]
     allowedNeedsDomains: [network-observability]
+    routing:
+      exactTerms: ["active directory", "domain controller", "domain controllers", "kerberos", "ldap", "ad replication"]
+      entityPatterns: ["\\bDC-[A-Z0-9-]+\\b"]
+      ambiguousTerms: ["replication", "policy", "certificate", "cluster"]
   - agentId: openshift
     endpoint: http://sre-agent-openshift.sre-assistant.svc.cluster.local
     owner: paas
@@ -17,6 +21,10 @@ agents:
     environments: [prod, dr, lab]
     requiredRoles: [infra-read]
     allowedNeedsDomains: [network-observability]
+    routing:
+      exactTerms: ["openshift", "crashloopbackoff", "ocp", "kubernetes pod"]
+      entityPatterns: ["\\bnamespace\\s+[a-z0-9-]+\\b", "\\bOCP-[A-Z0-9-]+\\b"]
+      ambiguousTerms: ["cluster", "node", "policy"]
   - agentId: network-observability
     endpoint: http://sre-agent-network-observability.sre-assistant.svc.cluster.local
     owner: network-observability
@@ -25,3 +33,7 @@ agents:
     environments: [prod, dr, lab]
     requiredRoles: [network-read]
     allowedNeedsDomains: [openshift, active-directory]
+    routing:
+      exactTerms: ["promql", "prometheus", "packet loss", "bgp", "interface errors", "interface error", "splunk", "network latency"]
+      entityPatterns: []
+      ambiguousTerms: ["gateway", "policy", "latency"]

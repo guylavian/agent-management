@@ -3,6 +3,16 @@ import { resolve as resolvePath } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
+export const agentRoutingSchema = z.object({
+  // whole-phrase, case-insensitive terms that resolve to this agent (high precision)
+  exactTerms: z.array(z.string().min(2)).default([]),
+  // regexes (source strings) tested against the question; a match routes and yields an entity
+  entityPatterns: z.array(z.string().min(1)).default([]),
+  // overloaded terms that MUST NOT resolve routing on their own (precision guard, documentation)
+  ambiguousTerms: z.array(z.string().min(1)).default([]),
+}).strict();
+export type AgentRouting = z.infer<typeof agentRoutingSchema>;
+
 export const agentRegistryEntrySchema = z.object({
   agentId: z.string().regex(/^[a-z][a-z0-9-]*$/u),
   endpoint: z.url().refine((value) => value.startsWith("http://") || value.startsWith("https://"), "endpoint must use HTTP(S)"),
@@ -12,6 +22,7 @@ export const agentRegistryEntrySchema = z.object({
   environments: z.array(z.string().min(1)).min(1),
   requiredRoles: z.array(z.string().min(1)).min(1),
   allowedNeedsDomains: z.array(z.string().regex(/^[a-z][a-z0-9-]*$/u)).max(8).default([]),
+  routing: agentRoutingSchema.default({ exactTerms: [], entityPatterns: [], ambiguousTerms: [] }),
 }).strict();
 export type AgentRegistryEntry = z.infer<typeof agentRegistryEntrySchema>;
 

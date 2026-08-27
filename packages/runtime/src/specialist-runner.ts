@@ -64,9 +64,12 @@ async function runSpecialistInternal(agent: SpecialistAgentConfig, catalog: Appr
   if (Date.now() >= deadline) return failedWithEvidence(agentId, evidence, errors, "REQUEST_TIMEOUT", "Specialist deadline exhausted");
   const available = await visibleToolsForSpecialist(catalog, deps.authorization, deps.toolhive, agent, ctx.identity, ctx.environment);
   if (available.length === 0) evidence.push({ id: `tools:${agentId}:unavailable`, kind: "missing", source: `${agentId}/live-tools`, system: "toolhive", environment: ctx.environment, citation: `mcp://${agentId}/unavailable`, status: "denied", requestId: ctx.requestId, agentId });
+  const resolvedEntities = ctx.request.conversation?.resolvedEntities;
   const messages: ChatMessage[] = [
     { role: "system", content: agent.systemPrompt },
     { role: "user", content: ctx.request.question },
+    // trusted, scalar-only session context (SDD §14): lets a follow-up like "what about DC2" resolve
+    ...(resolvedEntities && Object.keys(resolvedEntities).length > 0 ? [{ role: "user" as const, content: `TRUSTED_RESOLVED_ENTITIES\n${JSON.stringify(resolvedEntities)}\nEND_TRUSTED_RESOLVED_ENTITIES` }] : []),
     ...(handoff === undefined ? [] : [{ role: "user" as const, content: `TRUSTED_DOMAIN_HANDOFF\n${JSON.stringify(handoff)}\nEND_TRUSTED_DOMAIN_HANDOFF` }]),
     { role: "user", content: evidenceContext(enforceEvidenceSetBudget(evidence, agent.spec.execution)) },
   ];
