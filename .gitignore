@@ -5,3 +5,4 @@ coverage/
 *.log
 eval/results/
 sre-agent-platform-source.zip
+.env

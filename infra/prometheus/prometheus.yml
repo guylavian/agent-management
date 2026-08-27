@@ -1,0 +1,20 @@
+# Prometheus scrape config for the SRE PoC local stack.
+# Keycloak exposes metrics on its MANAGEMENT port (9000), NOT the app port (8080).
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: keycloak
+    metrics_path: /metrics
+    static_configs:
+      # service name + management port on the compose network
+      - targets: ["keycloak:9000"]
+        labels:
+          service: keycloak
+          env: local

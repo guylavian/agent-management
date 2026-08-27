@@ -1,0 +1,66 @@
+{
+  "realm": "sre-test",
+  "enabled": true,
+  "displayName": "SRE Test Realm",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "eventsEnabled": true,
+  "eventsExpiration": 86400,
+  "enabledEventTypes": [
+    "LOGIN",
+    "LOGIN_ERROR",
+    "LOGOUT",
+    "CODE_TO_TOKEN",
+    "CODE_TO_TOKEN_ERROR",
+    "REFRESH_TOKEN",
+    "REFRESH_TOKEN_ERROR"
+  ],
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true,
+  "bruteForceProtected": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "sre-test-role",
+        "description": "Test role used by the SRE PoC local environment"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "sre-test-client",
+      "name": "SRE Test Client",
+      "description": "Confidential client for local PoC token/login testing",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "sre-test-client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "redirectUris": ["http://localhost:*", "https://localhost:*"],
+      "webOrigins": ["*"],
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "email"]
+    }
+  ],
+  "users": [
+    {
+      "username": "sre-test-user",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Sre",
+      "lastName": "Tester",
+      "email": "sre-test-user@sre.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "sre-test-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["sre-test-role"]
+    }
+  ]
+}
