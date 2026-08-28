@@ -11,6 +11,6 @@ spec:
   mcp:
     servers: [openshift, prometheus, splunk, wiki]
     allowedTools: [get_pod_status, list_namespace_events, get_route_status, get_deployment_status, query_cluster_metrics, search_platform_logs, wiki_search, wiki_read_page]
-  execution: { maxToolCalls: 6, maxModelTurns: 3, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
+  execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
   discovery: { allowedNeedsDomains: [network-observability] }
   authorization: { requiredRoles: [infra-read] }

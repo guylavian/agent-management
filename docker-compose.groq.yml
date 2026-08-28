@@ -1,0 +1,30 @@
+# Groq provider overlay for the distributed PoC.
+#   GROQ_API_KEY=... docker compose -f docker-compose.agents.yml -f docker-compose.groq.yml up -d
+#
+# Points every agent at the Groq OpenAI-compatible endpoint with native tool
+# calling. Swap SRE_LLM_BASE_URL + SRE_MODEL_* for an on-prem air-gapped endpoint
+# later — no code change. See docs/groq-poc.md.
+#
+# WARNING: Groq is a CLOUD endpoint. Use only synthetic/local test data. Never
+# send production credentials, secrets, or real customer/user data.
+x-groq-env: &groq-env
+  SRE_CLIENT_LLM: real
+  SRE_LLM_BASE_URL: https://api.groq.com/openai/v1
+  SRE_LLM_API_KEY: ${GROQ_API_KEY}
+  SRE_MODEL_MANAGER: ${SRE_MODEL_MANAGER:-qwen/qwen3.8-27b}
+  SRE_MODEL_TOOL_CALLER: ${SRE_MODEL_TOOL_CALLER:-qwen/qwen3.8-27b}
+  SRE_MODEL_SYNTHESIS: ${SRE_MODEL_SYNTHESIS:-qwen/qwen3.8-27b}
+  # native tool calling — no /no_think, no local Ollama URL
+  SRE_LLM_SYSTEM_SUFFIX: ""
+  SRE_LLM_TIER_S_URL: ""
+  SRE_LLM_TIER_L_URL: ""
+
+services:
+  sre-agent-manager:
+    environment: { <<: *groq-env }
+  sre-agent-active-directory:
+    environment: { <<: *groq-env }
+  sre-agent-openshift:
+    environment: { <<: *groq-env }
+  sre-agent-network-observability:
+    environment: { <<: *groq-env }
