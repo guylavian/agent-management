@@ -1,24 +1,25 @@
 {
-  "name": "@sre/api",
+  "name": "@sre/runtime-host",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "dependencies": {
-    "@sre/agent-client": "*",
+    "@opentelemetry/api": "1.9.1",
     "@sre/agent-engine": "*",
     "@sre/agent-protocol": "*",
+    "@sre/agent-schema": "*",
     "@sre/auth": "*",
     "@sre/config": "*",
     "@sre/evidence": "*",
     "@sre/llm": "*",
-    "@sre/management-api": "*",
     "@sre/orchestrator": "*",
     "@sre/redaction": "*",
     "@sre/telemetry": "*",
     "express": "5.2.1",
+    "yaml": "2.9.0",
     "zod": "4.4.3"
-  },
-  "exports": {
-    ".": "./src/index.ts"
   }
 }

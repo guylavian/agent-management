@@ -14,7 +14,7 @@ import {
   renderAgentYaml,
   AgentDraftError,
   type SpecialistResultLike,
-} from "../src/index.ts";
+} from "../src/management/index.ts";
 
 const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
 const specialists = registry.listSpecialists();

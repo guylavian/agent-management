@@ -1,5 +1,5 @@
 import { MockOidcClient } from "@sre/auth";
-import { buildDependencies, createApp } from "../../runtime/app/src/app.ts";
+import { buildDependencies, createApp } from "@sre/runtime-host";
 import { describe, expect, it } from "vitest";
 
 describe("in-process mock load fallback", () => {

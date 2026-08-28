@@ -2,23 +2,18 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Enforces the architectural dependency direction the platform depends on.
+ * Enforces the architectural dependency graph.
  *
- * The rule is a DIRECTION, not a naming convention:
+ *     runtime-host ──► agent-engine ──┐
+ *          │      └──► orchestrator ──┤
+ *          └───────────────────────►  shared ──► contracts ──► (nothing)
  *
- *     management/*  ──►  contracts/*  ◄──  runtime/*
- *                          ▲
- *                       shared/*
- *
- * The management plane may consume the canonical Agent contract, but it must
- * never import runtime code. If it could, the portal would become a second
- * place where authorization is decided, and a portal change could weaken
- * enforcement without touching the runtime. The runtime must likewise never
- * depend on the management plane, so a console outage cannot affect execution.
- *
- * `contracts` depends on nothing, which is what keeps it a contract, and
- * `shared` may rest only on contracts and other shared modules — otherwise the
- * plane boundary would be routable through it.
+ * The two rules that matter most are the two that are missing from that
+ * picture: agent-engine ✕→ orchestrator and orchestrator ✕→ agent-engine.
+ * A specialist that could reach routing could reach another specialist, and an
+ * orchestrator that could reach the engine would collapse the transport
+ * boundary the moment someone ran both in one process — which local dev does
+ * every day. Only the composition root sees both sides.
  *
  * Zones are resolved from each workspace's package NAME, not from its directory
  * name, because the two deliberately differ (shared/config-loader publishes
@@ -49,8 +44,7 @@ const CONTRACT_PACKAGES = packageNames("contracts");
 const SHARED_PACKAGES = packageNames("shared");
 const AGENT_ENGINE = "agent-engine";
 const ORCHESTRATOR = "orchestrator";
-const RUNTIME_PACKAGES = packageNames("runtime/packages");
-const MANAGEMENT_PACKAGES = packageNames("management/packages");
+const RUNTIME_HOST = "runtime-host";
 
 const violations: Violation[] = [];
 
@@ -85,29 +79,16 @@ function check(dir: string, rule: (name: string, file: string) => string | undef
 }
 
 /**
- * Management SOURCE may reach the contract, never the runtime. Tests are
- * exempt: they legitimately load real agent YAML through the runtime's config
- * loader so the projections are asserted against the same documents the
- * runtime enforces, rather than against fixtures that could drift from it.
- */
-check("management/packages", (name, file) =>
-  RUNTIME_PACKAGES.has(name) && !file.includes("/tests/")
-    ? `management source imports runtime package "@sre/${name}" — the management plane must not depend on execution-plane code`
-    : undefined,
-);
-
-/**
- * The runtime hosts the read-only management API, so depending on
- * `management-api` is intended. What it must NOT depend on is the Keycloak
- * provisioner: that carries the Admin API client, and coupling request
- * handling to the Admin API is explicitly forbidden (TDD §31). Provisioning is
- * a management/configuration-path concern; runtime token acquisition is a
+ * The composition root may see everything below it — that is its job — but not
+ * the Keycloak provisioner: that carries the Admin API client, and coupling
+ * request handling to the Admin API is explicitly forbidden (TDD §31).
+ * Provisioning is a configuration-path concern; runtime token acquisition is a
  * separate one.
  */
-check("runtime", (name) =>
-  name === "keycloak-provisioning"
-    ? `runtime imports "@sre/${name}" — request handling must not be coupled to the Keycloak Admin API (TDD §31)`
-    : undefined,
+check("runtime-host", (name: string) =>
+  CONTRACT_PACKAGES.has(name) || SHARED_PACKAGES.has(name) || [AGENT_ENGINE, ORCHESTRATOR, RUNTIME_HOST].includes(name)
+    ? undefined
+    : `runtime-host imports "@sre/${name}" — the composition root may compose only agent-engine, orchestrator, shared and contracts`,
 );
 
 // the contract must stay dependency-free so both planes can share it safely
@@ -154,5 +135,5 @@ if (violations.length > 0) {
 }
 
 console.log(
-  `boundaries ok — ${CONTRACT_PACKAGES.size} contract, ${SHARED_PACKAGES.size} shared, ${RUNTIME_PACKAGES.size} runtime, ${MANAGEMENT_PACKAGES.size} management package(s)`,
+  `boundaries ok — ${CONTRACT_PACKAGES.size} contract, ${SHARED_PACKAGES.size} shared, 3 code components`,
 );

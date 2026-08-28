@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createServer as createHttpsServer } from "node:https";
-import { buildDependencies, createApp } from "./app.ts";
+import { buildDependencies } from "./bootstrap/dependencies.ts";
+import { createApp } from "./http/app.ts";
 import { initializeTelemetry, shutdownTelemetry } from "@sre/telemetry";
 
 const deps = buildDependencies();

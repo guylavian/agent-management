@@ -1,3 +1,11 @@
+/**
+ * HTTP Specialist transport: the distributed path.
+ *
+ * Constructed only by the composition root. It resolves the specialist's
+ * endpoint from the effective agent catalog, presents the Manager's own
+ * workload identity, propagates trace context and enforces the protocol size
+ * limits on both directions before anything is parsed.
+ */
 import { context, propagation } from "@opentelemetry/api";
 import { readFile } from "node:fs/promises";
 import {
@@ -15,8 +23,6 @@ import {
 export { AgentTransportError, type AgentTransportErrorCode } from "@sre/agent-protocol";
 import type { AgentCatalog } from "@sre/config";
 
-/** @deprecated name kept during the migration; the contract is SpecialistTransport. */
-export type AgentClient = SpecialistTransport;
 
 export interface WorkloadTokenProvider {
   getToken(audience: string): Promise<string>;
@@ -61,7 +67,7 @@ export class MockWorkloadTokenProvider implements WorkloadTokenProvider {
   async getToken(_audience: string): Promise<string> { return "mock-manager-workload-token-for-local-tests"; }
 }
 
-export class HttpAgentClient implements AgentClient {
+export class HttpSpecialistTransport implements SpecialistTransport {
   readonly mode = "real" as const;
   readonly registry: AgentCatalog;
   readonly tokens: WorkloadTokenProvider;

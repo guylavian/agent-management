@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { HttpAgentClient, MockWorkloadTokenProvider } from "@sre/agent-client";
+import { HttpSpecialistTransport, MockWorkloadTokenProvider } from "@sre/runtime-host";
 import { MockOidcClient } from "@sre/auth";
 import type { MockToolHiveClient } from "@sre/agent-engine";
-import { buildDependencies, createApp } from "../src/app.ts";
+import { buildDependencies, createApp } from "@sre/runtime-host";
 
 /**
  * End-to-end Architecture Gate #1 through the real distributed path, socketless:
@@ -30,7 +30,7 @@ function buildDistributed() {
     });
     return new Response(res.payload, { status: res.statusCode, headers: { "content-type": "application/json" } });
   };
-  const agentClient = new HttpAgentClient(managerDeps.registry, new MockWorkloadTokenProvider(), dispatch);
+  const agentClient = new HttpSpecialistTransport(managerDeps.registry, new MockWorkloadTokenProvider(), dispatch);
   const managerApp = createApp({ ...managerDeps, agentClient });
   return { managerApp, oidc: managerDeps.oidc as MockOidcClient, toolhive: specialistDeps.toolhive as MockToolHiveClient };
 }

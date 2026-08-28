@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MockSpecialistTransport } from "@sre/orchestrator";
 import { MockDelegationAuthority, MockOidcClient } from "@sre/auth";
-import { buildDependencies, createApp } from "../src/app.ts";
+import { buildDependencies, createApp } from "../src/index.ts";
 
 describe("local API", () => {
   it("exposes mock token issuance only in local mock mode", async () => {

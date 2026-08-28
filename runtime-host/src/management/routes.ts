@@ -10,7 +10,7 @@ import {
   type AgentDraft,
   type GitOpsProvider,
   type RunStore,
-} from "@sre/management-api";
+} from "./index.ts";
 
 /**
  * Read-only management API (TDD §43). Mounted only on the Manager, which is the

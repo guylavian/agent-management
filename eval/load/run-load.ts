@@ -2,7 +2,7 @@ import autocannon from "autocannon";
 import { pathToFileURL } from "node:url";
 import type { AppConfig } from "@sre/config";
 import { MockOidcClient } from "@sre/auth";
-import { buildDependencies, createApp } from "../../runtime/app/src/app.ts";
+import { buildDependencies, createApp } from "@sre/runtime-host";
 
 export type LoadProfile = "normal" | "burst" | "storm";
 

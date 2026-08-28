@@ -4,7 +4,7 @@ import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
 import { MockModelClient } from "@sre/llm";
 import { MockToolHiveClient, type ToolInvocation, type ToolResult } from "@sre/agent-engine";
 import { loadAgentCatalog } from "@sre/config";
-import { inProcessRuntimeDependencies } from "@sre/api";
+import { inProcessRuntimeDependencies } from "@sre/runtime-host";
 import { executeRequest } from "@sre/orchestrator";
 import { MockSessionStore } from "@sre/orchestrator";
 import { describe, expect, it } from "vitest";

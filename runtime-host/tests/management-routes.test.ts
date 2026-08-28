@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDependencies, createApp, type ManagerDependencies, type TestableApp } from "../src/app.ts";
+import { buildDependencies, createApp, type ManagerDependencies, type TestableApp } from "@sre/runtime-host";
 
 /**
  * HTTP-level contract for the management plane (TDD §43/§57).

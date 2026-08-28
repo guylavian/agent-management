@@ -6,7 +6,7 @@ import { MockModelClient } from "@sre/llm";
 import { MockToolHiveClient, type ToolInvocation, type ToolResult } from "@sre/agent-engine";
 import { describe, expect, it } from "vitest";
 import { runSpecialist, type SpecialistExecutionContext } from "@sre/agent-engine";
-import { inProcessRuntimeDependencies } from "@sre/api";
+import { inProcessRuntimeDependencies } from "@sre/runtime-host";
 import { executeRequest } from "@sre/orchestrator";
 
 const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });

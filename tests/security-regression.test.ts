@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { AuthorizationService, MockToolCredentialAuthority, type RequestIdentity, type WorkloadIdentity } from "@sre/auth";
 import { loadAgentRegistry, loadAppConfig, ConfigValidationError, isToolAllowed } from "@sre/config";
 import { MockToolHiveClient, invokeVisibleToolForSpecialist, toolHiveAudience } from "@sre/agent-engine";
-import { buildDependencies, createApp, type ManagerDependencies } from "../src/app.ts";
+import { buildDependencies, createApp, type ManagerDependencies } from "@sre/runtime-host";
 
 /**
  * TDD §57 — security regressions. Each of these is an invariant that a future

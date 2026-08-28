@@ -6,7 +6,7 @@ import type { Evidence, RuntimeError, SpecialistResult } from "@sre/evidence";
 import { MockModelClient, type ChatRequest, type ChatResponse, type ModelClient } from "@sre/llm";
 import { MockToolHiveClient } from "@sre/agent-engine";
 import { loadAgentCatalog } from "@sre/config";
-import { inProcessRuntimeDependencies } from "@sre/api";
+import { inProcessRuntimeDependencies } from "@sre/runtime-host";
 import { executeRequest, type AssistantResponse } from "@sre/orchestrator";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
