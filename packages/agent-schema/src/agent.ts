@@ -202,6 +202,7 @@ export type ManagerSpec = Extract<AgentDocument["spec"], { type: "manager" }>;
 export interface SpecialistAgentConfig {
   name: string;
   owner: string;
+  displayName?: string;
   spec: SpecialistSpec;
   systemPrompt: string;
 }
@@ -209,6 +210,7 @@ export interface SpecialistAgentConfig {
 export interface ManagerAgentConfig {
   name: string;
   owner: string;
+  displayName?: string;
   spec: ManagerSpec;
   systemPrompt: string;
 }

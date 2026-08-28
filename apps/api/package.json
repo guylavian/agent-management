@@ -11,6 +11,7 @@
     "@sre/config": "*",
     "@sre/evidence": "*",
     "@sre/llm": "*",
+    "@sre/management-api": "*",
     "@sre/mcp": "*",
     "@sre/runtime": "*",
     "@sre/session": "*",

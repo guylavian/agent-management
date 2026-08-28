@@ -40,6 +40,7 @@ import {
   loadAgentRegistry,
   loadAppConfig,
   loadApprovedCatalog,
+  type AgentRegistry,
   type AppConfig,
   type ApprovedCatalog,
   type ManagerAgentConfig,
@@ -49,11 +50,13 @@ import { redactText } from "@sre/evidence";
 import { MockModelClient, RealOpenAiCompatibleClient, type ModelClient } from "@sre/llm";
 import { DirectMcpClient, mcpEndpointsFromEnv, MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "@sre/mcp";
 import { classifyIntent, extractEntities } from "@sre/routing";
-import { executeRequest, InProcessAgentClient, runSpecialistInstance, type ExecutionContext } from "@sre/runtime";
+import { executeRequest, InProcessAgentClient, runSpecialistInstance, type AssistantResponse, type ExecutionContext } from "@sre/runtime";
 import { DisabledSessionStore, MockSessionStore, PostgresSessionStore, type BoundedSessionContext, type SessionStore } from "@sre/session";
 import { incrementMetric, observeDuration, observeInflight, renderMetrics, withExtractedContext, withSpan } from "@sre/telemetry";
 import { z } from "zod";
+import { buildRunRecord, InMemoryRunStore, type RunStore, type SpecialistResultLike } from "@sre/management-api";
 import { oidcAuthenticationMiddleware } from "./middleware/oidc.ts";
+import { managementRouter } from "./management-routes.ts";
 
 const bodySchema = z.object({ question: z.string().min(1).max(8_000), environment: z.string().min(1).optional(), sessionId: z.string().min(1).optional() }).strict();
 
@@ -78,6 +81,14 @@ export interface ManagerDependencies extends CommonDependencies {
   identityIssuer: DelegatedIdentityIssuer;
   sessionStore: SessionStore;
   delegationPublicJwk?: Record<string, unknown>;
+  /**
+   * Full agent registry, present only when every Agent document is mounted in
+   * this process. The read-only management API needs it; the execution path
+   * never does, so a deployment without the config mounted simply serves no
+   * management surface rather than serving a partial one.
+   */
+  managementRegistry?: AgentRegistry;
+  runs: RunStore;
 }
 
 export interface SpecialistDependencies extends CommonDependencies {
@@ -140,12 +151,21 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     if (config.clients.delegation === "real" && delegationPrivateKey === undefined) throw new Error("manager mode requires a delegation private key");
     const identityIssuer = config.clients.delegation === "mock" ? mockDelegation as MockDelegationAuthority : new PrivateKeyDelegatedIdentityIssuer({ issuer: config.delegation.issuer, privateKeyPkcs8: delegationPrivateKey as string });
     const delegationPublicKey = config.delegation.publicKeyFile ? readFileSync(config.delegation.publicKeyFile, "utf8") : undefined;
+    let managementRegistry: AgentRegistry | undefined;
+    try {
+      managementRegistry = loadAgentRegistry({ agentsDir: config.agentsDir, promptsDir: config.promptsDir, approvedCatalogFile: config.approvedCatalogFile });
+    } catch {
+      // not all Agent documents are mounted here; management routes stay unmounted
+      managementRegistry = undefined;
+    }
     return {
       mode: "manager",
       config,
       agent: managerAgent,
       registry,
       agentClient,
+      runs: new InMemoryRunStore(),
+      ...(managementRegistry ? { managementRegistry } : {}),
       identityIssuer,
       model,
       synthesisModel: config.clients.llm === "mock" ? model : config.llm.baseUrl ? model : new RealOpenAiCompatibleClient(config.llm.tierLUrl as string, { modelMap: buildModelMap(config, config.llm.tierLModel ?? config.llm.model), ...(config.llm.systemSuffix ? { systemSuffix: config.llm.systemSuffix } : {}) }),
@@ -244,8 +264,13 @@ export function createApp(deps: ApiDependencies): TestableApp {
     app.get("/internal/.well-known/jwks.json", (_request, response) => { response.json({ keys: [deps.delegationPublicJwk] }); });
   }
 
-  if (deps.mode === "manager") registerManagerRoutes(app, deps);
-  else registerSpecialistRoutes(app, deps);
+  if (deps.mode === "manager") {
+    registerManagerRoutes(app, deps);
+    // read-only management plane, behind the same human authentication as /v1/query
+    if (deps.managementRegistry) {
+      app.use("/management", oidcAuthenticationMiddleware(deps.oidc), managementRouter({ registry: deps.managementRegistry, config: deps.config, runs: deps.runs }));
+    }
+  } else registerSpecialistRoutes(app, deps);
 
   // body-parse errors (malformed JSON / oversized) mapped to the per-mode shape
   app.use((error: unknown, request: Request, response: Response, _next: NextFunction) => {
@@ -272,6 +297,33 @@ function attachInject(app: Express): TestableApp {
   return testable;
 }
 
+/**
+ * Records the run for the management Runs view. Best-effort and never allowed
+ * to affect the response: a management-plane bookkeeping failure must not turn
+ * a successful investigation into an error.
+ */
+function recordRun(deps: ManagerDependencies, input: { requestId: string; identity: { subject: string }; environment: string; startedAt: Date; result: AssistantResponse; specialistResults: SpecialistResultLike[] }): void {
+  try {
+    const specialists = deps.managementRegistry;
+    deps.runs.record(buildRunRecord({
+      requestId: input.requestId,
+      userSubjectHash: subjectHash(input.identity.subject),
+      environment: input.environment,
+      startedAt: input.startedAt,
+      durationMs: Date.now() - input.startedAt.getTime(),
+      routedAgents: input.result.metadata.routedAgents,
+      results: input.specialistResults,
+      workloadFor: (agentId) => specialists?.getSpecialist(agentId)?.spec.identity.clientId,
+      modelProfileFor: (agentId) => specialists?.getSpecialist(agentId)?.spec.model.profile,
+      status: input.result.error ? "failed" : input.result.degraded ? "partial" : "complete",
+      evidenceCount: input.result.citations.length,
+      synthesized: input.result.metadata.tierLUsed,
+    }));
+  } catch {
+    // deliberately swallowed; the run history is observability, not the answer
+  }
+}
+
 function registerManagerRoutes(app: Express, deps: ManagerDependencies): void {
   if (deps.config.env === "local" && deps.oidc instanceof MockOidcClient) {
     const mockOidc = deps.oidc;
@@ -296,7 +348,10 @@ function registerManagerRoutes(app: Express, deps: ManagerDependencies): void {
       const session = bodyResult.data.sessionId === undefined ? undefined : await deps.sessionStore.get(authenticated.subject, bodyResult.data.sessionId);
       const resolvedEntities = session === undefined || session.entities.length === 0 ? undefined : Object.fromEntries(session.entities.map((entity) => [entity.alias, entity.canonical]));
       const conversation = resolvedEntities === undefined ? undefined : { resolvedEntities, ...(session?.previousRequestId ? { previousRequestId: session.previousRequestId } : {}) };
-      const result = await withSpan("sre.query", { "request.id": requestId, "user.subject_hash": subjectHash(identity.subject), environment: bodyResult.data.environment ?? deps.config.defaultEnvironment }, () => executeRequest(
+      const environment = bodyResult.data.environment ?? deps.config.defaultEnvironment;
+      const startedAt = new Date();
+      let specialistResults: SpecialistResultLike[] = [];
+      const result = await withSpan("sre.query", { "request.id": requestId, "user.subject_hash": subjectHash(identity.subject), environment }, () => executeRequest(
         { question: bodyResult.data.question, environment: bodyResult.data.environment, identity, ...(conversation ? { conversation } : {}) },
         {
           manager: deps.agent,
@@ -307,8 +362,10 @@ function registerManagerRoutes(app: Express, deps: ManagerDependencies): void {
           synthesisModel: deps.synthesisModel,
           requestDeadlineMs: deps.config.requestDeadlineMs,
           defaultEnvironment: deps.config.defaultEnvironment,
+          onResults: (results) => { specialistResults = results as SpecialistResultLike[]; },
         },
       ));
+      recordRun(deps, { requestId, identity, environment, startedAt, result, specialistResults });
       if (bodyResult.data.sessionId !== undefined) {
         await deps.sessionStore.put(mergeSessionEntities(session, authenticated.subject, bodyResult.data.sessionId, bodyResult.data.question, requestId));
       }

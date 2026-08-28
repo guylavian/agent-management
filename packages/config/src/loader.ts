@@ -48,12 +48,12 @@ export function loadAgentInstance(opts: LoadAgentInstanceOptions): ManagerAgentC
     throw new ConfigValidationError(`prompt file ${doc.spec.prompt.systemFile} referenced by ${opts.configFile} does not exist`);
   }
   if (systemPrompt.trim().length === 0) throw new ConfigValidationError(`prompt file ${doc.spec.prompt.systemFile} is empty`);
-  if (doc.spec.type === "manager") return { name: doc.metadata.name, owner: doc.metadata.owner, spec: doc.spec, systemPrompt };
+  if (doc.spec.type === "manager") return { name: doc.metadata.name, owner: doc.metadata.owner, ...(doc.metadata.displayName ? { displayName: doc.metadata.displayName } : {}), spec: doc.spec, systemPrompt };
 
   if (opts.approvedCatalogFile === undefined) throw new ConfigValidationError("specialist runtime requires an approved tool catalog");
   const catalog = loadApprovedCatalog(join(base, opts.approvedCatalogFile));
   validateSingleSpecialist(doc, catalog, opts.configFile);
-  return { name: doc.metadata.name, owner: doc.metadata.owner, spec: doc.spec, systemPrompt };
+  return { name: doc.metadata.name, owner: doc.metadata.owner, ...(doc.metadata.displayName ? { displayName: doc.metadata.displayName } : {}), spec: doc.spec, systemPrompt };
 }
 
 /**

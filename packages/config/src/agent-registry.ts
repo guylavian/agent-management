@@ -5,6 +5,10 @@ import type {
   SpecialistAgentConfig,
 } from "./schemas.ts";
 
+function displayName(doc: AgentDocument): { displayName?: string } {
+  return doc.metadata.displayName ? { displayName: doc.metadata.displayName } : {};
+}
+
 export class AgentRegistry {
   readonly #manager: ManagerAgentConfig;
   readonly #specialists: ReadonlyMap<string, SpecialistAgentConfig>;
@@ -31,11 +35,12 @@ export class AgentRegistry {
       const systemPrompt = prompts.get(doc.metadata.name);
       if (systemPrompt === undefined) throw new Error(`missing prompt for ${doc.metadata.name}`);
       if (doc.spec.type === "manager") {
-        manager = { name: doc.metadata.name, owner: doc.metadata.owner, spec: doc.spec, systemPrompt };
+        manager = { name: doc.metadata.name, owner: doc.metadata.owner, ...displayName(doc), spec: doc.spec, systemPrompt };
       } else {
         specialists.set(doc.metadata.name, {
           name: doc.metadata.name,
           owner: doc.metadata.owner,
+          ...displayName(doc),
           spec: doc.spec,
           systemPrompt,
         });
