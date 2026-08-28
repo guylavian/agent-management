@@ -11,7 +11,7 @@ spec:
     metadata:
       labels: {{- include "sre-agent.selectorLabels" . | nindent 8 }}
     spec:
-      serviceAccountName: {{ include "sre-agent.fullname" . }}
+      serviceAccountName: {{ include "sre-agent.serviceAccountName" . }}
       containers:
         - name: runtime
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

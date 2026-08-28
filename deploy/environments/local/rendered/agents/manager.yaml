@@ -1,0 +1,21 @@
+# GENERATED FILE — DO NOT EDIT.
+# Produced by `npm run render:deploy` from:
+#   config/agents/<agent>.yaml
+#   config/prompts/<agent>.md
+#   deploy/environments/<env>/agents/<agent>.yaml
+#   deploy/environments/<env>/model-bindings.yaml
+# CI re-renders and fails on any diff, so edits here are lost, not applied.
+agent:
+  name: manager
+  mode: manager
+  configFile: config/agents/manager.yaml
+deploymentEnvironment: local
+environment: local
+replicaCount: 2
+resources:
+  requests: { cpu: "500m", memory: "512Mi" }
+  limits: { cpu: "1", memory: "1Gi" }
+modelEnv:
+  SRE_MODEL_MANAGER: "qwen3:8b"
+  SRE_MODEL_SYNTHESIS: "qwen3:8b"
+promptSha256: b6426bb804900ca544b99a10dd02be5fdcb4388027242daf7a50633406573c98

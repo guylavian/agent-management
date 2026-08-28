@@ -183,7 +183,79 @@ export function loadDeploymentEnvironment(directory: string, baseDir = process.c
     if (overlays.has(overlay.agentId)) throw new Error(`duplicate deployment overlay for ${overlay.agentId} in ${directory}`);
     overlays.set(overlay.agentId, overlay);
   }
-  const managerFile = join(root, "manager.yaml");
-  const manager = agentDeploymentOverlaySchema.parse(parseYaml(readFileSync(managerFile, "utf8")));
+  const manager = agentDeploymentOverlaySchema.parse(parseYaml(readFileSync(join(root, "manager.yaml"), "utf8")));
   return { settings, overlays, manager };
 }
+
+export function loadModelBindings(directory: string, baseDir = process.cwd()): ModelBindings {
+  const file = join(resolvePath(baseDir, directory), "model-bindings.yaml");
+  return modelBindingsSchema.parse(parseYaml(readFileSync(file, "utf8")));
+}
+
+/**
+ * ENVIRONMENT model bindings: logical profile -> the model actually served here.
+ *
+ * Deliberately carries no credential and no required endpoint. Endpoints and API
+ * keys reach the pod through the integrations Secret referenced by the runtime
+ * chart, so nothing credential-shaped is ever rendered into Git.
+ */
+export const modelBindingsSchema = z
+  .object({
+    apiVersion: z.literal("sre.ai/v1alpha1"),
+    kind: z.literal("ModelBindings"),
+    environment: z.string().min(1),
+    profiles: z.record(
+      z.string().min(1),
+      z
+        .object({
+          provider: z.string().min(1),
+          model: z.string().min(1),
+          /** optional; only for environments that publish a non-secret endpoint */
+          endpoint: z.url().optional(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+export type ModelBindings = z.infer<typeof modelBindingsSchema>;
+
+/** The environment variable a logical model profile is rendered to. */
+export const MODEL_PROFILE_ENV: Readonly<Record<string, string>> = Object.freeze({
+  "manager-router": "SRE_MODEL_MANAGER",
+  "tool-caller": "SRE_MODEL_TOOL_CALLER",
+  "tier-l-synthesis": "SRE_MODEL_SYNTHESIS",
+});
+
+/**
+ * Helm values for exactly one Agent in one environment — the renderer's output
+ * and the only thing Argo CD reads. Strict, so a hand edit that adds a field
+ * fails validation instead of silently diverging from the render.
+ */
+export const renderedAgentValuesSchema = z
+  .object({
+    agent: z
+      .object({
+        name: z.string().regex(/^[a-z][a-z0-9-]*$/u),
+        mode: z.enum(["manager", "specialist"]),
+        configFile: z.string().min(1),
+      })
+      .strict(),
+    deploymentEnvironment: z.string().min(1),
+    environment: z.string().min(1),
+    replicaCount: z.number().int().min(0).max(20),
+    resources: z
+      .object({
+        requests: z.object({ cpu: z.string(), memory: z.string() }).strict(),
+        limits: z.object({ cpu: z.string(), memory: z.string() }).strict(),
+      })
+      .strict(),
+    serviceAccount: z.object({ name: z.string().min(1) }).strict().optional(),
+    /** logical profile -> served model id; never an endpoint or a key */
+    modelEnv: z.record(z.string().min(1), z.string().min(1)),
+    /** proves the renderer resolved the prompt, and makes a prompt change a visible diff */
+    promptSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  })
+  .strict();
+
+export type RenderedAgentValues = z.infer<typeof renderedAgentValuesSchema>;

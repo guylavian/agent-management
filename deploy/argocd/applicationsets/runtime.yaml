@@ -1,0 +1,49 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: sre-agent-runtime
+  namespace: argocd
+spec:
+  # One Application per rendered Agent. The generator DISCOVERS files rather
+  # than listing agents, so onboarding an Agent is a commit under
+  # deploy/environments/<env>/rendered/agents/ and nothing here changes.
+  #
+  # Argo consumes configuration that is ALREADY RENDERED. There is deliberately
+  # no config management plugin: rendering inside the cluster would mean the
+  # committed state and the deployed state could diverge with no visible diff.
+  goTemplate: true
+  goTemplateOptions: [missingkey=error]
+  generators:
+    - git:
+        repoURL: https://git.internal/sre/sre-agent-platform.git
+        revision: main
+        files:
+          - path: deploy/environments/production/rendered/agents/*.yaml
+  template:
+    metadata:
+      # sre-agent-manager, sre-agent-keycloak, sre-agent-network-security, ...
+      name: sre-agent-{{ .agent.name }}
+      labels:
+        sre.ai/agent: "{{ .agent.name }}"
+        sre.ai/mode: "{{ .agent.mode }}"
+    spec:
+      project: sre-agent-platform
+      source:
+        repoURL: https://git.internal/sre/sre-agent-platform.git
+        targetRevision: main
+        # ONE runtime chart and ONE runtime image for every role. The Manager and
+        # every Specialist differ only by agent configuration, which is what stops
+        # Manager/Specialist version skew.
+        path: deploy/runtime/helm
+        helm:
+          valueFiles:
+            - $values/deploy/environments/production/rendered/agents/{{ .agent.name }}.yaml
+      sources: []
+      destination:
+        server: https://kubernetes.default.svc
+        # must equal deploy/environments/production/environment.yaml `namespace`,
+        # because the Manager resolves specialist endpoints by that convention
+        namespace: sre-assistant
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [CreateNamespace=false]

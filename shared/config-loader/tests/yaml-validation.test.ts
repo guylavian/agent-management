@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { parse as parseYaml, parseAllDocuments } from "yaml";
 import { describe, expect, it } from "vitest";
-import { agentDocumentSchema } from "@sre/agent-schema";
-import { accessTools, CONFIG_PATHS, loadAgentRegistry, loadApprovedCatalog, loadAppConfig, loadModelProfiles, loadToolPolicy, validateSemantics, ConfigValidationError } from "../src/index.ts";
+import { agentDocumentSchema, assertNoSecretMaterial } from "@sre/agent-schema";
+import { accessTools, CONFIG_PATHS, loadAgentRegistry, loadApprovedCatalog, loadAppConfig, loadModelProfiles, loadToolPolicy, renderedAgentValuesSchema, validateSemantics, ConfigValidationError } from "../src/index.ts";
 
 describe("startup configuration", () => {
   it("loads all specialist YAML agents and approved tools", () => {
@@ -108,11 +108,34 @@ describe("startup configuration", () => {
     const corpus = parseYaml(readFileSync("eval/questions/cases.yaml", "utf8")) as { cases?: unknown[] };
     expect(corpus.cases).toHaveLength(60);
     for (const agent of ["manager", "active-directory", "openshift", "network-observability", "keycloak", "observability"]) {
-      const parsed = parseYaml(readFileSync(`deploy/runtime/helm/values/${agent}.yaml`, "utf8")) as { agent: { name: string } };
-      expect(parseAllDocuments(readFileSync(`deploy/runtime/helm/values/${agent}.yaml`, "utf8")).every((document) => document.errors.length === 0)).toBe(true);
+      const file = `deploy/environments/production/rendered/agents/${agent}.yaml`;
+      expect(parseAllDocuments(readFileSync(file, "utf8")).every((document) => document.errors.length === 0)).toBe(true);
+      const parsed = renderedAgentValuesSchema.parse(parseYaml(readFileSync(file, "utf8")));
       expect(parsed.agent.name).toBe(agent);
     }
     expect(parseYaml(readFileSync("deploy/runtime/helm/Chart.yaml", "utf8"))).toMatchObject({ apiVersion: "v2", name: "sre-agent-runtime", version: "0.2.0" });
     expect(parseYaml(readFileSync("deploy/runtime/helm/values.yaml", "utf8"))).toMatchObject({ image: { tag: "0.2.0" }, agent: { mode: "manager" } });
+  });
+
+  /**
+   * Rendered values are the deployment interface, so they must stay
+   * credential-free: only references to a secret source may appear.
+   */
+  it("renders no credential material into any environment", () => {
+    for (const environment of readdirSync("deploy/environments")) {
+      const directory = `deploy/environments/${environment}/rendered/agents`;
+      for (const file of readdirSync(directory)) {
+        const contents = readFileSync(`${directory}/${file}`, "utf8");
+        expect(contents, `${environment}/${file}`).not.toMatch(/client[_-]?secret|password|private[_-]?key|api[_-]?key|bearer |access[_-]?token|refresh[_-]?token/iu);
+        assertNoSecretMaterial(parseYaml(contents), `${environment}/${file}`);
+      }
+    }
+  });
+
+  it("renders one values file per ENABLED agent and none for the rest", () => {
+    // absence is how "do not deploy this here" reaches the ApplicationSet,
+    // which discovers files rather than reading an enablement list
+    const poc = readdirSync("deploy/environments/poc/rendered/agents").sort();
+    expect(poc).toEqual(["keycloak.yaml", "manager.yaml", "observability.yaml"]);
   });
 });

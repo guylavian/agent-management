@@ -2,6 +2,11 @@
 sre-agent-{{ .Values.agent.name }}
 {{- end }}
 
+{{/* the overlay may pin an existing ServiceAccount; otherwise the release owns one */}}
+{{- define "sre-agent.serviceAccountName" -}}
+{{- default (include "sre-agent.fullname" .) .Values.serviceAccount.name -}}
+{{- end }}
+
 {{- define "sre-agent.selectorLabels" -}}
 app.kubernetes.io/name: sre-agent-runtime
 app.kubernetes.io/instance: {{ .Release.Name }}

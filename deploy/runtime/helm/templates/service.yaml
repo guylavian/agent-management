@@ -11,11 +11,13 @@ spec:
   ports:
     - { name: http, port: {{ .Values.service.port }}, targetPort: http }
 ---
+{{- if not .Values.serviceAccount.name }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ include "sre-agent.fullname" . }}
   labels: {{- include "sre-agent.labels" . | nindent 4 }}
+{{- end }}
 {{- if .Values.agent.configOverride }}
 ---
 apiVersion: v1
