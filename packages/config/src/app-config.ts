@@ -70,8 +70,13 @@ export const appConfigSchema = z
       issuer: z.string().min(1).default("https://mock-toolhive-sts.sre.local"),
       audiencePrefix: z.string().min(1).default("sre-toolhive"),
       tokenEndpoint: z.string().optional(),
-      strategy: z.enum(["token-exchange", "signed-jwt"]).default("token-exchange"),
+      // "workload-client": the Agent authenticates as its own Keycloak
+      // service-account client and requests one MCP audience scope per call
+      strategy: z.enum(["token-exchange", "signed-jwt", "workload-client"]).default("token-exchange"),
       privateKeyFile: z.string().optional(),
+      /** env-only; never read from Agent YAML and never logged — TDD §36 */
+      clientSecret: z.string().optional(),
+      jwksUri: z.string().optional(),
     }).strict(),
     postgres: z.object({ connectionString: z.string().optional() }).strict(),
     agentTransport: z.object({
@@ -159,6 +164,8 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
       tokenEndpoint: env.SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT,
       strategy: env.SRE_TOOL_CREDENTIAL_STRATEGY,
       privateKeyFile: env.SRE_TOOL_CREDENTIAL_PRIVATE_KEY_FILE,
+      clientSecret: env.SRE_TOOL_CREDENTIAL_CLIENT_SECRET,
+      jwksUri: env.SRE_TOOL_CREDENTIAL_JWKS_URI,
     },
     postgres: { connectionString: env.SRE_POSTGRES_URL },
     agentTransport: {
@@ -213,6 +220,9 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
   }
   if (config.clients.toolhive === "real" && config.toolCredential.strategy === "signed-jwt" && !config.toolCredential.privateKeyFile) {
     problems.push("signed-jwt ToolHive credentials require SRE_TOOL_CREDENTIAL_PRIVATE_KEY_FILE");
+  }
+  if (config.clients.toolhive === "real" && config.toolCredential.strategy === "workload-client" && !(config.toolCredential.tokenEndpoint && config.toolCredential.clientSecret)) {
+    problems.push("workload-client ToolHive credentials require SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT and SRE_TOOL_CREDENTIAL_CLIENT_SECRET");
   }
   if (config.clients.postgres === "real" && !config.postgres.connectionString) {
     problems.push("postgres client is real but SRE_POSTGRES_URL is unset");

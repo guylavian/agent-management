@@ -22,6 +22,7 @@ import {
   JwksDelegatedIdentityVerifier,
   MockDelegationAuthority,
   MockOidcClient,
+  KeycloakWorkloadCredentialExchanger,
   MockToolCredentialAuthority,
   PrivateKeyDelegatedIdentityIssuer,
   PrivateKeyToolCredentialExchanger,
@@ -170,7 +171,17 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     ? toolAuthority as MockToolCredentialAuthority
     : config.toolCredential.strategy === "signed-jwt"
       ? new PrivateKeyToolCredentialExchanger({ issuer: config.toolCredential.issuer, privateKeyPkcs8: readFileSync(config.toolCredential.privateKeyFile as string, "utf8") })
-      : new RealTokenExchangeCredentialExchanger(config.toolCredential);
+      : config.toolCredential.strategy === "workload-client"
+        // the client id comes from this Agent's own canonical config, never from env,
+        // so a process cannot be pointed at another Agent's workload identity
+        ? new KeycloakWorkloadCredentialExchanger({
+            tokenEndpoint: config.toolCredential.tokenEndpoint as string,
+            clientId: specialistAgent.spec.identity.clientId,
+            clientSecret: () => config.toolCredential.clientSecret as string,
+            issuer: config.toolCredential.issuer,
+            ...(config.toolCredential.jwksUri ? { jwksUri: config.toolCredential.jwksUri } : {}),
+          })
+        : new RealTokenExchangeCredentialExchanger(config.toolCredential);
   return {
     mode: "specialist",
     config,
