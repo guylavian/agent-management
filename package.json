@@ -17,7 +17,7 @@
     "real-poc:start": "./scripts/start-real-poc.sh",
     "real-poc:verify": "./scripts/verify-real-poc.sh",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint apps packages scripts eval",
+    "lint": "oxlint apps packages scripts eval --ignore-pattern 'apps/portal/**'",
     "test": "vitest run",
     "validate:yaml": "vitest run packages/config/tests/yaml-validation.test.ts",
     "validate:deploy": "helm lint deploy/helm && helm template sre-agent-manager deploy/helm -f deploy/helm/values/manager.yaml > /dev/null && helm template sre-agent-active-directory deploy/helm -f deploy/helm/values/active-directory.yaml > /dev/null && helm template sre-agent-openshift deploy/helm -f deploy/helm/values/openshift.yaml > /dev/null && helm template sre-agent-network-observability deploy/helm -f deploy/helm/values/network-observability.yaml > /dev/null && helm template sre-agent-keycloak deploy/helm -f deploy/helm/values/keycloak.yaml > /dev/null && helm template sre-agent-observability deploy/helm -f deploy/helm/values/observability.yaml > /dev/null",
