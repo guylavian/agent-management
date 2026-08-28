@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { parse as parseYaml, parseAllDocuments } from "yaml";
 import { describe, expect, it } from "vitest";
-import { loadAgentRegistry, loadAppConfig, ConfigValidationError } from "../src/index.ts";
+import { accessTools, loadAgentRegistry, loadAppConfig, ConfigValidationError } from "../src/index.ts";
 
 describe("startup configuration", () => {
   it("loads all specialist YAML agents and approved tools", () => {
@@ -9,12 +9,16 @@ describe("startup configuration", () => {
     expect(registry.manager.name).toBe("manager");
     expect(registry.listSpecialists().map((agent) => agent.name).sort()).toEqual(["active-directory", "keycloak", "network-observability", "observability", "openshift"]);
     // wiki is a shared MCP tool on the specialists, not a standalone agent
-    expect(registry.getSpecialist("active-directory")?.spec.mcp.allowedTools).toContain("wiki_search");
+    expect(accessTools(registry.getSpecialist("active-directory")!.spec)).toContain("wiki_search");
     expect(registry.getSpecialist("active-directory")?.spec.execution.maxEvidenceBytes).toBe(262_144);
     expect(registry.catalog.tools).toHaveLength(39);
-    expect(registry.getSpecialist("active-directory")?.spec.mcp.allowedTools).not.toContain("keycloak_health");
-    expect(registry.getSpecialist("keycloak")?.spec.mcp.allowedTools).toContain("keycloak_health");
-    expect(registry.getSpecialist("observability")?.spec.mcp.allowedTools).toContain("query");
+    expect(accessTools(registry.getSpecialist("active-directory")!.spec)).not.toContain("keycloak_health");
+    expect(accessTools(registry.getSpecialist("keycloak")!.spec)).toContain("keycloak_health");
+    expect(accessTools(registry.getSpecialist("observability")!.spec)).toContain("query");
+    // every specialist carries its own workload identity — never a shared one
+    const clientIds = registry.listSpecialists().map((agent) => agent.spec.identity.clientId);
+    expect(new Set(clientIds).size).toBe(clientIds.length);
+    expect(clientIds).toContain("sre-agent-keycloak");
     expect(registry.catalog.tools.filter((tool) => tool.serverId === "wiki").every((tool) => tool.evidenceKind === "wiki")).toBe(true);
   });
 

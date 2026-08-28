@@ -1,7 +1,7 @@
 import { importPKCS8, jwtVerify, SignJWT } from "jose";
 import { z } from "zod";
 import { createHash } from "node:crypto";
-import type { RequestIdentity } from "./identity.ts";
+import type { RequestIdentity, WorkloadIdentity } from "./identity.ts";
 
 /**
  * Verified delegated credential presented by a Specialist to ToolHive
@@ -17,6 +17,8 @@ export const toolCredentialSchema = z
     issuer: z.string().min(1),
     audience: z.string().min(1),
     subjectHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    /** workload client that executed the call; audit needs both actors — TDD §13 */
+    workloadClientId: z.string().min(1),
   })
   .strict();
 export type ToolCredential = z.infer<typeof toolCredentialSchema>;
@@ -25,12 +27,18 @@ export interface VerifiedToolPrincipal {
   subject: string;
   groups: string[];
   roles: string[];
+  /** the Agent workload that presented the credential, from the verified `act` claim */
+  workloadClientId: string;
 }
 
-/** Specialist-side: obtains a credential scoped to one ToolHive audience for the effective human. */
+/**
+ * Specialist-side: obtains a short-lived credential scoped to exactly one
+ * ToolHive audience, carrying the Agent's own workload identity as the actor
+ * and the delegated human as the subject — TDD §8/§9/§13.
+ */
 export interface ToolCredentialExchanger {
   readonly mode: "mock" | "real";
-  exchange(identity: RequestIdentity, audience: string, deadline: number): Promise<ToolCredential>;
+  exchange(workload: WorkloadIdentity, identity: RequestIdentity, audience: string, deadline: number): Promise<ToolCredential>;
 }
 
 /** Gateway-side: verifies the credential and returns the effective principal. */
@@ -62,11 +70,11 @@ export class MockToolCredentialAuthority implements ToolCredentialExchanger, Too
     this.#key = new TextEncoder().encode(settings.secret);
   }
 
-  async exchange(identity: RequestIdentity, audience: string, deadline: number): Promise<ToolCredential> {
+  async exchange(workload: WorkloadIdentity, identity: RequestIdentity, audience: string, deadline: number): Promise<ToolCredential> {
     const now = Math.floor(Date.now() / 1000);
     const expiry = Math.min(now + 60, Math.floor(deadline / 1000));
     if (expiry <= now) throw Object.assign(new Error("tool credential deadline expired"), { code: "REQUEST_TIMEOUT" });
-    const token = await new SignJWT({ groups: identity.groups, roles: identity.roles, request_id: identity.requestId })
+    const token = await new SignJWT({ groups: identity.groups, roles: identity.roles, request_id: identity.requestId, ...actorClaims(workload) })
       .setProtectedHeader({ alg: "HS256", typ: "at+jwt" })
       .setIssuer(this.#issuer)
       .setAudience(audience)
@@ -75,7 +83,7 @@ export class MockToolCredentialAuthority implements ToolCredentialExchanger, Too
       .setNotBefore(now - 1)
       .setExpirationTime(expiry)
       .sign(this.#key);
-    return toolCredentialSchema.parse({ token, tokenType: "urn:ietf:params:oauth:token-type:access_token", issuer: this.#issuer, audience, subjectHash: hashSubject(identity.subject) });
+    return toolCredentialSchema.parse({ token, tokenType: "urn:ietf:params:oauth:token-type:access_token", issuer: this.#issuer, audience, subjectHash: hashSubject(identity.subject), workloadClientId: workload.clientId });
   }
 
   async verify(credential: ToolCredential, expectedAudience: string, requestId: string): Promise<VerifiedToolPrincipal> {
@@ -83,12 +91,31 @@ export class MockToolCredentialAuthority implements ToolCredentialExchanger, Too
     const verified = await jwtVerify(credential.token, this.#key, { issuer: this.#issuer, audience: expectedAudience, algorithms: ["HS256"] });
     const payload = verified.payload;
     if (payload.sub === undefined || payload.request_id !== requestId || hashSubject(payload.sub) !== credential.subjectHash) throw Object.assign(new Error("tool credential binding rejected"), { code: "TOOL_DENIED" });
+    // the workload actor is taken from the signed token, never from the unsigned envelope
+    const actor = verifiedActor(payload);
+    if (actor === undefined || actor !== credential.workloadClientId) throw Object.assign(new Error("tool credential workload binding rejected"), { code: "TOOL_DENIED" });
     return {
       subject: payload.sub,
       groups: Array.isArray(payload.groups) ? payload.groups.filter((v): v is string => typeof v === "string") : [],
       roles: Array.isArray(payload.roles) ? payload.roles.filter((v): v is string => typeof v === "string") : [],
+      workloadClientId: actor,
     };
   }
+}
+
+/**
+ * RFC 8693 §4.1 actor claim. `azp` names the workload client for OIDC
+ * verifiers (ToolHive) and `act.sub` preserves the delegation chain for audit:
+ * initiated by the human `sub`, executed by the Agent workload.
+ */
+function actorClaims(workload: WorkloadIdentity): Record<string, unknown> {
+  return { azp: workload.clientId, act: { sub: workload.clientId, agent_id: workload.agentId } };
+}
+
+function verifiedActor(payload: Record<string, unknown>): string | undefined {
+  const act = payload.act;
+  if (typeof act === "object" && act !== null && typeof (act as { sub?: unknown }).sub === "string") return (act as { sub: string }).sub;
+  return typeof payload.azp === "string" ? payload.azp : undefined;
 }
 
 export interface RealTokenExchangeSettings {
@@ -113,7 +140,7 @@ export class RealTokenExchangeCredentialExchanger implements ToolCredentialExcha
     this.#fetch = fetchImplementation;
   }
 
-  async exchange(identity: RequestIdentity, audience: string, deadline: number): Promise<ToolCredential> {
+  async exchange(workload: WorkloadIdentity, identity: RequestIdentity, audience: string, deadline: number): Promise<ToolCredential> {
     if (this.#settings.tokenEndpoint === undefined) {
       throw Object.assign(new Error("INTEGRATION BLOCKER: enterprise token-exchange endpoint (RFC 8693) is not configured"), { code: "TOOL_DENIED" });
     }
@@ -124,8 +151,11 @@ export class RealTokenExchangeCredentialExchanger implements ToolCredentialExcha
       requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
       audience,
       subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
-      // the effective human subject; the enterprise STS binds the workload actor separately
+      // the effective human subject; the Agent workload is the authenticated
+      // client of this request and becomes the `act` claim in the issued token
       subject_token: identity.subject,
+      actor_token_type: "urn:ietf:params:oauth:token-type:jwt",
+      client_id: workload.clientId,
     });
     const response = await this.#fetch(this.#settings.tokenEndpoint, {
       method: "POST",
@@ -142,6 +172,7 @@ export class RealTokenExchangeCredentialExchanger implements ToolCredentialExcha
       issuer: this.#settings.audiencePrefix,
       audience,
       subjectHash: hashSubject(identity.subject),
+      workloadClientId: workload.clientId,
     });
   }
 }
@@ -161,11 +192,11 @@ export class PrivateKeyToolCredentialExchanger implements ToolCredentialExchange
     this.#keyPromise = importPKCS8(settings.privateKeyPkcs8, "RS256");
   }
 
-  async exchange(identity: RequestIdentity, audience: string, deadline: number): Promise<ToolCredential> {
+  async exchange(workload: WorkloadIdentity, identity: RequestIdentity, audience: string, deadline: number): Promise<ToolCredential> {
     const now = Math.floor(Date.now() / 1000);
     const expiry = Math.min(now + 60, Math.floor(deadline / 1000));
     if (expiry <= now) throw Object.assign(new Error("tool credential deadline expired"), { code: "REQUEST_TIMEOUT" });
-    const token = await new SignJWT({ groups: identity.groups, roles: identity.roles, request_id: identity.requestId })
+    const token = await new SignJWT({ groups: identity.groups, roles: identity.roles, request_id: identity.requestId, ...actorClaims(workload) })
       .setProtectedHeader({ alg: "RS256", typ: "at+jwt", kid: "sre-real-poc" })
       .setIssuer(this.#issuer)
       .setAudience(audience)
@@ -174,6 +205,6 @@ export class PrivateKeyToolCredentialExchanger implements ToolCredentialExchange
       .setNotBefore(now - 1)
       .setExpirationTime(expiry)
       .sign(await this.#keyPromise);
-    return toolCredentialSchema.parse({ token, tokenType: "urn:ietf:params:oauth:token-type:access_token", issuer: this.#issuer, audience, subjectHash: hashSubject(identity.subject) });
+    return toolCredentialSchema.parse({ token, tokenType: "urn:ietf:params:oauth:token-type:access_token", issuer: this.#issuer, audience, subjectHash: hashSubject(identity.subject), workloadClientId: workload.clientId });
   }
 }

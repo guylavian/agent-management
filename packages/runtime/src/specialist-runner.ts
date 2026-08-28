@@ -1,8 +1,8 @@
-import { AuthorizationService, subjectHash, type ToolCredential, type ToolCredentialExchanger } from "@sre/auth";
-import type { AgentRegistry, ApprovedCatalog, SpecialistAgentConfig } from "@sre/config";
+import { AuthorizationService, subjectHash, type ToolCredential, type ToolCredentialExchanger, type WorkloadIdentity } from "@sre/auth";
+import { accessServers, audienceFor, type AgentRegistry, type ApprovedCatalog, type SpecialistAgentConfig } from "@sre/config";
 import { enforceEvidenceSetBudget, redactText, specialistResultSchema, type DomainHandoff, type Evidence, type RuntimeError, type SpecialistResult } from "@sre/evidence";
 import type { ModelClient, ChatMessage, ToolSchema } from "@sre/llm";
-import { invokeVisibleToolForSpecialist, toolHiveAudience, toolFailureEvidence, toolResultToEvidence, validateToolArguments, visibleToolsForSpecialist, type ToolHiveClient, type ToolInvocation, type VisibleTool } from "@sre/mcp";
+import { invokeVisibleToolForSpecialist, toolFailureEvidence, toolResultToEvidence, validateToolArguments, visibleToolsForSpecialist, type ToolHiveClient, type ToolInvocation, type VisibleTool } from "@sre/mcp";
 import { z } from "zod";
 import { incrementMetric, withSpan } from "@sre/telemetry";
 import type { ExecutionContext } from "./types.ts";
@@ -63,8 +63,10 @@ async function runSpecialistLoop(agent: SpecialistAgentConfig, catalog: Approved
   // ToolHive authenticates discovery too. Exchange one narrow credential per
   // configured server before listing tools; a failed server contributes no tools.
   if (deps.credentialExchanger !== undefined) {
-    const exchanges = await Promise.allSettled(agent.spec.mcp.servers.map(async (serverId) => {
-      const credential = await deps.credentialExchanger?.exchange(ctx.identity, toolHiveAudience(serverId), deadline);
+    const exchanges = await Promise.allSettled(accessServers(agent.spec).map(async (serverId) => {
+      const audience = audienceFor(agent.spec, serverId);
+      if (audience === undefined) return;
+      const credential = await deps.credentialExchanger?.exchange(workload(agent), ctx.identity, audience, deadline);
       if (credential) credentials.set(serverId, credential);
     }));
     void exchanges;
@@ -129,6 +131,15 @@ async function runSpecialistLoop(agent: SpecialistAgentConfig, catalog: Approved
   }
 }
 
+/**
+ * The Agent's own workload identity — distinct from the delegated human. The
+ * credential presented to ToolHive carries both: the human as the subject that
+ * initiated the request, the workload as the actor that executed it (TDD §13).
+ */
+function workload(agent: SpecialistAgentConfig): WorkloadIdentity {
+  return { clientId: agent.spec.identity.clientId, provider: agent.spec.identity.provider, agentId: agent.name };
+}
+
 const CONTROL_TOOL_NAMES = ["answer", "need_domain", "insufficient_evidence"] as const;
 
 // virtual control tools: the model calls these to finish; they never execute through ToolHive
@@ -170,7 +181,9 @@ function toStringArray(value: unknown): string[] {
 async function executeTool(agent: SpecialistAgentConfig, catalog: ApprovedCatalog, ctx: ExecutionContext, deps: Omit<SpecialistDependencies, "registry">, selected: VisibleTool, args: Record<string, unknown>, credentials: Map<string, ToolCredential>, deadline: number): Promise<{ evidence: Evidence; error?: RuntimeError }> {
   let credential = credentials.get(selected.approved.serverId);
   if (credential === undefined && deps.credentialExchanger !== undefined) {
-    credential = await deps.credentialExchanger.exchange(ctx.identity, toolHiveAudience(selected.approved.serverId), deadline);
+    const audience = audienceFor(agent.spec, selected.approved.serverId);
+    if (audience === undefined) throw Object.assign(new Error("Tool access denied"), { code: "TOOL_DENIED" });
+    credential = await deps.credentialExchanger.exchange(workload(agent), ctx.identity, audience, deadline);
     credentials.set(selected.approved.serverId, credential);
   }
   const invocation: ToolInvocation = { serverId: selected.approved.serverId, toolName: selected.schema.name, arguments: args, environment: ctx.environment, requestId: ctx.requestId, identity: ctx.identity, ...(credential ? { credential } : {}), timeoutMs: Math.min(selected.approved.timeoutMs, Math.max(1, deadline - Date.now())) };

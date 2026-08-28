@@ -20,6 +20,10 @@
         "owner": {
           "type": "string",
           "minLength": 1
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
@@ -36,6 +40,17 @@
             "type": {
               "type": "string",
               "const": "manager"
+            },
+            "lifecycle": {
+              "default": "active",
+              "type": "string",
+              "enum": [
+                "draft",
+                "active",
+                "disabled",
+                "decommissioning",
+                "removed"
+              ]
             },
             "model": {
               "type": "object",
@@ -126,6 +141,7 @@
           },
           "required": [
             "type",
+            "lifecycle",
             "model",
             "prompt",
             "agents",
@@ -140,6 +156,17 @@
             "type": {
               "type": "string",
               "const": "specialist"
+            },
+            "lifecycle": {
+              "default": "active",
+              "type": "string",
+              "enum": [
+                "draft",
+                "active",
+                "disabled",
+                "decommissioning",
+                "removed"
+              ]
             },
             "model": {
               "type": "object",
@@ -175,31 +202,53 @@
               ],
               "additionalProperties": false
             },
-            "mcp": {
+            "identity": {
               "type": "object",
               "properties": {
-                "servers": {
-                  "minItems": 1,
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "minLength": 1
-                  }
+                "provider": {
+                  "type": "string",
+                  "const": "keycloak"
                 },
-                "allowedTools": {
-                  "minItems": 1,
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "minLength": 1
-                  }
+                "clientId": {
+                  "type": "string",
+                  "pattern": "^sre-agent-[a-z][a-z0-9-]*$"
                 }
               },
               "required": [
-                "servers",
-                "allowedTools"
+                "provider",
+                "clientId"
               ],
               "additionalProperties": false
+            },
+            "access": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "mcp": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "audience": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tools": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "required": [
+                  "mcp",
+                  "tools"
+                ],
+                "additionalProperties": false
+              }
             },
             "execution": {
               "type": "object",
@@ -290,15 +339,34 @@
                 "requiredRoles"
               ],
               "additionalProperties": false
+            },
+            "security": {
+              "default": {
+                "readOnly": true
+              },
+              "type": "object",
+              "properties": {
+                "readOnly": {
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": [
+                "readOnly"
+              ],
+              "additionalProperties": false
             }
           },
           "required": [
             "type",
+            "lifecycle",
             "model",
             "prompt",
-            "mcp",
+            "identity",
+            "access",
             "execution",
-            "authorization"
+            "authorization",
+            "security"
           ],
           "additionalProperties": false
         }

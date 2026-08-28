@@ -3,13 +3,21 @@ kind: Agent
 metadata:
   name: observability
   owner: sre-observability
+  displayName: Observability Agent
 spec:
   type: specialist
+  lifecycle: active
   model: { tier: small, profile: tool-caller }
   prompt: { systemFile: prompts/observability.md }
-  mcp:
-    servers: [prometheus, wiki]
-    allowedTools: [query, range_query, metric_metadata, label_names, label_values, series, list_targets, healthy, ready, runtime_info, build_info, wiki_search, wiki_read_page, wiki_route]
+  identity: { provider: keycloak, clientId: sre-agent-observability }
+  access:
+    - mcp: prometheus
+      audience: sre-toolhive:prometheus
+      tools: [query, range_query, metric_metadata, label_names, label_values, series, list_targets, healthy, ready, runtime_info, build_info]
+    - mcp: wiki
+      audience: sre-toolhive:wiki
+      tools: [wiki_search, wiki_read_page, wiki_route]
   execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
   discovery: { allowedNeedsDomains: [keycloak] }
   authorization: { requiredRoles: [infra-read] }
+  security: { readOnly: true }

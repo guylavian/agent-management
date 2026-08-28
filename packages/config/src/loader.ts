@@ -4,6 +4,7 @@ import { parse as parseYaml } from "yaml";
 import {
   agentDocumentSchema,
   approvedCatalogSchema,
+  assertNoSecretMaterial,
   type AgentDocument,
   type ApprovedCatalog,
   type ManagerAgentConfig,
@@ -132,11 +133,11 @@ export function loadApprovedCatalog(path: string): ApprovedCatalog {
 
 function validateSingleSpecialist(doc: AgentDocument, catalog: ApprovedCatalog, file: string): void {
   if (doc.spec.type !== "specialist") throw new ConfigValidationError(`${file}: expected specialist config`);
-  const servers = new Set(doc.spec.mcp.servers);
-  for (const server of servers) {
-    if (!catalog.tools.some((tool) => tool.serverId === server)) throw new ConfigValidationError(`${file}: MCP server "${server}" is not in the approved catalog`);
-  }
-  for (const toolName of doc.spec.mcp.allowedTools) {
-    if (!catalog.tools.some((tool) => tool.toolName === toolName && servers.has(tool.serverId))) throw new ConfigValidationError(`${file}: tool "${toolName}" is not approved for this specialist`);
+  assertNoSecretMaterial(doc.spec);
+  for (const entry of doc.spec.access) {
+    if (!catalog.tools.some((tool) => tool.serverId === entry.mcp)) throw new ConfigValidationError(`${file}: MCP server "${entry.mcp}" is not in the approved catalog`);
+    for (const toolName of entry.tools) {
+      if (!catalog.tools.some((tool) => tool.toolName === toolName && tool.serverId === entry.mcp)) throw new ConfigValidationError(`${file}: tool "${toolName}" is not approved for MCP "${entry.mcp}"`);
+    }
   }
 }

@@ -1,5 +1,5 @@
 import { AuthorizationService, type RequestIdentity, type ToolCredential } from "@sre/auth";
-import type { AgentRegistry, ApprovedCatalog, ApprovedTool, SpecialistAgentConfig } from "@sre/config";
+import { accessServers, type AgentRegistry, type ApprovedCatalog, type ApprovedTool, type SpecialistAgentConfig } from "@sre/config";
 import type { McpTool, ToolHiveClient, ToolInvocation, ToolResult } from "./toolhive-client.ts";
 
 export interface VisibleTool { approved: ApprovedTool; schema: McpTool }
@@ -27,7 +27,7 @@ export async function visibleToolsForSpecialist(
   credentials: ReadonlyMap<string, ToolCredential> = new Map(),
   signal?: AbortSignal,
 ): Promise<VisibleTool[]> {
-  const discovered = await Promise.allSettled(agent.spec.mcp.servers.map((server) => toolhive.listTools(server, identity, environment, { credential: credentials.get(server), requestId: identity.requestId, ...(signal ? { signal } : {}) })));
+  const discovered = await Promise.allSettled(accessServers(agent.spec).map((server) => toolhive.listTools(server, identity, environment, { credential: credentials.get(server), requestId: identity.requestId, ...(signal ? { signal } : {}) })));
   const gatewayTools = discovered.flatMap((result) => result.status === "fulfilled" ? result.value : []);
   const gatewayByKey = new Map(gatewayTools.map((tool) => [`${tool.serverId}:${tool.name}`, tool]));
   return catalog.tools.flatMap((approved) => {
@@ -44,6 +44,11 @@ export async function invokeVisibleToolForSpecialist(
   invocation: ToolInvocation,
 ): Promise<ToolResult> {
   const credentials = new Map(invocation.credential ? [[invocation.serverId, invocation.credential]] : []);
+  // audience → resource binding is checked before the call, so a credential minted
+  // for another ToolHive resource is rejected by the runtime and never presented
+  if (invocation.credential !== undefined && !authorization.authorizeAudience(agent, invocation.serverId, invocation.credential.audience).allowed) {
+    throw Object.assign(new Error("Tool access denied"), { code: "TOOL_DENIED" });
+  }
   const allowed = await visibleToolsForSpecialist(catalog, authorization, toolhive, agent, invocation.identity, invocation.environment, credentials, invocation.signal);
   if (!allowed.some(({ approved }) => approved.serverId === invocation.serverId && approved.toolName === invocation.toolName)) {
     throw Object.assign(new Error("Tool access denied"), { code: "TOOL_DENIED" });

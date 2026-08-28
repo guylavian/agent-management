@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { RequestIdentity, ToolCredential, ToolCredentialVerifier } from "@sre/auth";
+import { toolHiveAudience as canonicalAudience } from "@sre/config";
 
 export interface McpTool {
   serverId: string;
@@ -23,10 +24,9 @@ export interface ToolInvocation {
   signal?: AbortSignal;
 }
 
-/** ToolHive audience for a given MCP server; the credential is scoped to exactly this value. */
-export function toolHiveAudience(serverId: string): string {
-  return `sre-toolhive:${serverId}`;
-}
+// the audience derivation is canonical in @sre/agent-schema so runtime, portal,
+// Keycloak provisioning and ToolHive cannot disagree about it
+export { toolHiveAudience } from "@sre/config";
 
 export interface ToolResult {
   content: unknown;
@@ -41,6 +41,8 @@ export interface AuditEvent {
   toolName: string;
   decision: "allowed" | "denied";
   backendCalled: boolean;
+  /** Agent workload that executed the call, from the verified credential — TDD §13 */
+  workloadClientId?: string;
 }
 
 export interface ToolHiveClient {
@@ -104,18 +106,20 @@ export class MockToolHiveClient implements ToolHiveClient {
     // effective principal comes from the verified credential when a verifier is configured
     let principalSubject = call.identity.subject;
     let principalRoles = call.identity.roles;
+    let workloadClientId: string | undefined;
     if (this.#verifier !== undefined) {
       try {
-        const verified = await this.#verifier.verify(requireCredential(call), toolHiveAudience(call.serverId), call.requestId);
+        const verified = await this.#verifier.verify(requireCredential(call), canonicalAudience(call.serverId), call.requestId);
         principalSubject = verified.subject;
         principalRoles = verified.roles;
+        workloadClientId = verified.workloadClientId;
       } catch {
         this.audit.push({ requestId: call.requestId, subject: call.credential?.subjectHash ?? "unverified", serverId: call.serverId, toolName: call.toolName, decision: "denied", backendCalled: false });
         throw Object.assign(new Error("tool access denied"), { code: "TOOL_DENIED" });
       }
     }
     const allowed = canUse({ ...call.identity, subject: principalSubject, roles: principalRoles }, call.toolName) && MOCK_TOOLS.some((tool) => tool.serverId === call.serverId && tool.name === call.toolName) && call.arguments.mode !== "denied";
-    this.audit.push({ requestId: call.requestId, subject: principalSubject, serverId: call.serverId, toolName: call.toolName, decision: allowed ? "allowed" : "denied", backendCalled: allowed });
+    this.audit.push({ requestId: call.requestId, subject: principalSubject, serverId: call.serverId, toolName: call.toolName, decision: allowed ? "allowed" : "denied", backendCalled: allowed, ...(workloadClientId ? { workloadClientId } : {}) });
     if (!allowed) throw Object.assign(new Error("tool access denied"), { code: "TOOL_DENIED" });
     this.backendCalls.push(call);
     if (call.arguments.mode === "timeout") await new Promise<never>((_resolve, reject) => {

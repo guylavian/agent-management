@@ -1,5 +1,5 @@
 import { ConfigValidationError } from "./app-config.ts";
-import type { AgentDocument, ApprovedCatalog } from "./schemas.ts";
+import { assertNoSecretMaterial, isAgentEnabled, type AgentDocument, type ApprovedCatalog } from "./schemas.ts";
 
 /**
  * Semantic validation per TDD §5.3 / §22 — fail closed:
@@ -21,6 +21,12 @@ export function validateSemantics(
       throw new ConfigValidationError(`duplicate agent name "${doc.metadata.name}" (${file})`);
     }
     names.add(doc.metadata.name);
+    // secrets never belong in Git-tracked Agent configuration — TDD §36
+    try {
+      assertNoSecretMaterial(doc.spec);
+    } catch (error) {
+      throw new ConfigValidationError(`${file}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   const managers = documents.filter(({ doc }) => doc.spec.type === "manager");
@@ -30,6 +36,12 @@ export function validateSemantics(
 
   const specialistNames = new Set(
     documents.filter(({ doc }) => doc.spec.type === "specialist").map(({ doc }) => doc.metadata.name),
+  );
+  // an Agent that is not active must not be reachable through routing either — TDD §34
+  const routableNames = new Set(
+    documents
+      .filter(({ doc }) => doc.spec.type === "specialist" && isAgentEnabled(doc.spec))
+      .map(({ doc }) => doc.metadata.name),
   );
 
   const catalogServers = new Set(catalog.tools.map((t) => t.serverId));
@@ -49,24 +61,27 @@ export function validateSemantics(
             `manager ${file} allows unknown specialist "${agent}"`,
           );
         }
+        if (!routableNames.has(agent)) {
+          throw new ConfigValidationError(
+            `manager ${file} routes to "${agent}" but that agent's lifecycle is not active`,
+          );
+        }
       }
       continue;
     }
-    for (const server of spec.mcp.servers) {
-      if (!catalogServers.has(server)) {
+    for (const entry of spec.access) {
+      if (!catalogServers.has(entry.mcp)) {
         throw new ConfigValidationError(
-          `${file}: MCP server "${server}" is not in the approved catalog`,
+          `${file}: MCP server "${entry.mcp}" is not in the approved catalog`,
         );
       }
-    }
-    const specServers = new Set(spec.mcp.servers);
-    for (const tool of spec.mcp.allowedTools) {
-      const servers = catalogByTool.get(tool);
-      const hosted = servers === undefined ? [] : [...servers].filter((s) => specServers.has(s));
-      if (hosted.length === 0) {
-        throw new ConfigValidationError(
-          `${file}: tool "${tool}" is not in the approved catalog for servers [${spec.mcp.servers.join(", ")}]`,
-        );
+      // per-MCP scoping: the tool must be approved on THIS server, not merely somewhere
+      for (const tool of entry.tools) {
+        if (!catalogByTool.get(tool)?.has(entry.mcp)) {
+          throw new ConfigValidationError(
+            `${file}: tool "${tool}" is not in the approved catalog for MCP "${entry.mcp}"`,
+          );
+        }
       }
     }
     for (const domain of spec.discovery?.allowedNeedsDomains ?? []) {

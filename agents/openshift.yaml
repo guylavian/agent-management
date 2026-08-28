@@ -3,13 +3,27 @@ kind: Agent
 metadata:
   name: openshift
   owner: paas
+  displayName: OpenShift Agent
 spec:
   type: specialist
+  lifecycle: active
   model: { tier: small, profile: tool-caller }
   prompt: { systemFile: prompts/openshift.md }
-  mcp:
-    servers: [openshift, prometheus, splunk, wiki]
-    allowedTools: [get_pod_status, list_namespace_events, get_route_status, get_deployment_status, query_cluster_metrics, search_platform_logs, wiki_search, wiki_read_page]
+  identity: { provider: keycloak, clientId: sre-agent-openshift }
+  access:
+    - mcp: openshift
+      audience: sre-toolhive:openshift
+      tools: [get_pod_status, list_namespace_events, get_route_status, get_deployment_status]
+    - mcp: prometheus
+      audience: sre-toolhive:prometheus
+      tools: [query_cluster_metrics]
+    - mcp: splunk
+      audience: sre-toolhive:splunk
+      tools: [search_platform_logs]
+    - mcp: wiki
+      audience: sre-toolhive:wiki
+      tools: [wiki_search, wiki_read_page]
   execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
   discovery: { allowedNeedsDomains: [network-observability] }
   authorization: { requiredRoles: [infra-read] }
+  security: { readOnly: true }

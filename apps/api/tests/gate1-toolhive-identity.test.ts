@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { MockToolCredentialAuthority, type RequestIdentity } from "@sre/auth";
+import { MockToolCredentialAuthority, type RequestIdentity, type WorkloadIdentity } from "@sre/auth";
 import { MockToolHiveClient, toolHiveAudience, type ToolInvocation } from "@sre/mcp";
+
+/** the Agent's own workload identity — the actor, distinct from the human subject */
+const AD_WORKLOAD: WorkloadIdentity = { clientId: "sre-agent-active-directory", provider: "keycloak", agentId: "active-directory" };
 
 /**
  * Architecture Gate #1 at the Specialist → ToolHive hop: ToolHive verifies a
@@ -19,7 +22,7 @@ function makeGateway(): { authority: MockToolCredentialAuthority; gateway: MockT
 
 async function invoke(identity: RequestIdentity, gateway: MockToolHiveClient, authority: MockToolCredentialAuthority): Promise<ToolInvocation> {
   const deadline = Date.now() + 30_000;
-  const credential = await authority.exchange(identity, toolHiveAudience("active-directory"), deadline);
+  const credential = await authority.exchange(AD_WORKLOAD, identity, toolHiveAudience("active-directory"), deadline);
   const call: ToolInvocation = {
     serverId: "active-directory",
     toolName: "get_replication_status",
@@ -42,6 +45,27 @@ describe("Gate #1 — verified delegated identity to ToolHive", () => {
     expect(gateway.backendCalls).toHaveLength(1);
     const audit = gateway.audit.at(-1);
     expect(audit).toMatchObject({ subject: "alice", decision: "allowed", backendCalled: true, requestId: "req-alice-1" });
+    // the audit chain records BOTH actors: initiated by the human, executed by the Agent workload
+    expect(audit?.workloadClientId).toBe("sre-agent-active-directory");
+  });
+
+  it("rejects a credential whose workload actor was swapped after signing", async () => {
+    const { authority, gateway } = makeGateway();
+    const alice: RequestIdentity = { subject: "alice", groups: ["domain-services"], roles: ["infra-read"], requestId: "req-alice-4" };
+    const credential = await authority.exchange(AD_WORKLOAD, alice, toolHiveAudience("active-directory"), Date.now() + 30_000);
+    const call: ToolInvocation = {
+      serverId: "active-directory",
+      toolName: "get_replication_status",
+      arguments: { sourceDc: "DC-TLV-01", mode: "ok" },
+      environment: "prod",
+      requestId: alice.requestId,
+      identity: alice,
+      // the signed `act` claim still says active-directory; the envelope lies
+      credential: { ...credential, workloadClientId: "sre-agent-openshift" },
+      timeoutMs: 5_000,
+    };
+    await expect(gateway.invoke(call)).rejects.toMatchObject({ code: "TOOL_DENIED" });
+    expect(gateway.backendCalls).toHaveLength(0);
   });
 
   it("denies an unauthorized user and never calls the backend", async () => {
@@ -56,7 +80,7 @@ describe("Gate #1 — verified delegated identity to ToolHive", () => {
   it("rejects a credential minted for a different agent audience (no replay)", async () => {
     const { authority, gateway } = makeGateway();
     const alice: RequestIdentity = { subject: "alice", groups: ["domain-services"], roles: ["infra-read"], requestId: "req-alice-2" };
-    const wrongAudienceCredential = await authority.exchange(alice, toolHiveAudience("openshift"), Date.now() + 30_000);
+    const wrongAudienceCredential = await authority.exchange(AD_WORKLOAD, alice, toolHiveAudience("openshift"), Date.now() + 30_000);
     const call: ToolInvocation = {
       serverId: "active-directory",
       toolName: "get_replication_status",
