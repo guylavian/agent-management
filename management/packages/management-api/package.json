@@ -1,5 +1,5 @@
 {
-  "name": "@sre/rag",
+  "name": "@sre/management-api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,9 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@sre/auth": "*",
-    "@sre/config": "*",
-    "@sre/evidence": "*",
+    "@sre/agent-schema": "*",
     "zod": "4.4.3"
   }
 }

@@ -7,9 +7,10 @@ import {
   type AgentLifecycle,
   type ApprovedCatalog,
   type SpecialistAgentConfig,
+  audienceScopeName,
+  toolRoleName,
   type ToolClassification,
 } from "@sre/agent-schema";
-import { audienceScopeName, toolRoleName } from "@sre/keycloak-provisioning";
 
 /**
  * Read-only projections of the canonical Agent policy for the management plane

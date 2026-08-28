@@ -1,4 +1,7 @@
-import { audienceFor, isAgentEnabled, workloadClientId, type SpecialistAgentConfig } from "@sre/agent-schema";
+import { audienceFor, audienceScopeName, isAgentEnabled, toolRoleName, workloadClientId, type SpecialistAgentConfig } from "@sre/agent-schema";
+
+// canonical derivations live in the contract; re-exported for provisioning callers
+export { audienceScopeName, toolRoleName } from "@sre/agent-schema";
 
 /**
  * Agent definition → desired Keycloak state (TDD §31).
@@ -47,16 +50,6 @@ export interface DesiredClientRole {
   description: string;
   mcp: string;
   tool: string;
-}
-
-/** Client-scope name for one MCP. Kebab-cased because Keycloak scope names cannot contain ':'. */
-export function audienceScopeName(mcp: string): string {
-  return `sre-toolhive-${mcp}`;
-}
-
-/** One client role per granted (MCP, tool) pair, so Keycloak can express the same policy the runtime enforces. */
-export function toolRoleName(mcp: string, tool: string): string {
-  return `${mcp}:${tool}`;
 }
 
 export function desiredClientFor(agent: SpecialistAgentConfig): DesiredClient {

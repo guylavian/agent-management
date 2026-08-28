@@ -1,0 +1,54 @@
+# Management plane. A single deployment, unlike the runtime which ships one
+# release per logical agent.
+
+image:
+  repository: registry.internal/sre-agent-portal
+  tag: 0.1.0
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+service:
+  port: 7007
+
+# Read-only management API of the execution plane. The portal reaches the
+# Manager over HTTP; it does not share a process or a database with it.
+runtime:
+  managementApiUrl: http://sre-agent-manager.sre-assistant.svc.cluster.local
+
+# Human sign-in. A DIFFERENT authorization domain from Agent workload identity:
+# signing in here never grants an Agent access to an MCP.
+oidc:
+  metadataUrl: ""
+  clientId: sre-agent-portal
+  # secret name holding SRE_PORTAL_OIDC_CLIENT_SECRET; never inline a secret here
+  clientSecretRef: sre-agent-portal-oidc
+
+# Git host used to open Agent change pull requests. With no token the portal
+# reports "not configured" rather than pretending a PR was opened.
+gitops:
+  provider: none
+  owner: ""
+  repo: ""
+  baseBranch: main
+  tokenSecretRef: sre-agent-portal-gitops
+
+postgres:
+  # Backstage catalog storage; the portal keeps no runtime state
+  connectionSecretRef: sre-agent-portal-postgres
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# The portal must not be able to reach MCP servers or ToolHive directly.
+networkPolicy:
+  enabled: true
+  allowEgressTo:
+    - sre-agent-manager
+    - keycloak
+    - postgres

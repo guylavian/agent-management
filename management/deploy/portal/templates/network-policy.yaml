@@ -1,0 +1,39 @@
+{{- if .Values.networkPolicy.enabled }}
+# The management plane must not be able to reach ToolHive or an MCP server
+# directly. Egress is restricted to the runtime's management API, the identity
+# provider and the portal's own catalog database, so a compromised console
+# cannot become a second path to infrastructure.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sre-agent-portal
+  labels:
+    app.kubernetes.io/name: sre-agent-portal
+    app.kubernetes.io/component: management-plane
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sre-agent-portal
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sre-ingress
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.port }}
+  egress:
+    {{- range .Values.networkPolicy.allowEgressTo }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ . }}
+    {{- end }}
+    # DNS only; no general internet egress in an air-gapped target
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+{{- end }}

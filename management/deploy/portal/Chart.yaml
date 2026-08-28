@@ -1,0 +1,11 @@
+apiVersion: v2
+name: sre-agent-portal
+description: >-
+  Agent Management Portal (Backstage) — the MANAGEMENT PLANE of the SRE Agent
+  Platform. It is a console: it reads the runtime's read-only management API and
+  proposes configuration changes as pull requests. It never proxies MCP traffic,
+  never holds a workload credential, and enforces nothing about runtime tool
+  access — the execution plane remains authoritative.
+type: application
+version: 0.1.0
+appVersion: 0.1.0

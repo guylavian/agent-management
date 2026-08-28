@@ -10,7 +10,7 @@
 ## Install
 
 ```bash
-npm install              # runtime workspaces (apps/api, packages/*)
+npm install              # contracts + runtime + management packages
 npm run install:portal   # Backstage (yarn 4, separate workspace)
 ```
 
@@ -39,7 +39,7 @@ empty platform.
 ## Check
 
 ```bash
-npm run check         # typecheck + lint + 239 tests + YAML validation + helm lint/render
+npm run check         # typecheck + lint + boundaries + tests + YAML + both Helm charts
 npm run check:portal  # Backstage typecheck
 npm run build         # runtime typecheck + portal bundles
 ```
@@ -70,7 +70,7 @@ Request). By hand:
 3. add the tools to `policies/approved-tools.yaml` — only `readOnlyVerified` tools
 4. register routing metadata in `agents/registry.yaml`
 5. add `<name>` to `agents/manager.yaml` under `spec.agents.allowed`
-6. add `deploy/helm/values/<name>.yaml`
+6. add `runtime/deploy/helm/values/<name>.yaml`
 7. `npm run check`
 
 The workload client id and ToolHive audience are derived; do not invent them.

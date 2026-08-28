@@ -2,8 +2,8 @@
 
 | Plane | Component | Responsibility |
 |---|---|---|
-| Management | Backstage (`apps/portal`) | Agent management UI, auth shell, catalog, ownership, plugin host |
-| Execution | Runtime (`apps/api`) | Manager, Specialists, runtime authorization — **authoritative** |
+| Management | Backstage (`management/portal`) | Agent management UI, auth shell, catalog, ownership, plugin host |
+| Execution | Runtime (`runtime/app`) | Manager, Specialists, runtime authorization — **authoritative** |
 | Security | Keycloak | Identity, AuthN, AuthZ for humans and Agent workloads |
 | Access | ToolHive | MCP security boundary; verifies issuer, audience, expiry, caller |
 | Configuration | Git | Source of truth for Agent policy |
