@@ -41,7 +41,7 @@ spec:
               sre.ai/mode: specialist
       ports:
         - { protocol: TCP, port: 3000 }
-    # manager → IdP / vLLM / OTel / PostgreSQL. Deliberately NOT ToolHive/RAG:
+    # manager → IdP / vLLM / OTel / PostgreSQL. Deliberately NOT ToolHive:
     # the manager never accumulates the specialists' data-plane access.
     - to:
         - namespaceSelector:
@@ -51,7 +51,7 @@ spec:
         - { protocol: TCP, port: {{ . }} }
         {{- end }}
     {{- else }}
-    # specialist → ToolHive / RAG / vLLM / OTel; never to other agent pods
+    # specialist → ToolHive / vLLM / OTel; never to other agent pods
     - to:
         - namespaceSelector:
             matchLabels: { {{ .Values.networkPolicy.platformNamespaceLabel }}: "true" }

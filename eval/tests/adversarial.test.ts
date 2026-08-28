@@ -3,7 +3,6 @@ import { loadAgentRegistry } from "@sre/config";
 import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
 import { MockModelClient } from "@sre/llm";
 import { MockToolHiveClient, type ToolInvocation, type ToolResult } from "@sre/mcp";
-import { MockRagClient, type RagClient } from "@sre/rag";
 import { loadAgentServiceRegistry } from "@sre/agent-registry";
 import { executeRequest, inProcessRuntimeDependencies } from "@sre/runtime";
 import { MockSessionStore } from "@sre/session";
@@ -21,8 +20,8 @@ class CapturingModel implements ModelClient {
   async chat(request: ChatRequest): Promise<ChatResponse> { this.requests.push(request); return this.#delegate.chat(request); }
 }
 
-const deps = (model: ModelClient, toolhive = new MockToolHiveClient(), rag: RagClient = new MockRagClient()) =>
-  inProcessRuntimeDependencies({ registry, serviceRegistry, authorization, model, toolhive, rag, requestDeadlineMs: 5000, defaultEnvironment: "prod" });
+const deps = (model: ModelClient, toolhive = new MockToolHiveClient()) =>
+  inProcessRuntimeDependencies({ registry, serviceRegistry, authorization, model, toolhive, requestDeadlineMs: 5000, defaultEnvironment: "prod" });
 
 describe("T6 adversarial controls", () => {
   it("keeps wiki-tool prompt injection as redacted evidence data", async () => {

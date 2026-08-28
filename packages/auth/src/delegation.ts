@@ -1,4 +1,4 @@
-import { createRemoteJWKSet, importPKCS8, jwtVerify, SignJWT, type JWTPayload } from "jose";
+import { createRemoteJWKSet, importPKCS8, importSPKI, jwtVerify, SignJWT, type JWTPayload } from "jose";
 import {
   delegatedIdentityContextSchema,
   hashDelegatedSubject,
@@ -72,6 +72,23 @@ export class JwksDelegatedIdentityVerifier implements DelegatedIdentityVerifier 
   async verify(context: DelegatedIdentityContext, expectedAudience: string, requestId: string): Promise<RequestIdentity> {
     if (context.audience !== expectedAudience || context.issuer !== this.#issuer) throw new Error("delegated identity context rejected");
     const verified = await jwtVerify(context.token, this.#jwks, { issuer: this.#issuer, audience: expectedAudience });
+    return verifiedIdentity(verified.payload, context, requestId);
+  }
+}
+
+/** Verifies the local PoC's asymmetric delegated tokens from a mounted public key. */
+export class PublicKeyDelegatedIdentityVerifier implements DelegatedIdentityVerifier {
+  readonly #issuer: string;
+  readonly #keyPromise: ReturnType<typeof importSPKI>;
+
+  constructor(settings: { issuer: string; publicKeySpki: string }) {
+    this.#issuer = settings.issuer;
+    this.#keyPromise = importSPKI(settings.publicKeySpki, "RS256");
+  }
+
+  async verify(context: DelegatedIdentityContext, expectedAudience: string, requestId: string): Promise<RequestIdentity> {
+    if (context.audience !== expectedAudience || context.issuer !== this.#issuer) throw new Error("delegated identity context rejected");
+    const verified = await jwtVerify(context.token, await this.#keyPromise, { issuer: this.#issuer, audience: expectedAudience, algorithms: ["RS256"] });
     return verifiedIdentity(verified.payload, context, requestId);
   }
 }

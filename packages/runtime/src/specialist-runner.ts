@@ -3,7 +3,6 @@ import type { AgentRegistry, ApprovedCatalog, SpecialistAgentConfig } from "@sre
 import { enforceEvidenceSetBudget, redactText, specialistResultSchema, type DomainHandoff, type Evidence, type RuntimeError, type SpecialistResult } from "@sre/evidence";
 import type { ModelClient, ChatMessage, ToolSchema } from "@sre/llm";
 import { invokeVisibleToolForSpecialist, toolHiveAudience, toolFailureEvidence, toolResultToEvidence, validateToolArguments, visibleToolsForSpecialist, type ToolHiveClient, type ToolInvocation, type VisibleTool } from "@sre/mcp";
-import type { RagClient } from "@sre/rag";
 import { z } from "zod";
 import { incrementMetric, withSpan } from "@sre/telemetry";
 import type { ExecutionContext } from "./types.ts";
@@ -35,7 +34,6 @@ export interface SpecialistDependencies {
   authorization: AuthorizationService;
   model: ModelClient;
   toolhive: ToolHiveClient;
-  rag?: RagClient;
   credentialExchanger?: ToolCredentialExchanger;
 }
 
@@ -62,8 +60,17 @@ async function runSpecialistLoop(agent: SpecialistAgentConfig, catalog: Approved
   let modelTurns = 0;
   let toolCalls = 0;
 
+  // ToolHive authenticates discovery too. Exchange one narrow credential per
+  // configured server before listing tools; a failed server contributes no tools.
+  if (deps.credentialExchanger !== undefined) {
+    const exchanges = await Promise.allSettled(agent.spec.mcp.servers.map(async (serverId) => {
+      const credential = await deps.credentialExchanger?.exchange(ctx.identity, toolHiveAudience(serverId), deadline);
+      if (credential) credentials.set(serverId, credential);
+    }));
+    void exchanges;
+  }
   // tool visibility is fixed for the whole loop: YAML allowlist ∩ approved catalog ∩ authz ∩ environment
-  const available = await visibleToolsForSpecialist(catalog, deps.authorization, deps.toolhive, agent, ctx.identity, ctx.environment);
+  const available = await visibleToolsForSpecialist(catalog, deps.authorization, deps.toolhive, agent, ctx.identity, ctx.environment, credentials, ctx.signal);
   // native tools = real MCP tools (executed via ToolHive) + virtual control tools
   // (answer / need_domain / insufficient_evidence) that terminate the loop and NEVER reach ToolHive
   const nativeTools: ToolSchema[] = [...available.map(({ schema }) => ({ name: schema.name, description: schema.description, inputSchema: schema.inputSchema })), ...CONTROL_TOOLS];

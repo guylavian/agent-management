@@ -4,7 +4,6 @@ import { loadAgentServiceRegistry } from "@sre/agent-registry";
 import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
 import { MockModelClient } from "@sre/llm";
 import { MockToolHiveClient, type ToolInvocation, type ToolResult } from "@sre/mcp";
-import { MockRagClient } from "@sre/rag";
 import { describe, expect, it } from "vitest";
 import { executeRequest, inProcessRuntimeDependencies, runSpecialist, type ExecutionContext } from "../src/index.ts";
 
@@ -27,7 +26,7 @@ class HangingGateway extends MockToolHiveClient {
 describe("absolute deadline and cancellation", () => {
   it("returns on the specialist deadline and never accepts a late MCP response", async () => {
     const gateway = new HangingGateway();
-    const deps = { registry, authorization: new AuthorizationService(registry), model: new MockModelClient(), toolhive: gateway, rag: new MockRagClient() };
+    const deps = { registry, authorization: new AuthorizationService(registry), model: new MockModelClient(), toolhive: gateway };
     const started = Date.now();
     const result = await runSpecialist("active-directory", context(Date.now() + 150), deps);
     const elapsed = Date.now() - started;
@@ -50,7 +49,7 @@ describe("absolute deadline and cancellation", () => {
       }
     }
     const model = new StallingModel();
-    const deps = inProcessRuntimeDependencies({ registry, serviceRegistry, authorization: new AuthorizationService(registry), model, toolhive: new MockToolHiveClient(), rag: new MockRagClient(), requestDeadlineMs: 120 });
+    const deps = inProcessRuntimeDependencies({ registry, serviceRegistry, authorization: new AuthorizationService(registry), model, toolhive: new MockToolHiveClient(), requestDeadlineMs: 120 });
     // a cross-domain question forces the Manager LLM (Stage-1 cannot resolve it)
     const response = await executeRequest({ question: "why is everything slow across domains", identity: { ...alice, roles: ["infra-read", "network-read"] } }, deps);
     expect(model.aborted).toBe(true);

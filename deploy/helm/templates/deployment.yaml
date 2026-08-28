@@ -28,11 +28,10 @@ spec:
             - { name: SRE_OTEL_SERVICE_NAME, value: {{ include "sre-agent.fullname" . | quote }} }
             # production is fail-closed: every client must be explicitly real.
             # The manager process constructs only oidc/llm/agent/delegation/postgres;
-            # its ToolHive/RAG path additionally stays blocked by NetworkPolicy.
+            # its ToolHive path additionally stays blocked by NetworkPolicy.
             - { name: SRE_CLIENT_OIDC, value: real }
             - { name: SRE_CLIENT_LLM, value: real }
             - { name: SRE_CLIENT_TOOLHIVE, value: real }
-            - { name: SRE_CLIENT_RAG, value: real }
             - { name: SRE_CLIENT_POSTGRES, value: real }
             - { name: SRE_CLIENT_AGENT, value: real }
             - { name: SRE_CLIENT_DELEGATION, value: real }

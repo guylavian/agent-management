@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { RequestIdentity } from "@sre/auth";
+import type { RequestIdentity, ToolCredential } from "@sre/auth";
 import type { McpTool, ToolHiveClient, ToolInvocation, ToolResult } from "./toolhive-client.ts";
 
 /**
@@ -29,12 +29,12 @@ export class DirectMcpClient implements ToolHiveClient {
     return endpoint;
   }
 
-  async listTools(serverId: string, identity: RequestIdentity, environment: string): Promise<McpTool[]> {
+  async listTools(serverId: string, identity: RequestIdentity, environment: string, options?: { credential?: ToolCredential; requestId?: string; signal?: AbortSignal }): Promise<McpTool[]> {
     if (!this.#endpoints.has(serverId) && this.#fallback !== undefined) return this.#fallback.listTools(serverId, identity, environment);
-    const client = await this.#connect(serverId, identity.requestId);
+    const client = await this.#connect(serverId, options?.requestId ?? identity.requestId, options?.signal);
     try {
       const result = await client.listTools();
-      return result.tools.map((tool) => ({ serverId, name: tool.name, description: tool.description ?? "", inputSchema: (tool.inputSchema as Record<string, unknown>) ?? { type: "object" } }));
+      return result.tools.map((tool) => ({ serverId, name: tool.name, description: tool.description ?? "", inputSchema: (tool.inputSchema as Record<string, unknown>) ?? { type: "object" }, ...(tool.annotations ? { annotations: { readOnlyHint: tool.annotations.readOnlyHint, destructiveHint: tool.annotations.destructiveHint } } : {}) }));
     } finally {
       await client.close();
     }

@@ -1,4 +1,4 @@
-import { AuthorizationService, type RequestIdentity } from "@sre/auth";
+import { AuthorizationService, type RequestIdentity, type ToolCredential } from "@sre/auth";
 import type { AgentRegistry, ApprovedCatalog, ApprovedTool, SpecialistAgentConfig } from "@sre/config";
 import type { McpTool, ToolHiveClient, ToolInvocation, ToolResult } from "./toolhive-client.ts";
 
@@ -24,13 +24,15 @@ export async function visibleToolsForSpecialist(
   agent: SpecialistAgentConfig,
   identity: RequestIdentity,
   environment: string,
+  credentials: ReadonlyMap<string, ToolCredential> = new Map(),
+  signal?: AbortSignal,
 ): Promise<VisibleTool[]> {
-  const discovered = await Promise.allSettled(agent.spec.mcp.servers.map((server) => toolhive.listTools(server, identity, environment)));
+  const discovered = await Promise.allSettled(agent.spec.mcp.servers.map((server) => toolhive.listTools(server, identity, environment, { credential: credentials.get(server), requestId: identity.requestId, ...(signal ? { signal } : {}) })));
   const gatewayTools = discovered.flatMap((result) => result.status === "fulfilled" ? result.value : []);
   const gatewayByKey = new Map(gatewayTools.map((tool) => [`${tool.serverId}:${tool.name}`, tool]));
   return catalog.tools.flatMap((approved) => {
     const schema = gatewayByKey.get(`${approved.serverId}:${approved.toolName}`);
-    return schema !== undefined && authorization.preflightTool(identity, agent, approved, environment).allowed ? [{ approved, schema }] : [];
+    return schema !== undefined && isReadOnlyTool(schema) && authorization.preflightTool(identity, agent, approved, environment).allowed ? [{ approved, schema }] : [];
   });
 }
 
@@ -41,11 +43,19 @@ export async function invokeVisibleToolForSpecialist(
   agent: SpecialistAgentConfig,
   invocation: ToolInvocation,
 ): Promise<ToolResult> {
-  const allowed = await visibleToolsForSpecialist(catalog, authorization, toolhive, agent, invocation.identity, invocation.environment);
+  const credentials = new Map(invocation.credential ? [[invocation.serverId, invocation.credential]] : []);
+  const allowed = await visibleToolsForSpecialist(catalog, authorization, toolhive, agent, invocation.identity, invocation.environment, credentials, invocation.signal);
   if (!allowed.some(({ approved }) => approved.serverId === invocation.serverId && approved.toolName === invocation.toolName)) {
     throw Object.assign(new Error("Tool access denied"), { code: "TOOL_DENIED" });
   }
   return toolhive.invoke(invocation);
+}
+
+const MUTATION_NAME = /(?:^|_)(?:create|update|delete|remove|write|set|put|patch|sync|apply|assign|unassign|propose|render|reload|quit|snapshot|clean)(?:_|$)/iu;
+
+/** Runtime backstop in addition to the approved catalog and ToolHive allow-list. */
+export function isReadOnlyTool(tool: McpTool): boolean {
+  return tool.annotations?.destructiveHint !== true && !MUTATION_NAME.test(tool.name);
 }
 
 export async function invokeVisibleTool(

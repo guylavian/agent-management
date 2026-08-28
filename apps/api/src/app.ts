@@ -1,8 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createPublicKey, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import type { DispatchFunc, InjectOptions, Response as InjectResponse } from "light-my-request";
 import {
   HttpAgentClient,
+  ClientCredentialsWorkloadTokenProvider,
   MockAgentClient,
   MockWorkloadTokenProvider,
   ProjectedWorkloadTokenProvider,
@@ -22,6 +24,8 @@ import {
   MockOidcClient,
   MockToolCredentialAuthority,
   PrivateKeyDelegatedIdentityIssuer,
+  PrivateKeyToolCredentialExchanger,
+  PublicKeyDelegatedIdentityVerifier,
   RealOidcClient,
   RealTokenExchangeCredentialExchanger,
   subjectHash,
@@ -43,10 +47,9 @@ import {
 import { redactText } from "@sre/evidence";
 import { MockModelClient, RealOpenAiCompatibleClient, type ModelClient } from "@sre/llm";
 import { DirectMcpClient, mcpEndpointsFromEnv, MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "@sre/mcp";
-import { MockRagClient, RealRagClient, type RagClient } from "@sre/rag";
 import { classifyIntent, extractEntities } from "@sre/routing";
 import { executeRequest, InProcessAgentClient, runSpecialistInstance, type ExecutionContext } from "@sre/runtime";
-import { MockSessionStore, PostgresSessionStore, type BoundedSessionContext, type SessionStore } from "@sre/session";
+import { DisabledSessionStore, MockSessionStore, PostgresSessionStore, type BoundedSessionContext, type SessionStore } from "@sre/session";
 import { incrementMetric, observeDuration, observeInflight, renderMetrics, withExtractedContext, withSpan } from "@sre/telemetry";
 import { z } from "zod";
 import { oidcAuthenticationMiddleware } from "./middleware/oidc.ts";
@@ -73,6 +76,7 @@ export interface ManagerDependencies extends CommonDependencies {
   agentClient: AgentClient;
   identityIssuer: DelegatedIdentityIssuer;
   sessionStore: SessionStore;
+  delegationPublicJwk?: Record<string, unknown>;
 }
 
 export interface SpecialistDependencies extends CommonDependencies {
@@ -82,7 +86,6 @@ export interface SpecialistDependencies extends CommonDependencies {
   authorization: AuthorizationService;
   toolhive: ToolHiveClient;
   credentialExchanger: ToolCredentialExchanger;
-  rag: RagClient;
   identityVerifier: DelegatedIdentityVerifier;
   workloadOidc?: OidcClient;
 }
@@ -93,7 +96,9 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
   const config = loadAppConfig(env);
   const agent = loadAgentInstance({ configFile: config.agentConfigFile, approvedCatalogFile: config.approvedCatalogFile });
   const model = config.clients.llm === "mock" ? new MockModelClient() : buildRealModel(config);
-  const mockDelegation = new MockDelegationAuthority({ issuer: config.delegation.issuer, secret: config.delegation.mockSecret });
+  const mockDelegation = config.clients.delegation === "mock"
+    ? new MockDelegationAuthority({ issuer: config.delegation.issuer, secret: config.delegation.mockSecret })
+    : undefined;
 
   if (agent.spec.type === "manager") {
     const managerAgent = agent as ManagerAgentConfig;
@@ -112,9 +117,8 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
           authorization: new AuthorizationService(fullRegistry),
           model,
           toolhive: buildToolhive(config, env),
-          rag: config.clients.rag === "mock" ? new MockRagClient() : new RealRagClient(config.rag.url as string),
         },
-        mockDelegation,
+        mockDelegation as MockDelegationAuthority,
       );
     } else if (config.clients.agent === "mock") {
       agentClient = new MockAgentClient();
@@ -122,10 +126,19 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       // distributed local PoC: HTTP fan-out with a fixed mock workload token
       agentClient = new HttpAgentClient(registry, new MockWorkloadTokenProvider());
     } else {
-      agentClient = new HttpAgentClient(registry, new ProjectedWorkloadTokenProvider(config.agentTransport.workloadTokenFile as string));
+      const tokenProvider = config.agentTransport.workloadTokenFile
+        ? new ProjectedWorkloadTokenProvider(config.agentTransport.workloadTokenFile)
+        : new ClientCredentialsWorkloadTokenProvider({
+          tokenEndpoint: config.agentTransport.tokenEndpoint as string,
+          clientId: config.agentTransport.clientId as string,
+          clientSecret: config.agentTransport.clientSecret as string,
+        });
+      agentClient = new HttpAgentClient(registry, tokenProvider);
     }
-    if (config.clients.delegation === "real" && config.delegation.privateKeyPkcs8 === undefined) throw new Error("manager mode requires SRE_DELEGATION_PRIVATE_KEY_PKCS8");
-    const identityIssuer = config.clients.delegation === "mock" ? mockDelegation : new PrivateKeyDelegatedIdentityIssuer({ issuer: config.delegation.issuer, privateKeyPkcs8: config.delegation.privateKeyPkcs8 as string });
+    const delegationPrivateKey = readConfiguredSecret(config.delegation.privateKeyPkcs8, config.delegation.privateKeyFile);
+    if (config.clients.delegation === "real" && delegationPrivateKey === undefined) throw new Error("manager mode requires a delegation private key");
+    const identityIssuer = config.clients.delegation === "mock" ? mockDelegation as MockDelegationAuthority : new PrivateKeyDelegatedIdentityIssuer({ issuer: config.delegation.issuer, privateKeyPkcs8: delegationPrivateKey as string });
+    const delegationPublicKey = config.delegation.publicKeyFile ? readFileSync(config.delegation.publicKeyFile, "utf8") : undefined;
     return {
       mode: "manager",
       config,
@@ -136,19 +149,28 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       model,
       synthesisModel: config.clients.llm === "mock" ? model : config.llm.baseUrl ? model : new RealOpenAiCompatibleClient(config.llm.tierLUrl as string, { modelMap: buildModelMap(config, config.llm.tierLModel ?? config.llm.model), ...(config.llm.systemSuffix ? { systemSuffix: config.llm.systemSuffix } : {}) }),
       oidc: config.clients.oidc === "mock" ? new MockOidcClient(config.oidc) : new RealOidcClient(config.oidc),
-      sessionStore: config.clients.postgres === "mock" ? new MockSessionStore() : new PostgresSessionStore(config.postgres.connectionString as string),
+      sessionStore: config.clients.postgres === "mock" ? new MockSessionStore() : config.clients.postgres === "disabled" ? new DisabledSessionStore() : new PostgresSessionStore(config.postgres.connectionString as string),
+      ...(delegationPublicKey ? { delegationPublicJwk: { ...createPublicKey(delegationPublicKey).export({ format: "jwk" }), kid: "sre-real-poc", use: "sig", alg: "RS256" } } : {}),
     };
   }
 
   const specialistAgent = agent as SpecialistAgentConfig;
   const catalog = loadApprovedCatalog(config.approvedCatalogFile);
-  if (config.clients.delegation === "real" && config.delegation.jwksUri === undefined) throw new Error("specialist mode requires SRE_DELEGATION_JWKS_URI");
-  const identityVerifier = config.clients.delegation === "mock" ? mockDelegation : new JwksDelegatedIdentityVerifier({ issuer: config.delegation.issuer, jwksUri: config.delegation.jwksUri as string });
+  if (config.clients.delegation === "real" && config.delegation.jwksUri === undefined && config.delegation.publicKeyFile === undefined) throw new Error("specialist mode requires a delegation JWKS URI or public key file");
+  const identityVerifier = config.clients.delegation === "mock"
+    ? mockDelegation as MockDelegationAuthority
+    : config.delegation.publicKeyFile
+      ? new PublicKeyDelegatedIdentityVerifier({ issuer: config.delegation.issuer, publicKeySpki: readFileSync(config.delegation.publicKeyFile, "utf8") })
+      : new JwksDelegatedIdentityVerifier({ issuer: config.delegation.issuer, jwksUri: config.delegation.jwksUri as string });
   // one mock authority both issues (specialist side) and verifies (gateway side) the tool credential, so the shared key matches
-  const toolAuthority = new MockToolCredentialAuthority({ issuer: config.toolCredential.issuer, secret: config.delegation.mockSecret });
+  const toolAuthority = config.clients.toolhive === "mock"
+    ? new MockToolCredentialAuthority({ issuer: config.toolCredential.issuer, secret: config.delegation.mockSecret })
+    : undefined;
   const credentialExchanger: ToolCredentialExchanger = config.clients.toolhive === "mock"
-    ? toolAuthority
-    : new RealTokenExchangeCredentialExchanger(config.toolCredential);
+    ? toolAuthority as MockToolCredentialAuthority
+    : config.toolCredential.strategy === "signed-jwt"
+      ? new PrivateKeyToolCredentialExchanger({ issuer: config.toolCredential.issuer, privateKeyPkcs8: readFileSync(config.toolCredential.privateKeyFile as string, "utf8") })
+      : new RealTokenExchangeCredentialExchanger(config.toolCredential);
   return {
     mode: "specialist",
     config,
@@ -158,7 +180,6 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     authorization: new AuthorizationService(),
     toolhive: buildToolhive(config, env, toolAuthority),
     credentialExchanger,
-    rag: config.clients.rag === "mock" ? new MockRagClient() : new RealRagClient(config.rag.url as string),
     identityVerifier,
     ...(config.clients.agent === "real" ? { workloadOidc: new RealOidcClient(config.internalOidc) } : {}),
   };
@@ -189,7 +210,11 @@ function buildRealModel(config: AppConfig): RealOpenAiCompatibleClient {
 function buildToolhive(config: AppConfig, env: Record<string, string | undefined>, verifier?: import("@sre/auth").ToolCredentialVerifier): ToolHiveClient {
   if (config.clients.toolhive === "mock") return new MockToolHiveClient(verifier);
   if (config.clients.toolhive === "direct") return new DirectMcpClient(mcpEndpointsFromEnv(env), new MockToolHiveClient(verifier));
-  return new RealToolHiveClient(config.toolhive.url as string);
+  return new RealToolHiveClient(config.toolhive.url, config.toolhive.endpoints);
+}
+
+function readConfiguredSecret(value: string | undefined, file: string | undefined): string | undefined {
+  return value ?? (file ? readFileSync(file, "utf8") : undefined);
 }
 
 export function createApp(deps: ApiDependencies): TestableApp {
@@ -200,8 +225,13 @@ export function createApp(deps: ApiDependencies): TestableApp {
   app.use(express.json({ limit: bodyLimit }));
 
   app.get("/health/live", (_request, response) => { response.json({ status: "ok", mode: deps.mode, agentId: deps.agent.name }); });
-  app.get("/health/ready", (_request, response) => { response.json({ status: "ready", mode: deps.mode, agentId: deps.agent.name, configRevision: "0.2.0" }); });
+  app.get("/health/ready", (_request, response) => {
+    response.json({ status: "ready", mode: deps.mode, agentId: deps.agent.name, configRevision: "real-poc-1", environmentMode: deps.config.env, dependencyModes: deps.config.clients });
+  });
   app.get("/metrics", (_request, response) => { response.type("text/plain; version=0.0.4").send(renderMetrics()); });
+  if (deps.mode === "manager" && deps.delegationPublicJwk) {
+    app.get("/internal/.well-known/jwks.json", (_request, response) => { response.json({ keys: [deps.delegationPublicJwk] }); });
+  }
 
   if (deps.mode === "manager") registerManagerRoutes(app, deps);
   else registerSpecialistRoutes(app, deps);
@@ -328,7 +358,6 @@ function registerSpecialistRoutes(app: Express, deps: SpecialistDependencies): v
           model: deps.model,
           toolhive: deps.toolhive,
           credentialExchanger: deps.credentialExchanger,
-          rag: deps.rag,
         }, parsed.data.handoff);
         assertSerializedLimit(result, MAX_AGENT_RESPONSE_BYTES, "agent response");
         response.status(200).json(result);

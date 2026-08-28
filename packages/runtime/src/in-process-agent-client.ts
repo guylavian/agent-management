@@ -13,7 +13,6 @@ import type { AgentRegistry as ConfigAgentRegistry } from "@sre/config";
 import { redactText } from "@sre/evidence";
 import type { ModelClient } from "@sre/llm";
 import type { ToolHiveClient } from "@sre/mcp";
-import type { RagClient } from "@sre/rag";
 import { classifyIntent } from "@sre/routing";
 import type { RuntimeDependencies } from "./execute-request.ts";
 import { runSpecialistInstance } from "./specialist-runner.ts";
@@ -23,7 +22,6 @@ export interface InProcessSpecialistDependencies {
   authorization: AuthorizationService;
   model: ModelClient;
   toolhive: ToolHiveClient;
-  rag: RagClient;
 }
 
 /**
@@ -90,7 +88,6 @@ export interface InProcessRuntimeOptions {
   model: ModelClient;
   synthesisModel?: ModelClient;
   toolhive: ToolHiveClient;
-  rag: RagClient;
   requestDeadlineMs?: number;
   defaultEnvironment?: string;
   onResults?: RuntimeDependencies["onResults"];
@@ -107,7 +104,7 @@ export function inProcessRuntimeDependencies(options: InProcessRuntimeOptions): 
     registry: options.serviceRegistry,
     agentClient: new InProcessAgentClient(
       options.registry,
-      { authorization: options.authorization, model: options.model, toolhive: options.toolhive, rag: options.rag },
+      { authorization: options.authorization, model: options.model, toolhive: options.toolhive },
       authority,
     ),
     identityIssuer: authority,

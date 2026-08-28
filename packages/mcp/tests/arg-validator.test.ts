@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateToolArguments } from "../src/arg-validator.ts";
+import { isReadOnlyTool } from "../src/tool-filter.ts";
 import type { McpTool } from "../src/toolhive-client.ts";
 
 const tool: McpTool = {
@@ -48,5 +49,17 @@ describe("tool argument schema validation (pre-ToolHive)", () => {
   it("fails closed on an uncompilable schema", () => {
     const broken: McpTool = { ...tool, inputSchema: { type: "object", properties: { x: { type: "not-a-type" } } } };
     expect(validateToolArguments(broken, { x: 1 }).valid).toBe(false);
+  });
+});
+
+describe("read-only tool backstop", () => {
+  it("rejects mutation names even when a server mislabels them", () => {
+    expect(isReadOnlyTool({ ...tool, name: "update_client", annotations: { readOnlyHint: true } })).toBe(false);
+    expect(isReadOnlyTool({ ...tool, name: "delete_series" })).toBe(false);
+  });
+
+  it("rejects destructive annotations and accepts a verified query shape", () => {
+    expect(isReadOnlyTool({ ...tool, annotations: { destructiveHint: true } })).toBe(false);
+    expect(isReadOnlyTool({ ...tool, name: "query", annotations: { readOnlyHint: true } })).toBe(true);
   });
 });

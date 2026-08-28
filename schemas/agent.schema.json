@@ -175,43 +175,6 @@
               ],
               "additionalProperties": false
             },
-            "rag": {
-              "type": "object",
-              "properties": {
-                "enabled": {
-                  "type": "boolean"
-                },
-                "collections": {
-                  "minItems": 1,
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "baselineRetrieval": {
-                  "type": "boolean"
-                },
-                "maxFollowupRetrievals": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 1
-                },
-                "topK": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 20
-                }
-              },
-              "required": [
-                "enabled",
-                "collections",
-                "baselineRetrieval",
-                "maxFollowupRetrievals",
-                "topK"
-              ],
-              "additionalProperties": false
-            },
             "mcp": {
               "type": "object",
               "properties": {
@@ -257,7 +220,7 @@
                   "default": 25000,
                   "type": "integer",
                   "minimum": 1000,
-                  "maximum": 45000
+                  "maximum": 180000
                 },
                 "maxEvidenceBytes": {
                   "default": 262144,
@@ -333,7 +296,6 @@
             "type",
             "model",
             "prompt",
-            "rag",
             "mcp",
             "execution",
             "authorization"

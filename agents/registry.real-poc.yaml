@@ -1,0 +1,31 @@
+apiVersion: sre.ai/v1alpha1
+kind: AgentServiceRegistry
+agents:
+  - agentId: keycloak
+    endpoint: http://127.0.0.1:3101
+    owner: identity-platform
+    description: Keycloak identity and authentication specialist for realms, users, clients, roles, groups, flows, sessions, identity providers and configuration.
+    enabled: true
+    environments: [lab]
+    requiredRoles: [infra-read]
+    allowedNeedsDomains: [observability]
+    routing:
+      exactTerms: ["keycloak realm", "sre-test realm", "realm", "realms", "keycloak client", "clients exist", "authentication flow", "authentication flows", "identity provider", "identity providers", "keycloak configuration", "login failure", "login failures"]
+      entityPatterns: ["\\bsre-test-(?:user|client|role)\\b"]
+      ambiguousTerms: ["authentication", "login", "client", "role", "group", "session"]
+      capabilities: ["Keycloak realms/users/clients/roles/groups", "authentication flows and sessions", "identity providers and login configuration"]
+      exclusions: ["Prometheus metrics", "general infrastructure observability", "Active Directory administration"]
+  - agentId: observability
+    endpoint: http://127.0.0.1:3102
+    owner: sre-observability
+    description: Prometheus-based availability, latency, error, runtime-health and time-series investigation.
+    enabled: true
+    environments: [lab]
+    requiredRoles: [infra-read]
+    allowedNeedsDomains: [keycloak]
+    routing:
+      exactTerms: ["keycloak healthy", "prometheus", "promql", "service health", "runtime health", "runtime problem", "availability", "time series", "last 15 minutes"]
+      entityPatterns: []
+      ambiguousTerms: ["healthy", "latency", "errors", "failing"]
+      capabilities: ["Prometheus metrics and target availability", "latency/error signals", "runtime and service health over time"]
+      exclusions: ["Keycloak configuration", "identity administration", "write operations"]

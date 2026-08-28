@@ -32,6 +32,30 @@ export class ProjectedWorkloadTokenProvider implements WorkloadTokenProvider {
   }
 }
 
+/** Fetches a short-lived workload token from the real local Keycloak client-credentials flow. */
+export class ClientCredentialsWorkloadTokenProvider implements WorkloadTokenProvider {
+  readonly #tokenEndpoint: string;
+  readonly #clientId: string;
+  readonly #clientSecret: string;
+  readonly #fetch: typeof fetch;
+
+  constructor(settings: { tokenEndpoint: string; clientId: string; clientSecret: string }, fetchImplementation: typeof fetch = fetch) {
+    this.#tokenEndpoint = settings.tokenEndpoint;
+    this.#clientId = settings.clientId;
+    this.#clientSecret = settings.clientSecret;
+    this.#fetch = fetchImplementation;
+  }
+
+  async getToken(_audience: string): Promise<string> {
+    const body = new URLSearchParams({ grant_type: "client_credentials", client_id: this.#clientId, client_secret: this.#clientSecret });
+    const response = await this.#fetch(this.#tokenEndpoint, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body, signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new AgentTransportError("AGENT_UNAUTHORIZED", "Workload identity token is unavailable", false);
+    const payload = await response.json() as { access_token?: string };
+    if (payload.access_token === undefined || payload.access_token.length < 32) throw new AgentTransportError("AGENT_UNAUTHORIZED", "Workload identity token is unavailable", false);
+    return payload.access_token;
+  }
+}
+
 export class MockWorkloadTokenProvider implements WorkloadTokenProvider {
   async getToken(_audience: string): Promise<string> { return "mock-manager-workload-token-for-local-tests"; }
 }

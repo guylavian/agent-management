@@ -7,7 +7,6 @@ spec:
   type: specialist
   model: { tier: small, profile: tool-caller }
   prompt: { systemFile: prompts/openshift.md }
-  rag: { enabled: true, collections: [openshift-wiki], baselineRetrieval: true, maxFollowupRetrievals: 1, topK: 8 }
   mcp:
     servers: [openshift, prometheus, splunk, wiki]
     allowedTools: [get_pod_status, list_namespace_events, get_route_status, get_deployment_status, query_cluster_metrics, search_platform_logs, wiki_search, wiki_read_page]

@@ -7,7 +7,6 @@ spec:
   type: specialist
   model: { tier: small, profile: tool-caller }
   prompt: { systemFile: prompts/network-observability.md }
-  rag: { enabled: true, collections: [network-wiki], baselineRetrieval: true, maxFollowupRetrievals: 1, topK: 8 }
   mcp:
     servers: [network, prometheus, splunk, wiki]
     allowedTools: [query_prometheus, get_interface_status, get_path_health, get_bgp_status, search_network_logs, get_load_balancer_pool, wiki_search, wiki_read_page]

@@ -24,6 +24,19 @@ tools:
   - { serverId: keycloak, toolName: list_clients, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
   - { serverId: keycloak, toolName: find_user, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
   - { serverId: keycloak, toolName: keycloak_read, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 10000, retryPolicy: transient-once, evidenceKind: config }
+  - { serverId: keycloak, toolName: get_client, readOnlyVerified: true, owner: identity-platform, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
+  - { serverId: keycloak, toolName: resolve_client_uuid, readOnlyVerified: true, owner: identity-platform, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
+  - { serverId: prometheus, toolName: query, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { serverId: prometheus, toolName: range_query, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 10000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { serverId: prometheus, toolName: metric_metadata, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { serverId: prometheus, toolName: label_names, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: none, evidenceKind: telemetry }
+  - { serverId: prometheus, toolName: label_values, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: none, evidenceKind: telemetry }
+  - { serverId: prometheus, toolName: series, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 10000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { serverId: prometheus, toolName: list_targets, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { serverId: prometheus, toolName: healthy, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { serverId: prometheus, toolName: ready, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { serverId: prometheus, toolName: runtime_info, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { serverId: prometheus, toolName: build_info, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: none, evidenceKind: telemetry }
   - { serverId: wiki, toolName: wiki_search, readOnlyVerified: true, owner: sre-platform, environments: [prod, dr, lab], timeoutMs: 10000, retryPolicy: transient-once, evidenceKind: wiki }
   - { serverId: wiki, toolName: wiki_read_page, readOnlyVerified: true, owner: sre-platform, environments: [prod, dr, lab], timeoutMs: 10000, retryPolicy: transient-once, evidenceKind: wiki }
   - { serverId: wiki, toolName: wiki_route, readOnlyVerified: true, owner: sre-platform, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: none, evidenceKind: wiki }

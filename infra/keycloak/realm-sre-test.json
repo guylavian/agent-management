@@ -25,6 +25,10 @@
       {
         "name": "sre-test-role",
         "description": "Test role used by the SRE PoC local environment"
+      },
+      {
+        "name": "infra-read",
+        "description": "Read-only SRE specialist entitlement"
       }
     ]
   },
@@ -42,7 +46,35 @@
       "serviceAccountsEnabled": true,
       "redirectUris": ["http://localhost:*", "https://localhost:*"],
       "webOrigins": ["*"],
-      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "email"]
+      "defaultClientScopes": ["basic", "web-origins", "acr", "profile", "roles", "email"]
+      ,
+      "protocolMappers": [
+        {
+          "name": "sre-assistant-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "sre-assistant",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm-roles-flat",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "false",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String"
+          }
+        }
+      ]
     },
     {
       "clientId": "sre-mcp-reader",
@@ -55,6 +87,31 @@
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true
+    },
+    {
+      "clientId": "sre-manager-workload",
+      "name": "SRE manager workload identity",
+      "description": "Service identity for Manager to Specialist HTTP calls",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "sre-manager-workload-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "sre-agent-runtime-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "sre-agent-runtime",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "users": [
@@ -72,7 +129,7 @@
           "temporary": false
         }
       ],
-      "realmRoles": ["sre-test-role"]
+      "realmRoles": ["sre-test-role", "infra-read"]
     },
     {
       "username": "service-account-sre-mcp-reader",
@@ -90,6 +147,11 @@
           "query-groups"
         ]
       }
+    },
+    {
+      "username": "service-account-sre-manager-workload",
+      "enabled": true,
+      "serviceAccountClientId": "sre-manager-workload"
     }
   ]
 }

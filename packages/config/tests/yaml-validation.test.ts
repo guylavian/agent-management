@@ -7,13 +7,14 @@ describe("startup configuration", () => {
   it("loads all specialist YAML agents and approved tools", () => {
     const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
     expect(registry.manager.name).toBe("manager");
-    expect(registry.listSpecialists().map((agent) => agent.name).sort()).toEqual(["active-directory", "network-observability", "openshift"]);
+    expect(registry.listSpecialists().map((agent) => agent.name).sort()).toEqual(["active-directory", "keycloak", "network-observability", "observability", "openshift"]);
     // wiki is a shared MCP tool on the specialists, not a standalone agent
     expect(registry.getSpecialist("active-directory")?.spec.mcp.allowedTools).toContain("wiki_search");
     expect(registry.getSpecialist("active-directory")?.spec.execution.maxEvidenceBytes).toBe(262_144);
-    expect(registry.catalog.tools).toHaveLength(26);
-    // the AD/identity specialist covers Keycloak too
-    expect(registry.getSpecialist("active-directory")?.spec.mcp.allowedTools).toContain("keycloak_health");
+    expect(registry.catalog.tools).toHaveLength(39);
+    expect(registry.getSpecialist("active-directory")?.spec.mcp.allowedTools).not.toContain("keycloak_health");
+    expect(registry.getSpecialist("keycloak")?.spec.mcp.allowedTools).toContain("keycloak_health");
+    expect(registry.getSpecialist("observability")?.spec.mcp.allowedTools).toContain("query");
     expect(registry.catalog.tools.filter((tool) => tool.serverId === "wiki").every((tool) => tool.evidenceKind === "wiki")).toBe(true);
   });
 
@@ -27,6 +28,34 @@ describe("startup configuration", () => {
     expect(() => loadAppConfig({ SRE_ENV: "production" })).toThrow(ConfigValidationError);
   });
 
+  it("fails closed when real-poc selects any mock runtime dependency", () => {
+    expect(() => loadAppConfig({ SRE_ENV: "real-poc" })).toThrow(/mock in real-poc/u);
+  });
+
+  it("accepts only an explicitly real/disabled real-poc dependency set", () => {
+    const config = loadAppConfig({
+      SRE_ENV: "real-poc",
+      SRE_CLIENT_OIDC: "real",
+      SRE_CLIENT_LLM: "real",
+      SRE_CLIENT_TOOLHIVE: "real",
+      SRE_CLIENT_POSTGRES: "disabled",
+      SRE_CLIENT_AGENT: "real",
+      SRE_CLIENT_DELEGATION: "real",
+      SRE_OIDC_JWKS_URI: "http://localhost/idp/jwks",
+      SRE_INTERNAL_OIDC_JWKS_URI: "http://localhost/idp/jwks",
+      SRE_LLM_BASE_URL: "http://localhost:11434",
+      SRE_TOOLHIVE_ENDPOINTS_JSON: '{"keycloak":"http://localhost:8301/mcp"}',
+      SRE_TOOL_CREDENTIAL_STRATEGY: "signed-jwt",
+      SRE_TOOL_CREDENTIAL_PRIVATE_KEY_FILE: ".real-poc/private.pem",
+      SRE_WORKLOAD_TOKEN_ENDPOINT: "http://localhost/idp/token",
+      SRE_WORKLOAD_CLIENT_ID: "manager",
+      SRE_WORKLOAD_CLIENT_SECRET: "secret",
+      SRE_DELEGATION_PUBLIC_KEY_FILE: ".real-poc/public.pem",
+    });
+    expect(config.env).toBe("real-poc");
+    expect(Object.values(config.clients)).not.toContain("mock");
+  });
+
   it("fails closed when a real endpoint is absent", () => {
     expect(() => loadAppConfig({ SRE_CLIENT_TOOLHIVE: "real" })).toThrow(/SRE_TOOLHIVE_URL/u);
   });
@@ -34,7 +63,7 @@ describe("startup configuration", () => {
   it("validates evaluation and deployment YAML artifacts", () => {
     const corpus = parseYaml(readFileSync("eval/questions/cases.yaml", "utf8")) as { cases?: unknown[] };
     expect(corpus.cases).toHaveLength(60);
-    for (const agent of ["manager", "active-directory", "openshift", "network-observability"]) {
+    for (const agent of ["manager", "active-directory", "openshift", "network-observability", "keycloak", "observability"]) {
       const parsed = parseYaml(readFileSync(`deploy/helm/values/${agent}.yaml`, "utf8")) as { agent: { name: string } };
       expect(parseAllDocuments(readFileSync(`deploy/helm/values/${agent}.yaml`, "utf8")).every((document) => document.errors.length === 0)).toBe(true);
       expect(parsed.agent.name).toBe(agent);

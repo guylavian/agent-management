@@ -2,6 +2,14 @@
 
 Items are ordered by gate. Mock results do not replace real-environment verification.
 
+## Real local PoC execution (2026-08-28)
+
+- BLOCKED: this execution environment cannot resolve `github.com`, so the pinned Prometheus MCP and ToolHive repositories could not be cloned.
+- BLOCKED: this execution environment is denied access to `/Users/guylavian/.docker/run/docker.sock`, so Keycloak and Prometheus could not be started.
+- BLOCKED: `.env.real-poc` with disposable local secrets and the real model/Wiki endpoints has not been supplied.
+- BLOCKED: the configured/default real LLM (`127.0.0.1:11434`) and LLM Wiki MCP (`127.0.0.1:8642`) were not listening during the smoke attempt.
+- Re-run `scripts/prepare-real-poc.sh`, `scripts/start-real-poc.sh`, and `scripts/verify-real-poc.sh` in a normal local shell. A-D remain unpassed until the verifier emits real MCP citations.
+
 ## Gate 1 — identity and authorization
 
 - TODO: Verify enterprise OIDC issuer, audience, group/role claim mapping, key rotation, clock skew, and token revocation behavior.
@@ -11,7 +19,7 @@ Items are ordered by gate. Mock results do not replace real-environment verifica
 
 ## Gate 2 — evidence services
 
-- TODO: Validate ACL filtering inside the enterprise RAG service for two users, including deletions and group changes.
+- RAG is intentionally outside the current PoC execution path; Wiki evidence comes from the shared LLM Wiki MCP.
 - TODO: Validate real AD, OpenShift, Prometheus, Splunk, and network MCP schemas, response bounds, deadlines, retry ownership, and read-only backend roles.
 - TODO: Validate the selected enterprise DLP boundary after deterministic local redaction.
 
@@ -26,7 +34,6 @@ Items are ordered by gate. Mock results do not replace real-environment verifica
 - TODO: Mirror and scan every lockfile artifact and the Node base image, then build with network disabled.
 - TODO: Pin and mirror ToolHive operator/chart/images, MCP server images, vLLM images/model files, and retrieval model artifacts after enterprise selection.
 - TODO: Validate default-deny OpenShift NetworkPolicies and non-root/read-only filesystem settings in the target cluster.
-- TODO: Decide the controlled PoC vector store before enabling the real RAG implementation.
 - TODO: Run the autocannon normal, burst, and mock-only storm profiles in a CI/dev runner that permits TCP listeners; this sandbox returns `listen EPERM`.
 
 ## Distributed deployment (architecture Rev 2.0)
@@ -37,11 +44,11 @@ Items are ordered by gate. Mock results do not replace real-environment verifica
 - TODO: Generate `agents/registry.yaml` from GitOps and verify Service DNS endpoints match `sre-agent-<name>` releases per namespace.
 - TODO: Two-process HTTP smoke (manager + one specialist from the same image) in a runner that permits TCP listeners; the dev sandbox denies `listen` (EPERM).
 - TODO: Verify one distributed trace (W3C context) across manager and specialist pods in the selected observability backend.
-- TODO: Apply and test the per-agent NetworkPolicies on the target cluster, including the manager's denied ToolHive/RAG egress.
+- TODO: Apply and test the per-agent NetworkPolicies on the target cluster, including the manager's denied ToolHive egress.
 
 ## Rev 2.1 remediation blockers
 
-- INTEGRATION BLOCKER: enterprise RFC 8693 token-exchange endpoint for the Specialist → ToolHive credential. `RealTokenExchangeCredentialExchanger` is implemented but cannot mint credentials until the STS endpoint, workload subject-token source, and accepted `sre-toolhive:<server>` audiences are provisioned. Real ToolHive config now fails closed without `SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT`.
+- INTEGRATION BLOCKER: enterprise RFC 8693 token-exchange endpoint for the Specialist → ToolHive credential. `RealTokenExchangeCredentialExchanger` is implemented but cannot mint enterprise credentials until the STS endpoint, workload subject-token source, and accepted `sre-toolhive:<server>` audiences are provisioned. Production token-exchange mode fails closed without `SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT`; the local PoC instead uses a real asymmetric signed-context key verified by ToolHive.
 - INTEGRATION BLOCKER: ToolHive-side verification of the delegated credential (issuer/JWKS, audience, subject binding) must be configured to match the token-exchange output; re-run the Gate #1 Alice/Bob cases against real ToolHive audit.
 - PENDING: real Tier-S/Tier-L endpoints to run the Track-2 real-model benchmark (`eval/real-benchmark.md`); wire the `SRE_EVAL_CORPUS` switch in `eval/run.ts` at that time.
 - PENDING: real MCP `callTool` cancellation — verify the pinned MCP SDK forwards the AbortSignal/timeout to the transport against a live server; the runtime already passes it.

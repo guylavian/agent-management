@@ -7,7 +7,11 @@ const jsonSchema = {
   title: "ManagerDecision",
   type: "object",
   additionalProperties: false,
-  required: ["routes", "confidence", "abstain"],
+  // Strict OpenAI-compatible providers (including Groq) require every
+  // property declared by a response-format schema to appear in `required`.
+  // Optional semantics are represented by empty arrays in the model response
+  // and remain optional in the runtime/Zod domain type for compatibility.
+  required: ["routes", "confidence", "alternates", "abstain", "reasonCodes"],
   properties: {
     routes: {
       type: "array",

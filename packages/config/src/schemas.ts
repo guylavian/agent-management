@@ -44,15 +44,6 @@ const specialistSpecSchema = z
       })
       .strict(),
     prompt: z.object({ systemFile: z.string().min(1) }).strict(),
-    rag: z
-      .object({
-        enabled: z.boolean(),
-        collections: z.array(z.string().min(1)).min(1),
-        baselineRetrieval: z.boolean(),
-        maxFollowupRetrievals: z.number().int().min(0).max(1),
-        topK: z.number().int().min(1).max(20),
-      })
-      .strict(),
     mcp: z
       .object({
         servers: z.array(z.string().min(1)).min(1),

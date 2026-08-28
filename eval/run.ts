@@ -5,7 +5,6 @@ import { loadAgentRegistry } from "@sre/config";
 import type { Evidence, RuntimeError, SpecialistResult } from "@sre/evidence";
 import { MockModelClient, type ChatRequest, type ChatResponse, type ModelClient } from "@sre/llm";
 import { MockToolHiveClient } from "@sre/mcp";
-import { MockRagClient } from "@sre/rag";
 import { loadAgentServiceRegistry } from "@sre/agent-registry";
 import { executeRequest, inProcessRuntimeDependencies, type AssistantResponse } from "@sre/runtime";
 import { parse as parseYaml } from "yaml";
@@ -57,12 +56,11 @@ for (const [caseIndex, benchmark] of corpus.cases.entries()) {
     const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
     const model = new CountingModel(new MockModelClient());
     const toolhive = new MockToolHiveClient();
-    const rag = new MockRagClient();
     let specialistResults: SpecialistResult[] = [];
     const started = performance.now();
     const response = await executeRequest(
       { question: benchmark.question, environment: benchmark.environment, identity: identityFor(benchmark.identity, `${benchmark.id}-${run}`) },
-      inProcessRuntimeDependencies({ registry, serviceRegistry, authorization: new AuthorizationService(registry), model, toolhive, rag, requestDeadlineMs: 5000, defaultEnvironment: "prod", onResults: (results) => { specialistResults = results; } }),
+      inProcessRuntimeDependencies({ registry, serviceRegistry, authorization: new AuthorizationService(registry), model, toolhive, requestDeadlineMs: 5000, defaultEnvironment: "prod", onResults: (results) => { specialistResults = results; } }),
     );
     const latencyMs = performance.now() - started;
     const evidence = specialistResults.flatMap((result) => result.evidence);

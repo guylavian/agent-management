@@ -27,7 +27,7 @@ export interface RuntimeDependencies {
 
 export async function executeRequest(req: UserRequest, deps: RuntimeDependencies): Promise<AssistantResponse> {
   // the single absolute deadline is fixed at request entry, BEFORE routing, and
-  // covers every downstream stage (Stage-1, Manager LLM, fan-out, RAG, MCP,
+  // covers every downstream stage (Stage-1, Manager LLM, fan-out, MCP,
   // Round 2, Tier-L). One AbortController fires at that deadline for all of them.
   const deadline = Date.now() + deps.requestDeadlineMs;
   const requestController = new AbortController();

@@ -22,5 +22,9 @@
 | @types/pg | 8.21.0 | PostgreSQL type declarations |
 | Helm CLI | 3.18.3 | Offline chart lint/render tool |
 | Container base | node:24.20.0-alpine3.22 | API build/runtime base |
+| Keycloak | 26.6 | Local real identity backend and metrics source |
+| Prometheus | 2.55.1 | Local real metrics backend |
+| Prometheus MCP | v0.18.0 | Required upstream Prometheus MCP, built from its signed release tag |
+| ToolHive | v0.28.3 | Required local MCP proxy/runtime, built from its release tag |
 
-Vector store, DLP integration, Tier-L model, ToolHive image/chart, MCP server images, and the observability backend remain intentionally unselected and are tracked in `docs/INTEGRATION-POINTS.md`.
+Vector store and RAG are not part of the active PoC. DLP integration depth, Tier-L deployment and the production observability backend remain deferred.

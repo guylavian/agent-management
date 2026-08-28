@@ -4,17 +4,17 @@ agents:
   - agentId: active-directory
     endpoint: http://sre-agent-active-directory:3000
     owner: domain-services
-    description: Identity and authentication — Active Directory, LDAP, Kerberos, domain controllers, AD replication, and Keycloak (realms, clients, users, login).
+    description: Active Directory, LDAP, Kerberos, domain controllers, AD replication, and AD-integrated DNS.
     enabled: true
     environments: [prod, dr, lab]
     requiredRoles: [infra-read]
     allowedNeedsDomains: [network-observability]
     routing:
-      exactTerms: ["active directory", "domain controller", "domain controllers", "kerberos", "ldap", "ad replication", "keycloak", "login failure", "login failures", "realm", "identity provider"]
+      exactTerms: ["active directory", "domain controller", "domain controllers", "kerberos", "ldap", "ad replication"]
       entityPatterns: ["\\bDC-[A-Z0-9-]+\\b"]
       ambiguousTerms: ["replication", "policy", "certificate", "cluster"]
-      capabilities: ["AD replication and domain-controller health", "Kerberos/LDAP authentication", "AD-integrated DNS", "Keycloak realms/clients/users and login investigation"]
-      exclusions: ["network transport and routing", "OpenShift workloads"]
+      capabilities: ["AD replication and domain-controller health", "Kerberos/LDAP authentication", "AD-integrated DNS"]
+      exclusions: ["Keycloak configuration", "Prometheus observability", "OpenShift workloads"]
   - agentId: openshift
     endpoint: http://sre-agent-openshift:3000
     owner: paas
@@ -38,8 +38,36 @@ agents:
     requiredRoles: [network-read]
     allowedNeedsDomains: [openshift, active-directory]
     routing:
-      exactTerms: ["promql", "prometheus", "packet loss", "bgp", "interface errors", "interface error", "splunk", "network latency"]
+      exactTerms: ["packet loss", "bgp", "interface errors", "interface error", "splunk", "network latency"]
       entityPatterns: []
       ambiguousTerms: ["gateway", "policy", "latency"]
-      capabilities: ["connectivity/latency/packet-loss", "Prometheus/Splunk queries", "network-path evidence"]
+      capabilities: ["connectivity/latency/packet-loss", "Splunk network queries", "network-path evidence"]
       exclusions: ["identity/authentication", "OpenShift workload internals"]
+  - agentId: keycloak
+    endpoint: http://sre-agent-keycloak:3000
+    owner: identity-platform
+    description: Keycloak identity and authentication specialist for realms, users, clients, roles, groups, flows, sessions, identity providers and configuration.
+    enabled: true
+    environments: [prod, dr, lab]
+    requiredRoles: [infra-read]
+    allowedNeedsDomains: [observability]
+    routing:
+      exactTerms: ["keycloak realm", "sre-test realm", "realm", "realms", "keycloak client", "clients exist", "authentication flow", "authentication flows", "identity provider", "identity providers", "keycloak configuration", "login failure", "login failures"]
+      entityPatterns: ["\\bsre-test-(?:user|client|role)\\b"]
+      ambiguousTerms: ["authentication", "login", "client", "role", "group", "session"]
+      capabilities: ["Keycloak realms/users/clients/roles/groups", "authentication flows and sessions", "identity providers and login configuration"]
+      exclusions: ["Prometheus metrics", "general infrastructure observability", "Active Directory administration"]
+  - agentId: observability
+    endpoint: http://sre-agent-observability:3000
+    owner: sre-observability
+    description: Prometheus-based availability, latency, error, runtime-health and time-series investigation.
+    enabled: true
+    environments: [prod, dr, lab]
+    requiredRoles: [infra-read]
+    allowedNeedsDomains: [keycloak]
+    routing:
+      exactTerms: ["keycloak healthy", "prometheus", "promql", "service health", "runtime health", "runtime problem", "availability", "time series", "last 15 minutes"]
+      entityPatterns: []
+      ambiguousTerms: ["healthy", "latency", "errors", "failing"]
+      capabilities: ["Prometheus metrics and target availability", "latency/error signals", "runtime and service health over time"]
+      exclusions: ["Keycloak configuration", "identity administration", "write operations"]

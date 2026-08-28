@@ -83,7 +83,10 @@ function claimsToIdentity(
 ): RequestIdentity {
   if (typeof payload.sub !== "string") throw new Error("OIDC subject missing");
   const groups = Array.isArray(payload.groups) ? payload.groups.filter((v): v is string => typeof v === "string") : [];
-  const roles = Array.isArray(payload.roles) ? payload.roles.filter((v): v is string => typeof v === "string") : [];
+  const directRoles = Array.isArray(payload.roles) ? payload.roles.filter((v): v is string => typeof v === "string") : [];
+  const realmAccess = typeof payload.realm_access === "object" && payload.realm_access !== null ? payload.realm_access as { roles?: unknown } : undefined;
+  const realmRoles = Array.isArray(realmAccess?.roles) ? realmAccess.roles.filter((v): v is string => typeof v === "string") : [];
+  const roles = [...new Set([...directRoles, ...realmRoles])];
   return { subject: payload.sub, groups, roles, requestId, ...(sessionId ? { sessionId } : {}) };
 }
 

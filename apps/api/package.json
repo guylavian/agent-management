@@ -12,7 +12,6 @@
     "@sre/evidence": "*",
     "@sre/llm": "*",
     "@sre/mcp": "*",
-    "@sre/rag": "*",
     "@sre/runtime": "*",
     "@sre/session": "*",
     "@sre/telemetry": "*",

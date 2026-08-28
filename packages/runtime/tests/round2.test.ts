@@ -3,7 +3,6 @@ import { loadAgentRegistry } from "@sre/config";
 import { domainHandoffSchema, type SpecialistResult } from "@sre/evidence";
 import { MockModelClient, type ChatRequest, type ChatResponse, type ModelClient } from "@sre/llm";
 import { MockToolHiveClient } from "@sre/mcp";
-import { MockRagClient } from "@sre/rag";
 import { describe, expect, it } from "vitest";
 import { buildDomainHandoff, executeRequest, planRound2, runSpecialist, type ExecutionContext } from "../src/index.ts";
 import { distributedRuntime, managerAgent, serviceRegistry } from "./distributed-fixture.ts";
@@ -58,7 +57,7 @@ describe("T5 bounded Round 2", () => {
       async chat(request: ChatRequest): Promise<ChatResponse> { this.requests.push(request); return request.guidedJsonSchema ? { content: JSON.stringify({ summary: "Checked." }), usage: { promptTokens: 1, completionTokens: 1 } } : { usage: { promptTokens: 1, completionTokens: 1 } }; }
     }
     const model = new InspectingModel();
-    await runSpecialist("network-observability", ctx, { registry, authorization, model, toolhive: new MockToolHiveClient(), rag: new MockRagClient() }, handoff);
+    await runSpecialist("network-observability", ctx, { registry, authorization, model, toolhive: new MockToolHiveClient() }, handoff);
     expect(JSON.stringify(model.requests)).not.toContain("TOP_SECRET_TRANSCRIPT");
   });
 });

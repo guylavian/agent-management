@@ -1,0 +1,13 @@
+apiVersion: sre.ai/v1alpha1
+kind: Agent
+metadata:
+  name: manager
+  owner: sre-platform
+spec:
+  type: manager
+  model: { tier: small, profile: manager-router }
+  prompt: { systemFile: prompts/manager.md }
+  agents:
+    allowed: [keycloak, observability]
+  execution: { maxAgentsPerRequest: 2, maxRounds: 1, timeoutMs: 3000 }
+  output: { schema: ManagerDecision }

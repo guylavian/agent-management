@@ -33,9 +33,8 @@ defaultEnvironment: prod
 # Secret carrying the per-mode integration endpoints and keys:
 # manager: SRE_OIDC_*, SRE_LLM_TIER_S_URL, SRE_LLM_TIER_L_URL, SRE_POSTGRES_URL,
 #          SRE_DELEGATION_ISSUER, SRE_DELEGATION_PRIVATE_KEY_PKCS8,
-#          SRE_TOOLHIVE_URL, SRE_RAG_URL (unused by the manager process but required
-#          by fail-closed production validation; NetworkPolicy denies the path)
-# specialist: SRE_TOOLHIVE_URL, SRE_RAG_URL, SRE_LLM_TIER_S_URL, SRE_LLM_TIER_L_URL,
+#          SRE_TOOLHIVE_URL (unused by the manager process; NetworkPolicy denies the path)
+# specialist: SRE_TOOLHIVE_URL, SRE_LLM_TIER_S_URL, SRE_LLM_TIER_L_URL,
 #          SRE_DELEGATION_ISSUER, SRE_DELEGATION_JWKS_URI, SRE_INTERNAL_OIDC_*,
 #          SRE_OIDC_*, SRE_POSTGRES_URL
 integrationsSecret: sre-agent-integrations
@@ -61,7 +60,7 @@ pdb:
 
 networkPolicy:
   enabled: true
-  # namespaces labelled <key>: "true" host shared platform services (vLLM, RAG,
+  # namespaces labelled <key>: "true" host shared platform services (vLLM,
   # ToolHive, OTel collector, IdP, PostgreSQL)
   platformNamespaceLabel: sre.ai/platform-service
   # namespaces labelled <key>: "true" may call the manager (API gateway / route)
@@ -70,5 +69,5 @@ networkPolicy:
   # environment to the actual service ports.
   # manager: IdP/HTTPS 443, OTLP 4318, PostgreSQL 5432, vLLM 8000
   managerPlatformPorts: [443, 4318, 5432, 8000]
-  # specialist: ToolHive/RAG/HTTPS 443, OTLP 4318, vLLM 8000
+  # specialist: ToolHive/HTTPS 443, OTLP 4318, vLLM 8000
   specialistPlatformPorts: [443, 4318, 8000]

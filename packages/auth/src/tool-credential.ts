@@ -1,4 +1,4 @@
-import { jwtVerify, SignJWT } from "jose";
+import { importPKCS8, jwtVerify, SignJWT } from "jose";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import type { RequestIdentity } from "./identity.ts";
@@ -143,5 +143,37 @@ export class RealTokenExchangeCredentialExchanger implements ToolCredentialExcha
       audience,
       subjectHash: hashSubject(identity.subject),
     });
+  }
+}
+
+/**
+ * Real local-PoC credential issuer. It signs short-lived, audience-bound JWTs
+ * with an asymmetric platform key. ToolHive verifies the public JWKS and thus
+ * derives the effective human identity without trusting unsigned headers.
+ */
+export class PrivateKeyToolCredentialExchanger implements ToolCredentialExchanger {
+  readonly mode = "real" as const;
+  readonly #issuer: string;
+  readonly #keyPromise: ReturnType<typeof importPKCS8>;
+
+  constructor(settings: { issuer: string; privateKeyPkcs8: string }) {
+    this.#issuer = settings.issuer;
+    this.#keyPromise = importPKCS8(settings.privateKeyPkcs8, "RS256");
+  }
+
+  async exchange(identity: RequestIdentity, audience: string, deadline: number): Promise<ToolCredential> {
+    const now = Math.floor(Date.now() / 1000);
+    const expiry = Math.min(now + 60, Math.floor(deadline / 1000));
+    if (expiry <= now) throw Object.assign(new Error("tool credential deadline expired"), { code: "REQUEST_TIMEOUT" });
+    const token = await new SignJWT({ groups: identity.groups, roles: identity.roles, request_id: identity.requestId })
+      .setProtectedHeader({ alg: "RS256", typ: "at+jwt", kid: "sre-real-poc" })
+      .setIssuer(this.#issuer)
+      .setAudience(audience)
+      .setSubject(identity.subject)
+      .setIssuedAt(now)
+      .setNotBefore(now - 1)
+      .setExpirationTime(expiry)
+      .sign(await this.#keyPromise);
+    return toolCredentialSchema.parse({ token, tokenType: "urn:ietf:params:oauth:token-type:access_token", issuer: this.#issuer, audience, subjectHash: hashSubject(identity.subject) });
   }
 }

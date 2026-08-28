@@ -11,10 +11,18 @@ export const boundedSessionContextSchema = z.object({
 export type BoundedSessionContext = z.infer<typeof boundedSessionContextSchema>;
 
 export interface SessionStore {
-  readonly mode: "mock" | "real";
+  readonly mode: "mock" | "real" | "disabled";
   get(subject: string, sessionId: string): Promise<BoundedSessionContext | undefined>;
   put(context: BoundedSessionContext): Promise<void>;
   close(): Promise<void>;
+}
+
+/** Explicitly disables optional conversation persistence; it supplies no data. */
+export class DisabledSessionStore implements SessionStore {
+  readonly mode = "disabled" as const;
+  async get(_subject: string, _sessionId: string): Promise<undefined> { return undefined; }
+  async put(_context: BoundedSessionContext): Promise<void> {}
+  async close(): Promise<void> {}
 }
 
 export class MockSessionStore implements SessionStore {

@@ -1,12 +1,25 @@
 # PoC status
 
+## Real local Keycloak/Prometheus milestone (current)
+
+| Check | State |
+|---|---|
+| Runtime/config/source implementation | **PASS** — `npm run check` (133 tests, 7 YAML checks, Helm lint/render) |
+| First-class Keycloak specialist | **PASS** — Keycloak MCP + Wiki MCP only |
+| First-class Observability specialist | **PASS** — upstream Prometheus MCP + Wiki MCP only |
+| RAG in active execution | **REMOVED** |
+| Real ToolHive discovery/invocation | **IMPLEMENTED** — authenticated `tools/list` and `tools/call`, cancellation and timeouts |
+| Real smoke A-D | **BLOCKED (environment)** — GitHub DNS unavailable, Docker socket denied, `.env.real-poc` absent, real LLM/Wiki endpoints not listening |
+
+The last attempted `scripts/verify-real-poc.sh` result was `0 PASS, 0 FAIL, 19 BLOCKED`. This is an external startup block, not a claimed integration pass. See `docs/REAL-POC.md`.
+
 ## Honest completion state
 
 | Dimension | State |
 |---|---|
 | Distributed runtime implementation | **COMPLETE** (one image, per-agent Deployment, internal Agent API) |
 | Express 5 alignment | **COMPLETE** |
-| Mock integration tests | **PASS** — 106 unit/integration tests + 5 YAML checks + chart lint/render |
+| Mock integration tests | **PASS** — 133 unit/integration tests + 7 YAML checks + chart lint/render |
 | Tool-argument schema validation | **COMPLETE** (AJV, pre-ToolHive, backend never called on failure) |
 | Absolute deadline + cancellation | **COMPLETE** |
 | Manager `agents.allowed` enforcement | **COMPLETE** (all paths incl. Round 2) |
@@ -16,8 +29,8 @@
 | Metrics (counter/histogram/gauge) + batched OTel | **COMPLETE** |
 | **End-to-end identity to ToolHive (Gate #1)** | **runtime path COMPLETE and tested with a mock authority; real enterprise token-exchange BLOCKED** |
 | Real vLLM (Tier-S/Tier-L) integration | **PENDING** (no mirrored model endpoint) |
-| Real RAG ACL integration | **PENDING** |
-| Real ToolHive/MCP integration | **PENDING** |
+| Real RAG ACL integration | **OUT OF CURRENT POC** (Wiki MCP replaces baseline retrieval) |
+| Real ToolHive/MCP integration | **CODE COMPLETE / EXECUTION BLOCKED** (see current milestone) |
 | Real-model reliability benchmark | **PENDING** (Track 2, `eval/real-benchmark.md`) |
 | Production-like load validation (autocannon) | **PENDING** (sandbox denies TCP listeners) |
 

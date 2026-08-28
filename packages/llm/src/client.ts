@@ -225,7 +225,10 @@ export class RealOpenAiCompatibleClient implements ModelClient {
       signal: request.signal,
     });
     if (response.status === 429) throw new ModelRequestError("MODEL_RATE_LIMITED", "model provider rate limited the request", 429);
-    if (!response.ok) throw new ModelRequestError("MODEL_UNAVAILABLE", `model request failed (${response.status})`, response.status);
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new ModelRequestError("MODEL_UNAVAILABLE", `model request failed (${response.status})${detail ? `: ${detail.slice(0, 600)}` : ""}`, response.status);
+    }
     let result: {
       choices?: Array<{ message?: { content?: string; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> } }>;
       usage?: { prompt_tokens?: number; completion_tokens?: number };

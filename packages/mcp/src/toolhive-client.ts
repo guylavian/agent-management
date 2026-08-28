@@ -7,6 +7,7 @@ export interface McpTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
 }
 
 export interface ToolInvocation {
@@ -44,7 +45,7 @@ export interface AuditEvent {
 
 export interface ToolHiveClient {
   readonly mode: "mock" | "real";
-  listTools(serverId: string, identity: RequestIdentity, environment: string): Promise<McpTool[]>;
+  listTools(serverId: string, identity: RequestIdentity, environment: string, options?: { credential?: ToolCredential; requestId?: string; signal?: AbortSignal }): Promise<McpTool[]>;
   invoke(call: ToolInvocation): Promise<ToolResult>;
 }
 
@@ -129,8 +130,13 @@ export class MockToolHiveClient implements ToolHiveClient {
 
 export class RealToolHiveClient implements ToolHiveClient {
   readonly mode = "real" as const;
-  readonly baseUrl: string;
-  constructor(baseUrl: string) { this.baseUrl = baseUrl; }
+  readonly baseUrl?: string;
+  readonly #endpoints: ReadonlyMap<string, string>;
+  constructor(baseUrl?: string, endpoints: Record<string, string> = {}) {
+    if (baseUrl === undefined && Object.keys(endpoints).length === 0) throw new Error("real ToolHive requires a gateway URL or per-server proxy endpoints");
+    this.baseUrl = baseUrl;
+    this.#endpoints = new Map(Object.entries(endpoints));
+  }
   async invoke(call: ToolInvocation): Promise<ToolResult> {
     const client = await this.#connect(call.serverId, requireCredential(call), call.environment, call.requestId, call.signal);
     try {
@@ -142,18 +148,30 @@ export class RealToolHiveClient implements ToolHiveClient {
   }
   async #connect(serverId: string, credential: ToolCredential, environment: string, requestId: string, signal?: AbortSignal): Promise<Client> {
     const client = new Client({ name: "sre-agent-runtime", version: "0.1.0" });
-    const url = new URL(`/mcp/${encodeURIComponent(serverId)}`, this.baseUrl);
+    const configured = this.#endpoints.get(serverId);
+    const url = configured ? new URL(configured) : new URL(`/mcp/${encodeURIComponent(serverId)}`, this.baseUrl as string);
     // ToolHive verifies this bearer credential itself and derives the effective human;
     // no unsigned identity header is sent.
     const transport = new StreamableHTTPClientTransport(url, { requestInit: { headers: { "x-request-id": requestId, authorization: `Bearer ${credential.token}`, "x-sre-environment": environment }, ...(signal ? { signal } : {}) } });
     await client.connect(transport);
     return client;
   }
-  async listTools(serverId: string, identity: RequestIdentity, environment: string): Promise<McpTool[]> {
-    void identity;
-    void environment;
-    void serverId;
-    throw Object.assign(new Error("INTEGRATION BLOCKER: real ToolHive tool discovery requires a verified credential; resolve visibility from the approved catalog"), { code: "MCP_UNAVAILABLE" });
+  async listTools(serverId: string, identity: RequestIdentity, environment: string, options: { credential?: ToolCredential; requestId?: string; signal?: AbortSignal } = {}): Promise<McpTool[]> {
+    const credential = options.credential;
+    if (credential === undefined) throw Object.assign(new Error("verified ToolHive credential is required for discovery"), { code: "TOOL_DENIED" });
+    const client = await this.#connect(serverId, credential, environment, options.requestId ?? identity.requestId, options.signal);
+    try {
+      const result = await client.listTools(undefined, options.signal ? { signal: options.signal } : undefined);
+      return result.tools.map((tool) => ({
+        serverId,
+        name: tool.name,
+        description: tool.description ?? "",
+        inputSchema: (tool.inputSchema as Record<string, unknown>) ?? { type: "object" },
+        ...(tool.annotations ? { annotations: { readOnlyHint: tool.annotations.readOnlyHint, destructiveHint: tool.annotations.destructiveHint } } : {}),
+      }));
+    } finally {
+      await client.close();
+    }
   }
 }
 

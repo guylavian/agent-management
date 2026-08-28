@@ -1,5 +1,9 @@
 # Local PoC infrastructure — Keycloak + Prometheus (+ MCP)
 
+For the supported no-mock Manager-to-specialist path, use
+[`docs/REAL-POC.md`](../docs/REAL-POC.md). The commands below describe only the
+individual infrastructure services and older narrow component checks.
+
 Reproducible local stack for the SRE agent PoC. Everything below was verified on
 macOS (arm64) with Docker. No manual browser/UI setup is required — the realm,
 client, user, role, metrics, and Prometheus scrape config are all provisioned
@@ -43,7 +47,7 @@ Ports are configurable (compose reads these env vars, with the defaults shown):
 
 ## What is provisioned
 
-- **Keycloak 26.3** in `start-dev` mode (H2 in-memory; dev only, no production
+- **Keycloak 26.6** in `start-dev` mode (H2 in-memory; dev only, no production
   write capabilities). Metrics + health enabled; user login-event metrics
   enabled via the `user-event-metrics` feature.
 - **Realm import** `infra/keycloak/realm-sre-test.json`:
@@ -92,32 +96,32 @@ curl -s 'http://localhost:9000/metrics' | grep keycloak_user_events_total
 curl -s 'http://localhost:9090/api/v1/query?query=keycloak_user_events_total{realm="sre-test"}'
 ```
 
-Then (6) ask the multi-agent system to investigate — the network-observability
+Then (6) ask the multi-agent system to investigate — the observability
 specialist queries Prometheus through the Prometheus MCP.
 
 ## MCP servers
 
 Endpoints are configurable (never hardcoded in runtime code). See `.env.example`.
 
-### Prometheus MCP (read-only) — VERIFIED
+### Prometheus MCP (read-only)
 
-Reference server: [`prometheus-mcp-server`](https://pypi.org/project/prometheus-mcp-server/)
-(FastMCP, stdio). Run it on the host pointed at the Dockerized Prometheus:
+Required upstream: `https://github.com/prometheus/prometheus-mcp`. Clone and
+build the pinned release with `scripts/prepare-real-poc.sh`; start it and its
+ToolHive proxy with `scripts/start-real-poc.sh`.
 
 ```bash
-PROMETHEUS_URL=http://localhost:9090 uvx --from prometheus-mcp-server prometheus-mcp-server
+./scripts/prepare-real-poc.sh
+./scripts/start-real-poc.sh
 ```
 
-Exposed tools are read/query only — `health_check`, `execute_query`,
-`execute_range_query`, `list_metrics`, `get_metric_metadata`, `get_targets` —
-so only read capabilities reach the Observability agent (no writes exist).
+Only the approved upstream query/read tools reach the Observability agent.
+Dangerous TSDB admin tools and the `reload`/`quit` management tools are not exposed.
 
 If the MCP runs **inside** a container instead of on the host, point it at
 `http://host.docker.internal:9090` (the compose file already makes host-gateway
 work for that direction).
 
-Smoke-tested with the MCP SDK: `execute_query up` returns the Keycloak target
-value `1`.
+The real verifier requires a `query` citation whose result observes the Keycloak target.
 
 ### Keycloak MCP (read-only) — VERIFIED
 

@@ -15,7 +15,7 @@ describe("Stage-1 routing", () => {
   it.each([
     ["Check AD replication between DC-TLV-01 and DC-HFA-02", "active-directory"],
     ["Why is this OpenShift pod in CrashLoopBackOff?", "openshift"],
-    ["Show packet loss from Prometheus", "network-observability"],
+    ["Show Prometheus availability", "observability"],
   ])("routes precise vocabulary", (question, expected) => {
     expect(deterministicRoute(question, rules)).toMatchObject({ resolved: true, decision: { agents: [expected] } });
   });
@@ -51,6 +51,8 @@ describe("Manager", () => {
     expect(model.request?.tools).toBeUndefined();
     expect(model.request?.messages.at(-1)?.content).toContain("authorizedSpecialists");
     expect(model.request?.messages.at(-1)?.content).not.toContain("allowedTools");
+    const responseSchema = model.request?.guidedJsonSchema as { properties?: Record<string, unknown>; required?: string[] };
+    expect(new Set(responseSchema.required)).toEqual(new Set(Object.keys(responseSchema.properties ?? {})));
   });
 
   it("supplies the dynamic catalog with capabilities, not hardcoded names in the prompt", async () => {

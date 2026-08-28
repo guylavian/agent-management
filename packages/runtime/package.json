@@ -15,7 +15,6 @@
     "@sre/evidence": "*",
     "@sre/llm": "*",
     "@sre/mcp": "*",
-    "@sre/rag": "*",
     "@sre/routing": "*",
     "@sre/session": "*",
     "@sre/telemetry": "*",
