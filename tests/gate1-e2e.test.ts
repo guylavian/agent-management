@@ -15,7 +15,7 @@ import { buildDependencies, createApp } from "@sre/runtime-host";
 function buildDistributed() {
   const managerDeps = buildDependencies({});
   if (managerDeps.mode !== "manager") throw new Error("expected manager");
-  const specialistDeps = buildDependencies({ AGENT_CONFIG: "agents/active-directory.yaml" });
+  const specialistDeps = buildDependencies({ AGENT_CONFIG: "config/agents/active-directory.yaml" });
   if (specialistDeps.mode !== "specialist") throw new Error("expected specialist");
   const specialistApp = createApp(specialistDeps);
 

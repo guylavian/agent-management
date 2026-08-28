@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadAgentRegistry } from "@sre/config";
+import { CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
 import type { SpecialistAgentConfig } from "@sre/agent-schema";
 import {
   audienceScopeName,
@@ -77,7 +77,7 @@ class InMemoryKeycloak implements KeycloakAdmin {
 }
 
 function specialists(): SpecialistAgentConfig[] {
-  return loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" }).listSpecialists();
+  return loadAgentRegistry(CONFIG_PATHS).listSpecialists();
 }
 
 function keycloakAgent(): SpecialistAgentConfig {

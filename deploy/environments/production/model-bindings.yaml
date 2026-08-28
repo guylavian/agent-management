@@ -1,0 +1,17 @@
+apiVersion: sre.ai/v1alpha1
+kind: ModelBindings
+environment: production
+# Resolves the logical profiles in config/model-profiles/profiles.yaml to the
+# models actually served in this environment. No endpoint or credential is
+# rendered here: those arrive from the integrations Secret referenced by the
+# runtime chart, so nothing in Git needs to hold one.
+profiles:
+  manager-router:
+    provider: vllm
+    model: qwen3-8b
+  tool-caller:
+    provider: vllm
+    model: qwen3-8b
+  tier-l-synthesis:
+    provider: vllm
+    model: qwen3-32b

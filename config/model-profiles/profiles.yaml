@@ -1,0 +1,17 @@
+apiVersion: sre.ai/v1alpha1
+kind: ModelProfiles
+# LOGICAL model profiles. An Agent names a profile and never a provider, model
+# id or endpoint, so the same Agent definition deploys against a hosted
+# OpenAI-compatible endpoint in the PoC and an on-prem vLLM in production
+# without being edited. Environment resolution lives in
+# deploy/environments/<env>/model-bindings.yaml.
+profiles:
+  - id: manager-router
+    tier: small
+    description: Manager routing decisions — small, fast, structured-output constrained.
+  - id: tool-caller
+    tier: small
+    description: Specialist investigation loop — native tool calling, bounded turns.
+  - id: tier-l-synthesis
+    tier: large
+    description: Cross-domain synthesis over collected evidence.

@@ -50,7 +50,7 @@ describe("local API", () => {
 });
 
 describe("specialist internal API", () => {
-  const specialistEnv = { AGENT_CONFIG: "agents/active-directory.yaml" };
+  const specialistEnv = { AGENT_CONFIG: "config/agents/active-directory.yaml" };
   const identity = { subject: "alice", groups: ["domain-services", "platform"], roles: ["infra-read"], requestId: "req-spec-1" };
 
   function buildSpecialist() {

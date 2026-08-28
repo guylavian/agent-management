@@ -20,11 +20,12 @@ import {
   type ToolCredentialExchanger,
 } from "@sre/auth";
 import {
-  loadAgentCatalog,
   loadAgentInstance,
   loadAgentRegistry,
   loadAppConfig,
   loadApprovedCatalog,
+  loadEffectiveAgentCatalog,
+  ConfigValidationError,
   type AgentCatalog,
   type AgentRegistry,
   type AppConfig,
@@ -93,7 +94,11 @@ export type ApiDependencies = ManagerDependencies | SpecialistDependencies;
 
 export function buildDependencies(env: Record<string, string | undefined> = process.env): ApiDependencies {
   const config = loadAppConfig(env);
-  const agent = loadAgentInstance({ configFile: config.agentConfigFile, approvedCatalogFile: config.approvedCatalogFile });
+  const agent = loadAgentInstance({ configFile: config.agentConfigFile, mcpServersDir: config.mcpServersDir });
+  const modelMap = buildModelMap(config, config.llm.model);
+  // FAIL CLOSED: an enabled Agent whose model profile does not resolve in this
+  // environment is a startup error, not a surprise on someone's first question.
+  assertModelProfilesResolve(config, agent, modelMap);
   const model = config.clients.llm === "mock" ? new MockModelClient() : buildRealModel(config);
   const mockDelegation = config.clients.delegation === "mock"
     ? new MockDelegationAuthority({ issuer: config.delegation.issuer, secret: config.delegation.mockSecret })
@@ -101,15 +106,15 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
 
   if (agent.spec.type === "manager") {
     const managerAgent = agent as ManagerAgentConfig;
-    const registry = loadAgentCatalog(config.agentRegistryFile);
-    for (const agentId of managerAgent.spec.agents.allowed) {
-      if (registry.resolve(agentId) === undefined) throw new Error(`manager allows unregistered agent ${agentId}`);
-    }
+    // The Manager's effective catalog is DERIVED: canonical Agents intersected
+    // with this environment's deployment state. There is no registry file to
+    // edit, so an Agent cannot be added to routing without adding the Agent.
+    const registry = loadEffectiveAgentCatalog({ ...configPaths(config), deploymentEnvironmentDir: config.deploymentEnvironmentDir });
     let agentClient: SpecialistTransport;
     if (config.clients.agent === "inprocess") {
       // single-process local PoC: the manager executes specialists in-process.
       // Uses the same delegation authority so the per-agent identity JWT verifies.
-      const fullRegistry = loadAgentRegistry({ agentsDir: config.agentsDir, promptsDir: config.promptsDir, approvedCatalogFile: config.approvedCatalogFile });
+      const fullRegistry = loadAgentRegistry(configPaths(config));
       agentClient = new InProcessSpecialistTransport(
         fullRegistry,
         {
@@ -138,13 +143,9 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     if (config.clients.delegation === "real" && delegationPrivateKey === undefined) throw new Error("manager mode requires a delegation private key");
     const identityIssuer = config.clients.delegation === "mock" ? mockDelegation as MockDelegationAuthority : new PrivateKeyDelegatedIdentityIssuer({ issuer: config.delegation.issuer, privateKeyPkcs8: delegationPrivateKey as string });
     const delegationPublicKey = config.delegation.publicKeyFile ? readFileSync(config.delegation.publicKeyFile, "utf8") : undefined;
-    let managementRegistry: AgentRegistry | undefined;
-    try {
-      managementRegistry = loadAgentRegistry({ agentsDir: config.agentsDir, promptsDir: config.promptsDir, approvedCatalogFile: config.approvedCatalogFile });
-    } catch {
-      // not all Agent documents are mounted here; management routes stay unmounted
-      managementRegistry = undefined;
-    }
+    // the same documents the catalog was derived from, reused for the read-only
+    // management projection rather than loaded from a second place
+    const managementRegistry: AgentRegistry = loadAgentRegistry(configPaths(config));
     return {
       mode: "manager",
       config,
@@ -172,7 +173,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
   }
 
   const specialistAgent = agent as SpecialistAgentConfig;
-  const catalog = loadApprovedCatalog(config.approvedCatalogFile);
+  const catalog = loadApprovedCatalog(config.mcpServersDir);
   if (config.clients.delegation === "real" && config.delegation.jwksUri === undefined && config.delegation.publicKeyFile === undefined) throw new Error("specialist mode requires a delegation JWKS URI or public key file");
   const identityVerifier = config.clients.delegation === "mock"
     ? mockDelegation as MockDelegationAuthority
@@ -210,6 +211,33 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     identityVerifier,
     ...(config.clients.agent === "real" ? { workloadOidc: new RealOidcClient(config.internalOidc) } : {}),
   };
+}
+
+function configPaths(config: AppConfig): { agentsDir: string; promptsDir: string; mcpServersDir: string; modelProfilesFile: string; toolPolicyFile: string } {
+  return {
+    agentsDir: config.agentsDir,
+    promptsDir: config.promptsDir,
+    mcpServersDir: config.mcpServersDir,
+    modelProfilesFile: config.modelProfilesFile,
+    toolPolicyFile: config.toolPolicyFile,
+  };
+}
+
+/**
+ * Every logical profile this process will actually ask for must resolve to a
+ * served model. A specialist needs its own profile; a manager additionally
+ * routes and synthesises. Mock model runs are exempt because the mock answers
+ * to any profile by construction.
+ */
+function assertModelProfilesResolve(config: AppConfig, agent: ManagerAgentConfig | SpecialistAgentConfig, modelMap: Record<string, string>): void {
+  if (config.clients.llm === "mock") return;
+  const required = agent.spec.type === "manager"
+    ? [agent.spec.model.profile, "tier-l-synthesis"]
+    : [agent.spec.model.profile];
+  const unresolved = [...new Set(required)].filter((profile) => modelMap[profile] === undefined);
+  if (unresolved.length > 0) {
+    throw new ConfigValidationError(`unsafe configuration:\n- model profile(s) ${unresolved.join(", ")} cannot be resolved for agent "${agent.name}" in environment ${config.env}; set SRE_MODEL_* or SRE_LLM_MODEL`);
+  }
 }
 
 /** Maps logical profiles to configured model ids; falls back to a single served model. */

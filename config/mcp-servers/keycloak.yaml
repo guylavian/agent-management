@@ -1,0 +1,16 @@
+apiVersion: sre.ai/v1alpha1
+kind: McpServer
+metadata:
+  serverId: keycloak
+  owner: identity-platform
+  description: "Keycloak read-only MCP: realms, clients, users and connectivity health."
+# Every tool is read-only-verified: the schema has no way to express an approved
+# mutating tool, so a write capability cannot be introduced by editing this file.
+tools:
+  - { toolName: keycloak_health, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
+  - { toolName: list_realms, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
+  - { toolName: list_clients, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
+  - { toolName: find_user, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
+  - { toolName: keycloak_read, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 10000, retryPolicy: transient-once, evidenceKind: config }
+  - { toolName: get_client, readOnlyVerified: true, owner: identity-platform, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
+  - { toolName: resolve_client_uuid, readOnlyVerified: true, owner: identity-platform, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }

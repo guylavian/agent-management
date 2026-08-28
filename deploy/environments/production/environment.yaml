@@ -1,0 +1,7 @@
+apiVersion: sre.ai/v1alpha1
+kind: DeploymentEnvironment
+environment: production
+# Cluster deployment. Endpoints follow the Service naming convention owned by
+# deploy/runtime/helm, so no agent needs an explicit endpoint override.
+namespace: sre-assistant
+endpointTemplate: http://sre-agent-{agentId}.{namespace}.svc.cluster.local

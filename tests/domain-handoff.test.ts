@@ -1,6 +1,6 @@
 import { runSpecialist, MockToolHiveClient } from "@sre/agent-engine";
 import { AuthorizationService } from "@sre/auth";
-import { loadAgentRegistry } from "@sre/config";
+import { CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
 import { domainHandoffSchema, type SpecialistResult } from "@sre/evidence";
 import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
 import { buildDomainHandoff, type ExecutionContext } from "@sre/orchestrator";
@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
  * asserted here rather than inside either component: the Manager builds it, a
  * specialist consumes it, and neither may leak the other's transcript.
  */
-const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
+const registry = loadAgentRegistry(CONFIG_PATHS);
 const identity = { subject: "alice", groups: [], roles: ["infra-read", "network-read"], requestId: "req-handoff" };
 const ctx: ExecutionContext = { request: { question: "AD replication has a network dependency", identity }, identity, environment: "prod", intent: "diagnostic", requestId: identity.requestId, deadline: Date.now() + 5000 };
 const result = (agentId: string, needsDomain: string, secret: string): SpecialistResult => ({ agentId, status: "complete", summary: secret, needsDomain: [needsDomain], evidence: [{ id: `${agentId}-e`, kind: "telemetry", source: agentId, system: agentId, environment: "prod", rawExcerpt: secret, payload: { secret }, citation: `mcp://${agentId}`, status: "ok", requestId: identity.requestId, agentId }] });

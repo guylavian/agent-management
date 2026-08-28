@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { parse as parseYaml, parseAllDocuments } from "yaml";
 import { describe, expect, it } from "vitest";
-import { accessTools, loadAgentRegistry, loadAppConfig, ConfigValidationError } from "../src/index.ts";
+import { agentDocumentSchema } from "@sre/agent-schema";
+import { accessTools, CONFIG_PATHS, loadAgentRegistry, loadApprovedCatalog, loadAppConfig, loadModelProfiles, loadToolPolicy, validateSemantics, ConfigValidationError } from "../src/index.ts";
 
 describe("startup configuration", () => {
   it("loads all specialist YAML agents and approved tools", () => {
-    const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
+    const registry = loadAgentRegistry(CONFIG_PATHS);
     expect(registry.manager.name).toBe("manager");
     expect(registry.listSpecialists().map((agent) => agent.name).sort()).toEqual(["active-directory", "keycloak", "network-observability", "observability", "openshift"]);
     // wiki is a shared MCP tool on the specialists, not a standalone agent
@@ -20,6 +21,45 @@ describe("startup configuration", () => {
     expect(new Set(clientIds).size).toBe(clientIds.length);
     expect(clientIds).toContain("sre-agent-keycloak");
     expect(registry.catalog.tools.filter((tool) => tool.serverId === "wiki").every((tool) => tool.evidenceKind === "wiki")).toBe(true);
+  });
+
+  it("declares every model profile an Agent references", () => {
+    const profiles = loadModelProfiles(CONFIG_PATHS.modelProfilesFile);
+    const declared = new Set(profiles.profiles.map((profile) => profile.id));
+    const registry = loadAgentRegistry(CONFIG_PATHS);
+    for (const agent of [registry.manager, ...registry.listSpecialists()]) {
+      expect(declared, agent.name).toContain(agent.spec.model.profile);
+    }
+  });
+
+  it("rejects an Agent naming an undeclared model profile", () => {
+    // the profile registry is the only place a profile can be introduced;
+    // an Agent cannot invent one and discover the gap at request time
+    expect(() => validateSemantics(
+      [{ file: "invented.yaml", doc: agentDocumentSchema.parse({
+        apiVersion: "sre.ai/v1alpha1",
+        kind: "Agent",
+        metadata: { name: "manager", owner: "sre-platform" },
+        spec: {
+          type: "manager",
+          model: { tier: "small", profile: "no-such-profile" },
+          prompt: { systemFile: "config/prompts/manager.md" },
+          agents: { allowed: ["keycloak"] },
+          execution: { maxAgentsPerRequest: 3, maxRounds: 1, timeoutMs: 1500 },
+          output: { schema: "ManagerDecision" },
+        },
+      }) }],
+      loadApprovedCatalog(CONFIG_PATHS.mcpServersDir),
+      loadModelProfiles(CONFIG_PATHS.modelProfilesFile),
+      loadToolPolicy(CONFIG_PATHS.toolPolicyFile),
+    )).toThrow(/model profile "no-such-profile" is not declared/u);
+  });
+
+  it("rejects an approved tool whose name reads as a mutation", () => {
+    const catalog = loadApprovedCatalog(CONFIG_PATHS.mcpServersDir);
+    const mutating = { ...catalog, tools: [...catalog.tools, { ...catalog.tools[0]!, toolName: "delete_realm" }] };
+    expect(() => validateSemantics([], mutating, loadModelProfiles(CONFIG_PATHS.modelProfilesFile), loadToolPolicy(CONFIG_PATHS.toolPolicyFile)))
+      .toThrow(/forbidden mutating prefix "delete_"/u);
   });
 
   it("publishes a strict JSON Schema", () => {

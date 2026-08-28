@@ -1,0 +1,23 @@
+apiVersion: sre.ai/v1alpha1
+kind: McpServer
+metadata:
+  serverId: prometheus
+  owner: sre-observability
+  description: "Prometheus read-only MCP: instant/range queries, metadata, targets and runtime health."
+# Every tool is read-only-verified: the schema has no way to express an approved
+# mutating tool, so a write capability cannot be introduced by editing this file.
+tools:
+  - { toolName: query_ad_metrics, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { toolName: query_cluster_metrics, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { toolName: query_prometheus, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { toolName: query, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { toolName: range_query, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 10000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { toolName: metric_metadata, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { toolName: label_names, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: none, evidenceKind: telemetry }
+  - { toolName: label_values, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: none, evidenceKind: telemetry }
+  - { toolName: series, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 10000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { toolName: list_targets, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { toolName: healthy, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { toolName: ready, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { toolName: runtime_info, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { toolName: build_info, readOnlyVerified: true, owner: sre-observability, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: none, evidenceKind: telemetry }

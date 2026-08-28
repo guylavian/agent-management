@@ -1,0 +1,13 @@
+apiVersion: sre.ai/v1alpha1
+kind: McpServer
+metadata:
+  serverId: network
+  owner: network-observability
+  description: "Network read-only MCP: interfaces, paths, BGP and load-balancer pools."
+# Every tool is read-only-verified: the schema has no way to express an approved
+# mutating tool, so a write capability cannot be introduced by editing this file.
+tools:
+  - { toolName: get_interface_status, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { toolName: get_path_health, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { toolName: get_bgp_status, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { toolName: get_load_balancer_pool, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }

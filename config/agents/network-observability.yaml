@@ -3,13 +3,21 @@ kind: Agent
 metadata:
   name: network-observability
   owner: network-observability
+  description: "Network paths, interfaces, load balancers, Prometheus, Splunk, and observability"
   displayName: Network Observability Agent
 spec:
   type: specialist
   lifecycle: active
   model: { tier: small, profile: tool-caller }
-  prompt: { systemFile: prompts/network-observability.md }
+  prompt: { systemFile: config/prompts/network-observability.md }
   identity: { provider: keycloak, clientId: sre-agent-network-observability }
+  environments: ["prod", "dr", "lab"]
+  routing:
+    exactTerms: ["packet loss", "bgp", "interface errors", "interface error", "splunk", "network latency"]
+    entityPatterns: []
+    ambiguousTerms: ["gateway", "policy", "latency"]
+    capabilities: ["connectivity/latency/packet-loss", "Splunk network queries", "network-path evidence"]
+    exclusions: ["identity/authentication", "OpenShift workload internals"]
   access:
     - mcp: network
       audience: sre-toolhive:network

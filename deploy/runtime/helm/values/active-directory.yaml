@@ -1,8 +1,10 @@
+# DEPRECATED by deploy/environments/<env>/rendered/agents/. Kept only until the
+# renderer's output replaces it in the ApplicationSet.
 # helm install sre-agent-active-directory deploy/helm -f deploy/helm/values/active-directory.yaml
 agent:
   name: active-directory
   mode: specialist
-  configFile: agents/active-directory.yaml
+  configFile: config/agents/active-directory.yaml
 replicaCount: 2
 resources:
   requests: { cpu: 500m, memory: 512Mi }

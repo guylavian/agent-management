@@ -107,18 +107,22 @@ if [ -n "${SRE_LLM_API_KEY:-}" ]; then common_env+=(SRE_LLM_API_KEY="$SRE_LLM_AP
 
 start_runtime() {
   local name="$1" port="$2" config="$3"; shift 3
-  start_background "$name" env "${common_env[@]}" "$@" SRE_PORT="$port" AGENT_CONFIG="$config" SRE_AGENT_REGISTRY=agents/registry.real-poc.yaml \
+  start_background "$name" env "${common_env[@]}" "$@" SRE_PORT="$port" AGENT_CONFIG="$config" SRE_DEPLOYMENT_ENVIRONMENT_DIR=deploy/environments/poc \
     node --import tsx "$root/runtime/app/src/server.ts"
   wait_http "http://127.0.0.1:$port/health/ready" "$name"
 }
 
+# The Manager runs the CANONICAL manager Agent. Its effective catalog is bounded to
+# keycloak+observability by deploy/environments/poc, not by a second manager document:
+# the other three agents are canonical but not enabled in this environment.
+#
 # Manager also serves its internal JWKS over loopback HTTPS (:3443) because ToolHive's
 # JWKS-fetch client requires an https scheme. The mkcert-signed cert is trusted by the
 # system store (scripts/gen-manager-cert.sh -> mkcert -install), so ToolHive verifies it.
-start_runtime manager 3000 infra/real-poc/manager.yaml \
+start_runtime manager 3000 config/agents/manager.yaml \
   SRE_INTERNAL_TLS_CERT_FILE="$state/manager-tls.crt" SRE_INTERNAL_TLS_KEY_FILE="$state/manager-tls.key" SRE_INTERNAL_TLS_PORT=3443
-start_runtime keycloak-agent 3101 agents/keycloak.yaml
-start_runtime observability-agent 3102 agents/observability.yaml
+start_runtime keycloak-agent 3101 config/agents/keycloak.yaml
+start_runtime observability-agent 3102 config/agents/observability.yaml
 
 thv="$bin/thv"
 "$thv" group create sre-real-poc >/dev/null 2>&1 || true

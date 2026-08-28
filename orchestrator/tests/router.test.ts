@@ -1,12 +1,12 @@
-import { loadAgentCatalog } from "@sre/config";
+import { CONFIG_PATHS, loadEffectiveAgentCatalog } from "@sre/config";
 import { loadAgentInstance, type ManagerAgentConfig } from "@sre/config";
 import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
 import { MockModelClient } from "@sre/llm";
 import { describe, expect, it } from "vitest";
 import { classifyIntent, deterministicRoute, ManagerRouter } from "../src/index.ts";
 
-const registry = loadAgentCatalog("agents/registry.yaml");
-const manager = loadAgentInstance({ configFile: "agents/manager.yaml" }) as ManagerAgentConfig;
+const registry = loadEffectiveAgentCatalog({ ...CONFIG_PATHS, deploymentEnvironmentDir: "deploy/environments/production" });
+const manager = loadAgentInstance({ configFile: "config/agents/manager.yaml" }) as ManagerAgentConfig;
 const ids = ["active-directory", "openshift", "network-observability"];
 // routing rules are sourced entirely from registry config, never from code
 const rules = registry.listEnabled().map((entry) => ({ agentId: entry.agentId, ...entry.routing }));

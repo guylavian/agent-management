@@ -1,12 +1,14 @@
 # One release per logical agent. All resources are named sre-agent-<agent.name>,
-# which must match the endpoint recorded for it in agents/registry.yaml.
+# which is the Service naming convention the Manager resolves endpoints against
+# (deploy/environments/<env>/environment.yaml endpointTemplate). This chart owns
+# the convention; nothing discovers Services through the Kubernetes API.
 agent:
   # logical agent id (manager | active-directory | openshift | network-observability | ...)
   name: manager
   # manager | specialist — selects env wiring, workload identity and network policy shape
   mode: manager
   # agent YAML baked into the runtime image; AGENT_CONFIG points here
-  configFile: agents/manager.yaml
+  configFile: config/agents/manager.yaml
   # optional inline agent YAML; when non-empty it is mounted as /config/agent.yaml
   # (GitOps override without an image rebuild) and AGENT_CONFIG points there instead
   configOverride: ""
@@ -29,6 +31,14 @@ resources:
 # SRE_ENV inside the pod; production forbids every mock client (fail-closed)
 environment: production
 defaultEnvironment: prod
+
+# selects deploy/environments/<name> inside the image: agent enablement,
+# endpoint convention and model bindings for this cluster
+deploymentEnvironment: production
+
+# logical model profile -> served model id; populated by the renderer from
+# deploy/environments/<env>/model-bindings.yaml. Never holds an endpoint or key.
+modelEnv: {}
 
 # Secret carrying the per-mode integration endpoints and keys:
 # manager: SRE_OIDC_*, SRE_LLM_TIER_S_URL, SRE_LLM_TIER_L_URL, SRE_POSTGRES_URL,

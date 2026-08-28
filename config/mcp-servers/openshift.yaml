@@ -1,0 +1,13 @@
+apiVersion: sre.ai/v1alpha1
+kind: McpServer
+metadata:
+  serverId: openshift
+  owner: paas
+  description: "OpenShift read-only MCP: pods, namespaces, routes, deployments and platform events."
+# Every tool is read-only-verified: the schema has no way to express an approved
+# mutating tool, so a write capability cannot be introduced by editing this file.
+tools:
+  - { toolName: get_pod_status, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { toolName: list_namespace_events, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { toolName: get_route_status, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { toolName: get_deployment_status, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }

@@ -5,8 +5,11 @@ import type {
   SpecialistAgentConfig,
 } from "./schemas.ts";
 
-function displayName(doc: AgentDocument): { displayName?: string } {
-  return doc.metadata.displayName ? { displayName: doc.metadata.displayName } : {};
+function optionalMetadata(doc: AgentDocument): { displayName?: string; description?: string } {
+  return {
+    ...(doc.metadata.displayName ? { displayName: doc.metadata.displayName } : {}),
+    ...(doc.metadata.description ? { description: doc.metadata.description } : {}),
+  };
 }
 
 export class AgentRegistry {
@@ -35,12 +38,12 @@ export class AgentRegistry {
       const systemPrompt = prompts.get(doc.metadata.name);
       if (systemPrompt === undefined) throw new Error(`missing prompt for ${doc.metadata.name}`);
       if (doc.spec.type === "manager") {
-        manager = { name: doc.metadata.name, owner: doc.metadata.owner, ...displayName(doc), spec: doc.spec, systemPrompt };
+        manager = { name: doc.metadata.name, owner: doc.metadata.owner, ...optionalMetadata(doc), spec: doc.spec, systemPrompt };
       } else {
         specialists.set(doc.metadata.name, {
           name: doc.metadata.name,
           owner: doc.metadata.owner,
-          ...displayName(doc),
+          ...optionalMetadata(doc),
           spec: doc.spec,
           systemPrompt,
         });

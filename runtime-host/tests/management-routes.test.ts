@@ -9,8 +9,7 @@ import { buildDependencies, createApp, type ManagerDependencies, type TestableAp
 
 const MANAGER_ENV = {
   SRE_ENV: "local",
-  AGENT_CONFIG: "agents/manager.yaml",
-  SRE_AGENT_REGISTRY: "agents/registry.yaml",
+  AGENT_CONFIG: "config/agents/manager.yaml",
   SRE_CLIENT_AGENT: "mock",
 };
 
@@ -110,7 +109,7 @@ describe("GitOps change flow", () => {
     const response = await post(app, "/management/agents/preview", token, draft);
     expect(response.statusCode).toBe(200);
     const body = response.json() as { path: string; yaml: string; effects: string[] };
-    expect(body.path).toBe("agents/check-point.yaml");
+    expect(body.path).toBe("config/agents/check-point.yaml");
     expect(body.yaml).toContain("clientId: sre-agent-check-point");
     expect(body.yaml).toContain("audience: sre-toolhive:wiki");
     expect(body.effects.some((effect) => effect.includes("Keycloak"))).toBe(true);

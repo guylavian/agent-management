@@ -3,28 +3,38 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import {
   agentDocumentSchema,
-  approvedCatalogSchema,
   assertNoSecretMaterial,
+  mcpServerDocumentSchema,
+  modelProfilesSchema,
+  toApprovedCatalog,
+  toolPolicySchema,
   type AgentDocument,
   type ApprovedCatalog,
   type ManagerAgentConfig,
+  type McpServerDocument,
+  type ModelProfiles,
   type SpecialistAgentConfig,
+  type ToolPolicy,
 } from "./schemas.ts";
 import { ConfigValidationError } from "./app-config.ts";
 import { AgentRegistry } from "./agent-registry.ts";
+import { buildAgentCatalog, loadDeploymentEnvironment, type StaticAgentCatalog } from "./agent-catalog.ts";
 import { validateSemantics } from "./validation.ts";
 
 export interface LoadOptions {
   agentsDir: string;
   promptsDir: string;
-  approvedCatalogFile: string;
+  /** directory of one McpServer document per logical MCP server */
+  mcpServersDir: string;
+  modelProfilesFile: string;
+  toolPolicyFile: string;
   /** repo root; paths above are resolved against it */
   baseDir?: string;
 }
 
 export interface LoadAgentInstanceOptions {
   configFile: string;
-  approvedCatalogFile?: string;
+  mcpServersDir?: string;
   baseDir?: string;
 }
 
@@ -48,12 +58,12 @@ export function loadAgentInstance(opts: LoadAgentInstanceOptions): ManagerAgentC
     throw new ConfigValidationError(`prompt file ${doc.spec.prompt.systemFile} referenced by ${opts.configFile} does not exist`);
   }
   if (systemPrompt.trim().length === 0) throw new ConfigValidationError(`prompt file ${doc.spec.prompt.systemFile} is empty`);
-  if (doc.spec.type === "manager") return { name: doc.metadata.name, owner: doc.metadata.owner, ...(doc.metadata.displayName ? { displayName: doc.metadata.displayName } : {}), spec: doc.spec, systemPrompt };
+  if (doc.spec.type === "manager") return { name: doc.metadata.name, owner: doc.metadata.owner, ...(doc.metadata.displayName ? { displayName: doc.metadata.displayName } : {}), ...(doc.metadata.description ? { description: doc.metadata.description } : {}), spec: doc.spec, systemPrompt };
 
-  if (opts.approvedCatalogFile === undefined) throw new ConfigValidationError("specialist runtime requires an approved tool catalog");
-  const catalog = loadApprovedCatalog(join(base, opts.approvedCatalogFile));
+  if (opts.mcpServersDir === undefined) throw new ConfigValidationError("specialist runtime requires an approved tool catalog");
+  const catalog = loadApprovedCatalog(join(base, opts.mcpServersDir));
   validateSingleSpecialist(doc, catalog, opts.configFile);
-  return { name: doc.metadata.name, owner: doc.metadata.owner, ...(doc.metadata.displayName ? { displayName: doc.metadata.displayName } : {}), spec: doc.spec, systemPrompt };
+  return { name: doc.metadata.name, owner: doc.metadata.owner, ...(doc.metadata.displayName ? { displayName: doc.metadata.displayName } : {}), ...(doc.metadata.description ? { description: doc.metadata.description } : {}), spec: doc.spec, systemPrompt };
 }
 
 /**
@@ -66,31 +76,12 @@ export function loadAgentRegistry(opts: LoadOptions): AgentRegistry {
   const agentsDir = join(base, opts.agentsDir);
   const promptsDir = join(base, opts.promptsDir);
 
-  const files = readdirSync(agentsDir).filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
-  if (files.length === 0) {
-    throw new ConfigValidationError(`no agent YAML found in ${agentsDir}`);
-  }
+  const documents = loadAgentDocuments(agentsDir);
 
-  const documents: Array<{ file: string; doc: AgentDocument }> = [];
-  for (const file of files) {
-    const raw = readFileSync(join(agentsDir, file), "utf8");
-    let parsed: unknown;
-    try {
-      parsed = parseYaml(raw);
-    } catch (err) {
-      throw new ConfigValidationError(`YAML parse failed for ${file}: ${String(err)}`);
-    }
-    // the co-located service registry is a distinct, separately validated kind; anything else non-Agent still fails closed
-    if (typeof parsed === "object" && parsed !== null && (parsed as { kind?: unknown }).kind === "AgentServiceRegistry") continue;
-    const result = agentDocumentSchema.safeParse(parsed);
-    if (!result.success) {
-      throw new ConfigValidationError(`schema validation failed for ${file}: ${result.error.message}`);
-    }
-    documents.push({ file, doc: result.data });
-  }
-
-  const catalog = loadApprovedCatalog(join(base, opts.approvedCatalogFile));
-  validateSemantics(documents, catalog);
+  const catalog = loadApprovedCatalog(join(base, opts.mcpServersDir));
+  const profiles = loadModelProfiles(join(base, opts.modelProfilesFile));
+  const toolPolicy = loadToolPolicy(join(base, opts.toolPolicyFile));
+  validateSemantics(documents, catalog, profiles, toolPolicy);
 
   const prompts = new Map<string, string>();
   for (const { file, doc } of documents) {
@@ -117,18 +108,101 @@ export function loadAgentRegistry(opts: LoadOptions): AgentRegistry {
   );
 }
 
-export function loadApprovedCatalog(path: string): ApprovedCatalog {
+/**
+ * Read every logical MCP server definition and flatten them into the approved
+ * tool catalog the runtime enforces. One file per server means a tool cannot be
+ * approved for the wrong server by a stray copy-paste of `serverId`.
+ */
+/** Parse every Agent document under a directory. Anything that is not an Agent fails closed. */
+function loadAgentDocuments(agentsDir: string): Array<{ file: string; doc: AgentDocument }> {
+  let files: string[];
+  try {
+    files = readdirSync(agentsDir).filter((f) => f.endsWith(".yaml") || f.endsWith(".yml")).sort();
+  } catch {
+    throw new ConfigValidationError(`no agent YAML found in ${agentsDir}`);
+  }
+  if (files.length === 0) throw new ConfigValidationError(`no agent YAML found in ${agentsDir}`);
+  const documents: Array<{ file: string; doc: AgentDocument }> = [];
+  for (const file of files) {
+    let parsed: unknown;
+    try {
+      parsed = parseYaml(readFileSync(join(agentsDir, file), "utf8"));
+    } catch (err) {
+      throw new ConfigValidationError(`YAML parse failed for ${file}: ${String(err)}`);
+    }
+    const result = agentDocumentSchema.safeParse(parsed);
+    if (!result.success) {
+      throw new ConfigValidationError(`schema validation failed for ${file}: ${result.error.message}`);
+    }
+    documents.push({ file, doc: result.data });
+  }
+  return documents;
+}
+
+export function loadApprovedCatalog(directory: string): ApprovedCatalog {
+  let files: string[];
+  try {
+    files = readdirSync(directory).filter((name) => name.endsWith(".yaml") || name.endsWith(".yml")).sort();
+  } catch {
+    throw new ConfigValidationError(`MCP server definitions not found at ${directory}`);
+  }
+  if (files.length === 0) throw new ConfigValidationError(`no MCP server definitions in ${directory}`);
+  const servers: McpServerDocument[] = [];
+  const seen = new Set<string>();
+  for (const file of files) {
+    const result = mcpServerDocumentSchema.safeParse(parseYaml(readFileSync(join(directory, file), "utf8")));
+    if (!result.success) throw new ConfigValidationError(`MCP server definition invalid (${file}): ${result.error.message}`);
+    if (seen.has(result.data.metadata.serverId)) throw new ConfigValidationError(`duplicate MCP server "${result.data.metadata.serverId}" (${file})`);
+    seen.add(result.data.metadata.serverId);
+    servers.push(result.data);
+  }
+  try {
+    return toApprovedCatalog(servers);
+  } catch (error) {
+    throw new ConfigValidationError(`approved tool catalog invalid: ${String(error)}`);
+  }
+}
+
+export function loadModelProfiles(path: string): ModelProfiles {
   let raw: string;
   try {
     raw = readFileSync(path, "utf8");
   } catch {
-    throw new ConfigValidationError(`approved tool catalog not found at ${path}`);
+    throw new ConfigValidationError(`model profiles not found at ${path}`);
   }
-  const result = approvedCatalogSchema.safeParse(parseYaml(raw));
-  if (!result.success) {
-    throw new ConfigValidationError(`approved tool catalog invalid: ${result.error.message}`);
-  }
+  const result = modelProfilesSchema.safeParse(parseYaml(raw));
+  if (!result.success) throw new ConfigValidationError(`model profiles invalid: ${result.error.message}`);
   return result.data;
+}
+
+export function loadToolPolicy(path: string): ToolPolicy {
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    throw new ConfigValidationError(`tool policy not found at ${path}`);
+  }
+  const result = toolPolicySchema.safeParse(parseYaml(raw));
+  if (!result.success) throw new ConfigValidationError(`tool policy invalid: ${result.error.message}`);
+  return result.data;
+}
+
+/**
+ * Build the Manager's effective catalog from the canonical Agents plus the
+ * active environment's deployment state. This is the ONLY path to a catalog;
+ * there is deliberately no file that can be edited to add an Agent to routing
+ * without adding the Agent itself.
+ */
+export function loadEffectiveAgentCatalog(opts: LoadOptions & { deploymentEnvironmentDir: string }): StaticAgentCatalog {
+  const base = opts.baseDir ?? process.cwd();
+  const documents = loadAgentDocuments(join(base, opts.agentsDir));
+  const environment = loadDeploymentEnvironment(opts.deploymentEnvironmentDir, base);
+  for (const agentId of environment.overlays.keys()) {
+    if (!documents.some(({ doc }) => doc.metadata.name === agentId)) {
+      throw new ConfigValidationError(`deployment overlay for "${agentId}" has no canonical Agent under ${opts.agentsDir}`);
+    }
+  }
+  return buildAgentCatalog(documents.map(({ doc }) => doc), environment.settings, environment.overlays);
 }
 
 function validateSingleSpecialist(doc: AgentDocument, catalog: ApprovedCatalog, file: string): void {

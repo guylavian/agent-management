@@ -1,0 +1,10 @@
+apiVersion: sre.ai/v1alpha1
+kind: AgentDeployment
+# The Manager is deployed from the same runtime image and chart as every
+# specialist; only ROLE and configuration differ.
+agentId: manager
+enabled: true
+replicas: 2
+resources:
+  requests: { cpu: 500m, memory: 512Mi }
+  limits: { cpu: "1", memory: 1Gi }

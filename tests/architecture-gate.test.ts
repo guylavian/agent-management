@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { loadAgentRegistry } from "@sre/config";
+import { CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
 import { MockToolHiveClient, invokeVisibleTool, visibleTools } from "@sre/agent-engine";
 import { AuthorizationService, MockOidcClient } from "@sre/auth";
 
-const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
+const registry = loadAgentRegistry(CONFIG_PATHS);
 
 describe("T1 architecture gate", () => {
   it("AG-01 preserves distinct effective human identities in gateway audit", async () => {

@@ -1,5 +1,5 @@
 import { ConfigValidationError } from "./app-config.ts";
-import { assertNoSecretMaterial, isAgentEnabled, type AgentDocument, type ApprovedCatalog } from "./schemas.ts";
+import { assertNoSecretMaterial, isAgentEnabled, type AgentDocument, type ApprovedCatalog, type ModelProfiles, type ToolPolicy } from "./schemas.ts";
 
 /**
  * Semantic validation per TDD §5.3 / §22 — fail closed:
@@ -9,12 +9,29 @@ import { assertNoSecretMaterial, isAgentEnabled, type AgentDocument, type Approv
  * - every allowedTool exists in the approved catalog under one of the
  *   specialist's servers;
  * - discovery.allowedNeedsDomains reference existing specialist agents;
- * - duplicate agent names rejected.
+ * - duplicate agent names rejected;
+ * - every referenced model profile is a declared logical profile;
+ * - no approved tool violates the platform tool policy.
  */
 export function validateSemantics(
   documents: Array<{ file: string; doc: AgentDocument }>,
   catalog: ApprovedCatalog,
+  profiles: ModelProfiles,
+  toolPolicy: ToolPolicy,
 ): void {
+  // the tool policy is enforced here rather than only in a test, so a
+  // mutating-sounding tool cannot be approved by editing config alone
+  for (const tool of catalog.tools) {
+    if (toolPolicy.requireReadOnlyVerified && !tool.readOnlyVerified) {
+      throw new ConfigValidationError(`approved tool "${tool.serverId}/${tool.toolName}" is not read-only-verified`);
+    }
+    const forbidden = toolPolicy.forbiddenToolNamePrefixes.find((prefix) => tool.toolName.startsWith(prefix));
+    if (forbidden !== undefined) {
+      throw new ConfigValidationError(`approved tool "${tool.serverId}/${tool.toolName}" uses forbidden mutating prefix "${forbidden}"`);
+    }
+  }
+
+  const profileIds = new Set(profiles.profiles.map((profile) => profile.id));
   const names = new Set<string>();
   for (const { file, doc } of documents) {
     if (names.has(doc.metadata.name)) {
@@ -26,6 +43,12 @@ export function validateSemantics(
       assertNoSecretMaterial(doc.spec);
     } catch (error) {
       throw new ConfigValidationError(`${file}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  for (const { file, doc } of documents) {
+    if (!profileIds.has(doc.spec.model.profile)) {
+      throw new ConfigValidationError(`${file}: model profile "${doc.spec.model.profile}" is not declared in the model profiles`);
     }
   }
 

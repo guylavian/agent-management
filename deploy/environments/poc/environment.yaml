@@ -1,0 +1,8 @@
+apiVersion: sre.ai/v1alpha1
+kind: DeploymentEnvironment
+environment: poc
+# Real local PoC (scripts/start-real-poc.sh): loopback processes against real
+# Keycloak, Prometheus and ToolHive. Only the two agents with real MCP backends are
+# enabled here, which is what bounds the Manager's effective catalog to those two.
+namespace: sre-assistant
+endpointTemplate: http://sre-agent-{agentId}.{namespace}.svc.cluster.local

@@ -1,10 +1,10 @@
 import { AuthorizationService } from "@sre/auth";
-import { loadAgentRegistry, type SpecialistAgentConfig } from "@sre/config";
+import { CONFIG_PATHS, loadAgentRegistry, type SpecialistAgentConfig } from "@sre/config";
 import type { ChatRequest, ChatResponse, ModelClient, ToolCall } from "@sre/llm";
 import { describe, expect, it } from "vitest";
 import { MockToolHiveClient, runSpecialist, runSpecialistInstance, type SpecialistAction, type SpecialistExecutionContext, type ToolInvocation, type ToolResult } from "../src/index.ts";
 
-const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
+const registry = loadAgentRegistry(CONFIG_PATHS);
 const alice = { subject: "alice", groups: ["domain-services"], roles: ["infra-read"], requestId: "req-loop" };
 const ctx = (question: string, deadline = Date.now() + 10_000): SpecialistExecutionContext => ({ request: { question, identity: alice }, identity: alice, environment: "prod", requestId: alice.requestId, deadline });
 const deps = (model: ModelClient, toolhive = new MockToolHiveClient()) => ({ registry, authorization: new AuthorizationService(registry), model, toolhive });

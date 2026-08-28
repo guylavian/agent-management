@@ -18,8 +18,10 @@ const VALID = {
     type: "specialist",
     lifecycle: "active",
     model: { tier: "small", profile: "tool-caller" },
-    prompt: { systemFile: "prompts/check-point.md" },
+    prompt: { systemFile: "config/prompts/check-point.md" },
     identity: { provider: "keycloak", clientId: "sre-agent-check-point" },
+    environments: ["prod", "dr", "lab"],
+    routing: { exactTerms: ["check point"], entityPatterns: [], ambiguousTerms: ["firewall"], capabilities: ["Check Point policy and gateway state"], exclusions: ["identity administration"] },
     access: [
       { mcp: "wiki", audience: "sre-toolhive:wiki", tools: ["wiki_search"] },
       { mcp: "network", tools: ["get_bgp_status"] },

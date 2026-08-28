@@ -1,0 +1,13 @@
+apiVersion: sre.ai/v1alpha1
+kind: McpServer
+metadata:
+  serverId: active-directory
+  owner: domain-services
+  description: "Active Directory read-only MCP: replication, domain-controller health, DNS."
+# Every tool is read-only-verified: the schema has no way to express an approved
+# mutating tool, so a write capability cannot be introduced by editing this file.
+tools:
+  - { toolName: get_replication_status, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { toolName: get_dc_health, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { toolName: list_domain_controllers, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: none }
+  - { toolName: get_dns_health, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }

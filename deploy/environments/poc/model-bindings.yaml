@@ -1,0 +1,16 @@
+apiVersion: sre.ai/v1alpha1
+kind: ModelBindings
+environment: poc
+# The real PoC points at a hosted OpenAI-compatible endpoint. SRE_LLM_BASE_URL
+# and SRE_LLM_API_KEY come from .env.real-poc (gitignored); only the logical
+# model ids are recorded here.
+profiles:
+  manager-router:
+    provider: groq
+    model: openai/gpt-oss-20b
+  tool-caller:
+    provider: groq
+    model: openai/gpt-oss-20b
+  tier-l-synthesis:
+    provider: groq
+    model: openai/gpt-oss-20b

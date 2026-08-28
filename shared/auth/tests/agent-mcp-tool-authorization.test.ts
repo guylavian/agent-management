@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadAgentRegistry } from "@sre/config";
+import { CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
 import type { SpecialistAgentConfig } from "@sre/agent-schema";
 import { AuthorizationService, KeycloakWorkloadCredentialExchanger, audienceScopeFor, type RequestIdentity, type WorkloadIdentity } from "../src/index.ts";
 
@@ -9,7 +9,7 @@ import { AuthorizationService, KeycloakWorkloadCredentialExchanger, audienceScop
  * past, so each one is pinned rather than inferred from a happy-path test.
  */
 
-const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
+const registry = loadAgentRegistry(CONFIG_PATHS);
 const authorization = new AuthorizationService(registry);
 
 const alice: RequestIdentity = { subject: "alice", groups: ["identity-platform"], roles: ["infra-read"], requestId: "req-1" };

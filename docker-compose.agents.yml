@@ -13,9 +13,8 @@ x-agent-base: &agent-base
   extra_hosts:
     - "host.docker.internal:host-gateway"   # reach Ollama + wikikb on the Mac host
   volumes:
-    - ./agents:/app/agents:ro
-    - ./prompts:/app/prompts:ro
-    - ./policies:/app/policies:ro
+    - ./config:/app/config:ro
+    - ./deploy/environments:/app/deploy/environments:ro
   healthcheck:
     test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
     interval: 10s
@@ -48,8 +47,8 @@ services:
     container_name: sre-agent-manager
     environment:
       <<: *specialist-env
-      AGENT_CONFIG: agents/manager.yaml
-      SRE_AGENT_REGISTRY: agents/registry.local.yaml
+      AGENT_CONFIG: config/agents/manager.yaml
+      SRE_DEPLOYMENT_ENVIRONMENT_DIR: deploy/environments/local
       SRE_CLIENT_AGENT: http-local                        # HTTP fan-out to specialist services
       SRE_CLIENT_TOOLHIVE: mock                            # manager has no data-plane MCP access
     ports:
@@ -64,18 +63,18 @@ services:
     container_name: sre-agent-active-directory
     environment:
       <<: *specialist-env
-      AGENT_CONFIG: agents/active-directory.yaml
+      AGENT_CONFIG: config/agents/active-directory.yaml
 
   sre-agent-openshift:
     <<: *agent-base
     container_name: sre-agent-openshift
     environment:
       <<: *specialist-env
-      AGENT_CONFIG: agents/openshift.yaml
+      AGENT_CONFIG: config/agents/openshift.yaml
 
   sre-agent-network-observability:
     <<: *agent-base
     container_name: sre-agent-network-observability
     environment:
       <<: *specialist-env
-      AGENT_CONFIG: agents/network-observability.yaml
+      AGENT_CONFIG: config/agents/network-observability.yaml

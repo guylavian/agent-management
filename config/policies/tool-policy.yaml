@@ -1,0 +1,15 @@
+apiVersion: sre.ai/v1alpha1
+kind: ToolPolicy
+# Platform-wide tool policy, enforced at config load. `readOnlyVerified` is
+# already a schema literal on every approved tool; the name-shaped guard below
+# existed only as a test assertion, which meant a mutating-sounding tool could
+# be approved in config and only fail much later. Both now fail startup.
+requireReadOnlyVerified: true
+forbiddenToolNamePrefixes:
+  - create_
+  - update_
+  - delete_
+  - patch_
+  - restart_
+  - write_
+  - set_

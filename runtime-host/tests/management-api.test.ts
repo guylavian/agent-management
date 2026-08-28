@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { agentDocumentSchema, classifyTool } from "@sre/agent-schema";
-import { loadAgentRegistry } from "@sre/config";
+import { CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
 import { parse as parseYaml } from "yaml";
 import {
   agentDetail,
@@ -16,7 +16,7 @@ import {
   type SpecialistResultLike,
 } from "../src/management/index.ts";
 
-const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
+const registry = loadAgentRegistry(CONFIG_PATHS);
 const specialists = registry.listSpecialists();
 const keycloak = registry.getSpecialist("keycloak")!;
 
@@ -117,7 +117,7 @@ describe("GitOps YAML generation", () => {
 
   it("produces YAML that the runtime schema accepts", () => {
     const change = generateAgentChange(draft);
-    expect(change.path).toBe("agents/check-point.yaml");
+    expect(change.path).toBe("config/agents/check-point.yaml");
     expect(agentDocumentSchema.safeParse(parseYaml(change.yaml)).success).toBe(true);
   });
 

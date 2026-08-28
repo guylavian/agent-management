@@ -1,48 +1,89 @@
-/**
- * The Manager's EFFECTIVE agent catalog: which agents exist, where they are,
- * and who may reach them in this environment.
- *
- * It is deliberately separate from the canonical Agent documents. A document
- * says what an agent IS; the catalog says what is deployed and reachable right
- * now. Routing metadata lives here because the Manager routes on it, but its
- * source is the canonical Agent — never a second hand-maintained registry.
- */
-import { readFileSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, resolve as resolvePath } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import { isAgentEnabled, type AgentDocument, type AgentRouting } from "./schemas.ts";
 
-export const agentRoutingSchema = z.object({
-  // whole-phrase, case-insensitive terms that resolve to this agent (high precision)
-  exactTerms: z.array(z.string().min(2)).default([]),
-  // regexes (source strings) tested against the question; a match routes and yields an entity
-  entityPatterns: z.array(z.string().min(1)).default([]),
-  // overloaded terms that MUST NOT resolve routing on their own (precision guard, documentation)
-  ambiguousTerms: z.array(z.string().min(1)).default([]),
-  // free-text routing hints supplied to the Manager (what this specialist covers / does not)
-  capabilities: z.array(z.string().min(1)).default([]),
-  exclusions: z.array(z.string().min(1)).default([]),
-}).strict();
-export type AgentRouting = z.infer<typeof agentRoutingSchema>;
+/**
+ * The Manager's EFFECTIVE agent catalog.
+ *
+ * It is DERIVED, never authored:
+ *
+ *     config/agents/*.yaml                    (what an Agent is)
+ *          ∩
+ *     deploy/environments/<env>/agents/*.yaml (whether it is deployed here)
+ *          +
+ *     the Service naming convention           (where it is)
+ *          =
+ *     effective catalog
+ *
+ * There used to be a hand-maintained `registry.yaml` per environment carrying
+ * routing vocabulary AND endpoints AND enablement together. Onboarding an Agent
+ * meant editing three files that could disagree, and a routing fix in one
+ * environment silently did not apply to another. Routing now lives with the
+ * Agent; only placement and enablement are per environment.
+ */
 
-export const agentCatalogEntrySchema = z.object({
-  agentId: z.string().regex(/^[a-z][a-z0-9-]*$/u),
-  endpoint: z.url().refine((value) => value.startsWith("http://") || value.startsWith("https://"), "endpoint must use HTTP(S)"),
-  owner: z.string().min(1),
-  description: z.string().min(1).max(500),
-  enabled: z.boolean(),
-  environments: z.array(z.string().min(1)).min(1),
-  requiredRoles: z.array(z.string().min(1)).min(1),
-  allowedNeedsDomains: z.array(z.string().regex(/^[a-z][a-z0-9-]*$/u)).max(8).default([]),
-  routing: agentRoutingSchema.default({ exactTerms: [], entityPatterns: [], ambiguousTerms: [], capabilities: [], exclusions: [] }),
-}).strict();
-export type AgentCatalogEntry = z.infer<typeof agentCatalogEntrySchema>;
+export const DEFAULT_ENDPOINT_TEMPLATE = "http://sre-agent-{agentId}.{namespace}.svc.cluster.local";
 
-export const agentServiceRegistryDocumentSchema = z.object({
-  apiVersion: z.literal("sre.ai/v1alpha1"),
-  kind: z.literal("AgentServiceRegistry"),
-  agents: z.array(agentCatalogEntrySchema).min(1),
-}).strict();
+/**
+ * Per-environment platform settings. The Helm chart owns the Service naming
+ * convention; this is where the Manager is told what that convention is, so
+ * finding a specialist needs no Kubernetes API discovery or watch.
+ */
+export const environmentSettingsSchema = z
+  .object({
+    apiVersion: z.literal("sre.ai/v1alpha1"),
+    kind: z.literal("DeploymentEnvironment"),
+    environment: z.string().min(1),
+    namespace: z.string().min(1),
+    // `{agentId}` and `{namespace}` are substituted; must agree with deploy/runtime/helm
+    endpointTemplate: z.string().min(1).default(DEFAULT_ENDPOINT_TEMPLATE),
+  })
+  .strict();
+
+export type EnvironmentSettings = z.infer<typeof environmentSettingsSchema>;
+
+/**
+ * The deployment overlay — an ALLOW-LIST. `.strict()` is not a stylistic choice
+ * here: it is what stops an environment overlay from quietly redefining
+ * routing, capabilities, tool access or ownership and becoming a second logical
+ * source of truth. Adding a field is a deliberate act, mirrored by the JSON
+ * Schema under deploy/schemas.
+ */
+export const agentDeploymentOverlaySchema = z
+  .object({
+    apiVersion: z.literal("sre.ai/v1alpha1"),
+    kind: z.literal("AgentDeployment"),
+    agentId: z.string().regex(/^[a-z][a-z0-9-]*$/u),
+    enabled: z.boolean(),
+    replicas: z.number().int().min(0).max(20).optional(),
+    resources: z
+      .object({
+        requests: z.object({ cpu: z.string().min(1), memory: z.string().min(1) }).strict().optional(),
+        limits: z.object({ cpu: z.string().min(1), memory: z.string().min(1) }).strict().optional(),
+      })
+      .strict()
+      .optional(),
+    serviceAccount: z.string().min(1).optional(),
+    /** escape hatch for environments that cannot follow the naming convention (local compose, loopback PoC) */
+    endpoint: z.url().refine((value) => value.startsWith("http://") || value.startsWith("https://"), "endpoint must use HTTP(S)").optional(),
+  })
+  .strict();
+
+export type AgentDeploymentOverlay = z.infer<typeof agentDeploymentOverlaySchema>;
+
+export interface AgentCatalogEntry {
+  agentId: string;
+  endpoint: string;
+  owner: string;
+  description: string;
+  enabled: boolean;
+  environments: string[];
+  requiredRoles: string[];
+  allowedNeedsDomains: string[];
+  routing: AgentRouting;
+}
 
 export interface AgentCatalog {
   resolve(agentId: string): AgentCatalogEntry | undefined;
@@ -88,7 +129,61 @@ export class StaticAgentCatalog implements AgentCatalog {
   }
 }
 
-export function loadAgentCatalog(file: string, baseDir = process.cwd()): StaticAgentCatalog {
-  const parsed = agentServiceRegistryDocumentSchema.parse(parseYaml(readFileSync(resolvePath(baseDir, file), "utf8")));
-  return new StaticAgentCatalog(parsed.agents);
+export function resolveEndpoint(agentId: string, settings: EnvironmentSettings, overlay?: AgentDeploymentOverlay): string {
+  if (overlay?.endpoint !== undefined) return overlay.endpoint;
+  return settings.endpointTemplate.replaceAll("{agentId}", agentId).replaceAll("{namespace}", settings.namespace);
+}
+
+/**
+ * An Agent is routable only if BOTH its lifecycle is active (a statement about
+ * the Agent) and the environment enables it (a statement about the deployment).
+ * Every canonical specialist appears in the catalog either way, so a discovered
+ * domain that exists but is not deployed here stays distinguishable from a typo.
+ */
+export function buildAgentCatalog(
+  documents: AgentDocument[],
+  settings: EnvironmentSettings,
+  overlays: Map<string, AgentDeploymentOverlay>,
+): StaticAgentCatalog {
+  const entries: AgentCatalogEntry[] = [];
+  for (const doc of documents) {
+    if (doc.spec.type !== "specialist") continue;
+    const spec = doc.spec;
+    const overlay = overlays.get(doc.metadata.name);
+    entries.push({
+      agentId: doc.metadata.name,
+      endpoint: resolveEndpoint(doc.metadata.name, settings, overlay),
+      owner: doc.metadata.owner,
+      description: doc.metadata.description ?? doc.metadata.displayName ?? doc.metadata.name,
+      enabled: isAgentEnabled(spec) && overlay?.enabled === true,
+      environments: spec.environments,
+      requiredRoles: spec.authorization.requiredRoles,
+      allowedNeedsDomains: spec.discovery?.allowedNeedsDomains ?? [],
+      routing: spec.routing,
+    });
+  }
+  return new StaticAgentCatalog(entries);
+}
+
+export interface DeploymentEnvironment {
+  settings: EnvironmentSettings;
+  overlays: Map<string, AgentDeploymentOverlay>;
+  /** the manager's own deployment overlay; not a catalog entry, the Manager does not route to itself */
+  manager?: AgentDeploymentOverlay;
+}
+
+/** Read `deploy/environments/<env>/` — environment.yaml, manager.yaml and agents/*.yaml. */
+export function loadDeploymentEnvironment(directory: string, baseDir = process.cwd()): DeploymentEnvironment {
+  const root = resolvePath(baseDir, directory);
+  const settings = environmentSettingsSchema.parse(parseYaml(readFileSync(join(root, "environment.yaml"), "utf8")));
+  const overlays = new Map<string, AgentDeploymentOverlay>();
+  const agentsDir = join(root, "agents");
+  for (const file of readdirSync(agentsDir).filter((name) => name.endsWith(".yaml") || name.endsWith(".yml"))) {
+    const overlay = agentDeploymentOverlaySchema.parse(parseYaml(readFileSync(join(agentsDir, file), "utf8")));
+    if (overlays.has(overlay.agentId)) throw new Error(`duplicate deployment overlay for ${overlay.agentId} in ${directory}`);
+    overlays.set(overlay.agentId, overlay);
+  }
+  const managerFile = join(root, "manager.yaml");
+  const manager = agentDeploymentOverlaySchema.parse(parseYaml(readFileSync(managerFile, "utf8")));
+  return { settings, overlays, manager };
 }

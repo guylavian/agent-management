@@ -1,6 +1,5 @@
 import { AuthorizationService } from "@sre/auth";
-import { loadAgentRegistry } from "@sre/config";
-import { loadAgentCatalog } from "@sre/config";
+import { CONFIG_PATHS, loadAgentRegistry, loadEffectiveAgentCatalog } from "@sre/config";
 import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
 import { MockModelClient } from "@sre/llm";
 import { MockToolHiveClient, type ToolInvocation, type ToolResult } from "@sre/agent-engine";
@@ -9,8 +8,8 @@ import { runSpecialist, type SpecialistExecutionContext } from "@sre/agent-engin
 import { inProcessRuntimeDependencies } from "@sre/runtime-host";
 import { executeRequest } from "@sre/orchestrator";
 
-const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
-const serviceRegistry = loadAgentCatalog("agents/registry.yaml");
+const registry = loadAgentRegistry(CONFIG_PATHS);
+const serviceRegistry = loadEffectiveAgentCatalog({ ...CONFIG_PATHS, deploymentEnvironmentDir: "deploy/environments/production" });
 const alice = { subject: "alice", groups: [], roles: ["infra-read"], requestId: "req-deadline" };
 const context = (deadline: number): SpecialistExecutionContext => ({ request: { question: "AD replication", identity: alice }, identity: alice, environment: "prod", requestId: alice.requestId, deadline });
 

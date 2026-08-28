@@ -1,0 +1,7 @@
+apiVersion: sre.ai/v1alpha1
+kind: DeploymentEnvironment
+environment: local
+# Docker Compose (deploy/local/compose.agents.yaml). Compose service names do not
+# follow the cluster convention, so these are the documented escape-hatch case.
+namespace: sre-assistant
+endpointTemplate: http://sre-agent-{agentId}.{namespace}.svc.cluster.local

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { context, trace, type Attributes, type Span } from "@opentelemetry/api";
 import { AuthorizationService, MockToolCredentialAuthority } from "@sre/auth";
-import { loadAgentRegistry } from "@sre/config";
+import { CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
 import { MockModelClient } from "@sre/llm";
 import { MockToolHiveClient } from "@sre/agent-engine";
 import { classifyIntent } from "@sre/orchestrator";
@@ -44,7 +44,7 @@ function recordingTracer(): { recorded: Recorded[]; restore: () => void } {
   return { recorded, restore: () => { (trace as { getTracer: typeof trace.getTracer }).getTracer = original; } };
 }
 
-const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
+const registry = loadAgentRegistry(CONFIG_PATHS);
 
 async function runOnce(): Promise<Recorded[]> {
   const { recorded, restore } = recordingTracer();

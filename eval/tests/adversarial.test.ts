@@ -1,16 +1,15 @@
 import { AuthorizationService } from "@sre/auth";
-import { loadAgentRegistry } from "@sre/config";
+import { CONFIG_PATHS, loadAgentRegistry, loadEffectiveAgentCatalog } from "@sre/config";
 import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
 import { MockModelClient } from "@sre/llm";
 import { MockToolHiveClient, type ToolInvocation, type ToolResult } from "@sre/agent-engine";
-import { loadAgentCatalog } from "@sre/config";
 import { inProcessRuntimeDependencies } from "@sre/runtime-host";
 import { executeRequest } from "@sre/orchestrator";
 import { MockSessionStore } from "@sre/orchestrator";
 import { describe, expect, it } from "vitest";
 
-const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
-const serviceRegistry = loadAgentCatalog("agents/registry.yaml");
+const registry = loadAgentRegistry(CONFIG_PATHS);
+const serviceRegistry = loadEffectiveAgentCatalog({ ...CONFIG_PATHS, deploymentEnvironmentDir: "deploy/environments/production" });
 const authorization = new AuthorizationService(registry);
 const alice = { subject: "alice", groups: [], roles: ["infra-read"], requestId: "req-sec" };
 

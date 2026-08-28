@@ -17,6 +17,10 @@ export interface AgentDraft {
   modelTier: "small" | "large";
   modelProfile: string;
   promptFile?: string;
+  description?: string;
+  /** logical environments the Agent is defined for; deployment is a separate, per-environment decision */
+  environments?: string[];
+  routing?: { exactTerms?: string[]; entityPatterns?: string[]; ambiguousTerms?: string[]; capabilities?: string[]; exclusions?: string[] };
   requiredRoles: string[];
   crossDomainAllowed?: string[];
   access: Array<{ mcp: string; tools: string[] }>;
@@ -32,6 +36,9 @@ const DEFAULT_LIMITS = {
   maxEvidenceItems: 32,
   maxRawExcerptBytes: 8_192,
 } as const;
+
+/** Every environment the platform knows about; a draft may narrow it. */
+const DEFAULT_ENVIRONMENTS = ["prod", "dr", "lab"] as const;
 
 export interface GeneratedChange {
   /** repo-relative path the Agent document belongs at */
@@ -58,14 +65,23 @@ export function draftToDocument(draft: AgentDraft): AgentDocument {
       name: draft.name,
       owner: draft.owner,
       ...(draft.displayName ? { displayName: draft.displayName } : {}),
+      ...(draft.description ? { description: draft.description } : {}),
     },
     spec: {
       type: "specialist",
       lifecycle: draft.lifecycle ?? "draft",
       model: { tier: draft.modelTier, profile: draft.modelProfile },
-      prompt: { systemFile: draft.promptFile ?? `prompts/${draft.name}.md` },
+      prompt: { systemFile: draft.promptFile ?? `config/prompts/${draft.name}.md` },
       // the workload client id is derived, never author-supplied
       identity: { provider: "keycloak", clientId: workloadClientId(draft.name) },
+      environments: draft.environments ?? [...DEFAULT_ENVIRONMENTS],
+      routing: {
+        exactTerms: draft.routing?.exactTerms ?? [],
+        entityPatterns: draft.routing?.entityPatterns ?? [],
+        ambiguousTerms: draft.routing?.ambiguousTerms ?? [],
+        capabilities: draft.routing?.capabilities ?? [],
+        exclusions: draft.routing?.exclusions ?? [],
+      },
       access: draft.access.map((entry) => ({ mcp: entry.mcp, audience: toolHiveAudience(entry.mcp), tools: entry.tools })),
       execution: { ...DEFAULT_LIMITS, ...draft.limits },
       ...(draft.crossDomainAllowed?.length ? { discovery: { allowedNeedsDomains: draft.crossDomainAllowed } } : {}),
@@ -81,7 +97,7 @@ export function draftToDocument(draft: AgentDraft): AgentDocument {
 
 export function generateAgentChange(draft: AgentDraft): GeneratedChange {
   const document = draftToDocument(draft);
-  return { path: `agents/${document.metadata.name}.yaml`, yaml: renderAgentYaml(document), document };
+  return { path: `config/agents/${document.metadata.name}.yaml`, yaml: renderAgentYaml(document), document };
 }
 
 /**
@@ -99,6 +115,7 @@ export function renderAgentYaml(document: AgentDocument): string {
     `  name: ${document.metadata.name}`,
     `  owner: ${document.metadata.owner}`,
   ];
+  if (document.metadata.description) lines.push(`  description: ${quote(document.metadata.description)}`);
   if (document.metadata.displayName) lines.push(`  displayName: ${document.metadata.displayName}`);
   lines.push(
     "spec:",
@@ -107,6 +124,13 @@ export function renderAgentYaml(document: AgentDocument): string {
     `  model: { tier: ${spec.model.tier}, profile: ${spec.model.profile} }`,
     `  prompt: { systemFile: ${spec.prompt.systemFile} }`,
     `  identity: { provider: ${spec.identity.provider}, clientId: ${spec.identity.clientId} }`,
+    `  environments: [${spec.environments.map(quote).join(", ")}]`,
+    "  routing:",
+    `    exactTerms: [${spec.routing.exactTerms.map(quote).join(", ")}]`,
+    `    entityPatterns: [${spec.routing.entityPatterns.map(quote).join(", ")}]`,
+    `    ambiguousTerms: [${spec.routing.ambiguousTerms.map(quote).join(", ")}]`,
+    `    capabilities: [${spec.routing.capabilities.map(quote).join(", ")}]`,
+    `    exclusions: [${spec.routing.exclusions.map(quote).join(", ")}]`,
     "  access:",
   );
   for (const entry of spec.access) {
@@ -122,4 +146,9 @@ export function renderAgentYaml(document: AgentDocument): string {
   lines.push(`  authorization: { requiredRoles: [${spec.authorization.requiredRoles.join(", ")}] }`);
   lines.push("  security: { readOnly: true }");
   return `${lines.join("\n")}\n`;
+}
+
+/** YAML double-quoting for free text; routing terms and descriptions contain colons and commas. */
+function quote(value: string): string {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }

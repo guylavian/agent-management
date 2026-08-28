@@ -1,0 +1,31 @@
+apiVersion: sre.ai/v1alpha1
+kind: Agent
+metadata:
+  name: keycloak
+  owner: identity-platform
+  description: "Keycloak identity and authentication specialist for realms, users, clients, roles, groups, flows, sessions, identity providers and configuration."
+  displayName: Keycloak Agent
+spec:
+  type: specialist
+  lifecycle: active
+  model: { tier: small, profile: tool-caller }
+  prompt: { systemFile: config/prompts/keycloak.md }
+  identity: { provider: keycloak, clientId: sre-agent-keycloak }
+  environments: ["prod", "dr", "lab"]
+  routing:
+    exactTerms: ["keycloak realm", "sre-test realm", "realm", "realms", "keycloak client", "clients exist", "authentication flow", "authentication flows", "identity provider", "identity providers", "keycloak configuration", "login failure", "login failures"]
+    entityPatterns: ["\\bsre-test-(?:user|client|role)\\b"]
+    ambiguousTerms: ["authentication", "login", "client", "role", "group", "session"]
+    capabilities: ["Keycloak realms/users/clients/roles/groups", "authentication flows and sessions", "identity providers and login configuration"]
+    exclusions: ["Prometheus metrics", "general infrastructure observability", "Active Directory administration"]
+  access:
+    - mcp: keycloak
+      audience: sre-toolhive:keycloak
+      tools: [keycloak_read, keycloak_health, list_realms, list_clients, get_client, find_user, resolve_client_uuid]
+    - mcp: wiki
+      audience: sre-toolhive:wiki
+      tools: [wiki_search, wiki_read_page, wiki_route]
+  execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
+  discovery: { allowedNeedsDomains: [observability] }
+  authorization: { requiredRoles: [infra-read] }
+  security: { readOnly: true }

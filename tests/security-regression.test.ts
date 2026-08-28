@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from "vitest";
 import { AuthorizationService, MockToolCredentialAuthority, type RequestIdentity, type WorkloadIdentity } from "@sre/auth";
-import { loadAgentRegistry, loadAppConfig, ConfigValidationError, isToolAllowed } from "@sre/config";
+import { CONFIG_PATHS, loadAgentRegistry, loadAppConfig, ConfigValidationError, isToolAllowed } from "@sre/config";
 import { MockToolHiveClient, invokeVisibleToolForSpecialist, toolHiveAudience } from "@sre/agent-engine";
 import { buildDependencies, createApp, type ManagerDependencies } from "@sre/runtime-host";
 
@@ -10,7 +10,7 @@ import { buildDependencies, createApp, type ManagerDependencies } from "@sre/run
  * refactor could plausibly break quietly, so it is asserted rather than assumed.
  */
 
-const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
+const registry = loadAgentRegistry(CONFIG_PATHS);
 const authorization = new AuthorizationService(registry);
 const alice: RequestIdentity = { subject: "alice", groups: ["identity-platform"], roles: ["infra-read"], requestId: "req-sec-1" };
 const keycloakAgent = registry.getSpecialist("keycloak")!;
@@ -100,8 +100,8 @@ describe("ToolHive remains mandatory", () => {
 
 describe("secrets never reach Git", () => {
   it("no agent YAML contains credential material", () => {
-    for (const file of readdirSync("agents").filter(name => name.endsWith(".yaml"))) {
-      const contents = readFileSync(`agents/${file}`, "utf8");
+    for (const file of readdirSync("config/agents").filter(name => name.endsWith(".yaml"))) {
+      const contents = readFileSync(`config/agents/${file}`, "utf8");
       expect(contents, file).not.toMatch(/client[_-]?secret|password|private[_-]?key|api[_-]?key|bearer /iu);
     }
   });
@@ -116,8 +116,9 @@ describe("secrets never reach Git", () => {
         spec: {
           type: "specialist",
           model: { tier: "small", profile: "tool-caller" },
-          prompt: { systemFile: "prompts/keycloak.md" },
+          prompt: { systemFile: "config/prompts/keycloak.md" },
           identity: { provider: "keycloak", clientId: "sre-agent-temp" },
+          environments: ["prod"],
           access: [{ mcp: "wiki", tools: ["wiki_search"] }],
           execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 },
           authorization: { requiredRoles: ["infra-read"] },
@@ -145,7 +146,7 @@ describe("secrets never reach Git", () => {
 
 describe("the portal cannot bypass the runtime", () => {
   it("the management API exposes no mutation of running policy", async () => {
-    const deps = buildDependencies({ SRE_ENV: "local", AGENT_CONFIG: "agents/manager.yaml", SRE_AGENT_REGISTRY: "agents/registry.yaml", SRE_CLIENT_AGENT: "mock" }) as ManagerDependencies;
+    const deps = buildDependencies({ SRE_ENV: "local", AGENT_CONFIG: "config/agents/manager.yaml", SRE_CLIENT_AGENT: "mock" }) as ManagerDependencies;
     const app = createApp(deps);
     const token = (((await app.inject({ method: "POST", url: "/dev/token/alice" })).json()) as { token: string }).token;
     const headers = { authorization: `Bearer ${token}` };
@@ -160,11 +161,40 @@ describe("the portal cannot bypass the runtime", () => {
   });
 
   it("does not serve MCP or ToolHive endpoints that a browser could call", async () => {
-    const deps = buildDependencies({ SRE_ENV: "local", AGENT_CONFIG: "agents/manager.yaml", SRE_AGENT_REGISTRY: "agents/registry.yaml", SRE_CLIENT_AGENT: "mock" }) as ManagerDependencies;
+    const deps = buildDependencies({ SRE_ENV: "local", AGENT_CONFIG: "config/agents/manager.yaml", SRE_CLIENT_AGENT: "mock" }) as ManagerDependencies;
     const app = createApp(deps);
     // never reachable: either unauthenticated (401) or absent (404), never served
     for (const url of ["/mcp/keycloak", "/toolhive/keycloak", "/management/mcp/keycloak/call"]) {
       expect([401, 404]).toContain((await app.inject({ method: "POST", url })).statusCode);
     }
+  });
+});
+
+/**
+ * A model profile that cannot be resolved in the active environment is a
+ * startup failure, not a surprise on the first user question. Agents name
+ * LOGICAL profiles; the environment binds them (deploy/environments/<env>/
+ * model-bindings.yaml renders SRE_MODEL_*), and an unbound profile means the
+ * runtime would silently send the profile name to the provider as a model id.
+ */
+describe("model profiles fail closed", () => {
+  const realLlm = {
+    SRE_ENV: "local",
+    SRE_CLIENT_LLM: "real",
+    SRE_LLM_BASE_URL: "http://localhost:11434/v1",
+  } as const;
+
+  it("refuses to start a specialist whose profile is unbound in this environment", () => {
+    expect(() => buildDependencies({ ...realLlm, AGENT_CONFIG: "config/agents/keycloak.yaml" }))
+      .toThrow(/model profile\(s\) tool-caller cannot be resolved/u);
+  });
+
+  it("refuses to start a manager without a synthesis binding", () => {
+    expect(() => buildDependencies({ ...realLlm, AGENT_CONFIG: "config/agents/manager.yaml", SRE_MODEL_MANAGER: "qwen3:8b" }))
+      .toThrow(/model profile\(s\) tier-l-synthesis cannot be resolved/u);
+  });
+
+  it("starts once every referenced profile is bound", () => {
+    expect(() => buildDependencies({ ...realLlm, AGENT_CONFIG: "config/agents/keycloak.yaml", SRE_MODEL_TOOL_CALLER: "qwen3:8b" })).not.toThrow();
   });
 });

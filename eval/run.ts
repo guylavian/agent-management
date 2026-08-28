@@ -1,11 +1,10 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { AuthorizationService } from "@sre/auth";
-import { loadAgentRegistry } from "@sre/config";
+import { CONFIG_PATHS, loadAgentRegistry, loadEffectiveAgentCatalog } from "@sre/config";
 import type { Evidence, RuntimeError, SpecialistResult } from "@sre/evidence";
 import { MockModelClient, type ChatRequest, type ChatResponse, type ModelClient } from "@sre/llm";
 import { MockToolHiveClient } from "@sre/agent-engine";
-import { loadAgentCatalog } from "@sre/config";
 import { inProcessRuntimeDependencies } from "@sre/runtime-host";
 import { executeRequest, type AssistantResponse } from "@sre/orchestrator";
 import { parse as parseYaml } from "yaml";
@@ -49,12 +48,12 @@ class CountingModel implements ModelClient {
 }
 
 const corpus = corpusSchema.parse(parseYaml(readFileSync("eval/questions/cases.yaml", "utf8")));
-const serviceRegistry = loadAgentCatalog("agents/registry.yaml");
+const serviceRegistry = loadEffectiveAgentCatalog({ ...CONFIG_PATHS, deploymentEnvironmentDir: "deploy/environments/production" });
 const records: HarnessRecord[] = [];
 const humanReview: HumanReviewRecord[] = [];
 for (const [caseIndex, benchmark] of corpus.cases.entries()) {
   for (let run = 1; run <= 8; run += 1) {
-    const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
+    const registry = loadAgentRegistry(CONFIG_PATHS);
     const model = new CountingModel(new MockModelClient());
     const toolhive = new MockToolHiveClient();
     let specialistResults: SpecialistResult[] = [];

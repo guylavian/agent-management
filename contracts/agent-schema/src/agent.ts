@@ -13,9 +13,12 @@ import { toolHiveAudience, workloadClientId } from "./identity.ts";
  * embedded code, workflow constructs) are rejected — TDD §5.3.
  *
  * Routing vocabulary (exact terms, entity patterns, capabilities, exclusions)
- * and service endpoints deliberately live in the separately validated
- * AgentServiceRegistry, not here; duplicating them would create drift between
- * the Manager's view and the Specialist's own config.
+ * lives HERE, with the Agent it describes. It used to live in a separate
+ * service registry that also carried endpoints and per-environment enablement,
+ * which meant onboarding an Agent required editing two logical sources that
+ * could disagree. Physical placement — where an Agent runs and whether it is
+ * deployed in this environment — is a deployment concern and stays out of this
+ * file entirely.
  */
 
 export const EXECUTION_DEFAULTS = {
@@ -88,6 +91,30 @@ const accessEntrySchema = z
 
 export type AgentAccessEntry = z.infer<typeof accessEntrySchema>;
 
+/**
+ * How the Manager decides this Agent is the right one. Precision matters more
+ * than recall: `exactTerms` resolve routing on their own, `ambiguousTerms` are
+ * documented specifically so they cannot, and `capabilities`/`exclusions` are
+ * handed to the Manager model as descriptors rather than baked into a prompt.
+ */
+const routingSchema = z
+  .object({
+    // whole-phrase, case-insensitive terms that resolve to this agent (high precision)
+    exactTerms: z.array(z.string().min(2)).default([]),
+    // regexes (source strings) tested against the question; a match routes and yields an entity
+    entityPatterns: z.array(z.string().min(1)).default([]),
+    // overloaded terms that MUST NOT resolve routing on their own (precision guard, documentation)
+    ambiguousTerms: z.array(z.string().min(1)).default([]),
+    // free-text routing hints supplied to the Manager (what this specialist covers / does not)
+    capabilities: z.array(z.string().min(1)).default([]),
+    exclusions: z.array(z.string().min(1)).default([]),
+  })
+  .strict();
+
+export type AgentRouting = z.infer<typeof routingSchema>;
+
+const ROUTING_DEFAULT: AgentRouting = { exactTerms: [], entityPatterns: [], ambiguousTerms: [], capabilities: [], exclusions: [] };
+
 const specialistSpecSchema = z
   .object({
     type: z.literal("specialist"),
@@ -100,6 +127,10 @@ const specialistSpecSchema = z
       .strict(),
     prompt: z.object({ systemFile: z.string().min(1) }).strict(),
     identity: identitySchema,
+    // logical environments this Agent is defined for; whether it is DEPLOYED in
+    // one of them is a deployment overlay decision, not a property of the Agent
+    environments: z.array(z.string().min(1)).min(1),
+    routing: routingSchema.default(ROUTING_DEFAULT),
     access: z.array(accessEntrySchema).min(1),
     execution: specialistExecutionSchema,
     discovery: z
@@ -177,6 +208,8 @@ export const agentDocumentSchema = z
         name: agentName,
         owner: z.string().min(1),
         displayName: z.string().min(1).optional(),
+        // shown to the Manager model as a routing descriptor and to the portal
+        description: z.string().min(1).max(500).optional(),
       })
       .strict(),
     spec: z.discriminatedUnion("type", [managerSpecSchema, specialistSpecSchema]),
@@ -203,6 +236,7 @@ export interface SpecialistAgentConfig {
   name: string;
   owner: string;
   displayName?: string;
+  description?: string;
   spec: SpecialistSpec;
   systemPrompt: string;
 }
@@ -211,6 +245,7 @@ export interface ManagerAgentConfig {
   name: string;
   owner: string;
   displayName?: string;
+  description?: string;
   spec: ManagerSpec;
   systemPrompt: string;
 }
@@ -294,6 +329,82 @@ export const approvedCatalogSchema = z
   .strict();
 
 export type ApprovedCatalog = z.infer<typeof approvedCatalogSchema>;
+
+/**
+ * ONE logical MCP server per file — TDD §12.1 expressed per server rather than
+ * as a single flat catalog. `serverId` is stated once at the top instead of
+ * repeated on every tool, which is what stops a tool being approved for the
+ * wrong server by a copy-paste.
+ */
+export const mcpServerToolSchema = approvedToolSchema.omit({ serverId: true });
+export type McpServerTool = z.infer<typeof mcpServerToolSchema>;
+
+export const mcpServerDocumentSchema = z
+  .object({
+    apiVersion: z.literal("sre.ai/v1alpha1"),
+    kind: z.literal("McpServer"),
+    metadata: z
+      .object({
+        serverId: z.string().regex(/^[a-z][a-z0-9-]*$/u),
+        owner: z.string().min(1),
+        description: z.string().min(1).max(500),
+      })
+      .strict(),
+    tools: z.array(mcpServerToolSchema).min(1),
+  })
+  .strict();
+
+export type McpServerDocument = z.infer<typeof mcpServerDocumentSchema>;
+
+/** Flatten per-server documents into the flat approved catalog the runtime enforces. */
+export function toApprovedCatalog(servers: McpServerDocument[]): ApprovedCatalog {
+  return approvedCatalogSchema.parse({
+    apiVersion: "sre.ai/v1alpha1",
+    kind: "ApprovedToolCatalog",
+    tools: servers.flatMap((server) => server.tools.map((tool) => ({ ...tool, serverId: server.metadata.serverId }))),
+  });
+}
+
+/**
+ * LOGICAL model profiles. An Agent names a profile, never a provider or an
+ * endpoint, so the same Agent definition deploys against Groq in the PoC and an
+ * on-prem vLLM in production without being edited.
+ */
+export const modelProfilesSchema = z
+  .object({
+    apiVersion: z.literal("sre.ai/v1alpha1"),
+    kind: z.literal("ModelProfiles"),
+    profiles: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1),
+            tier: z.enum(["small", "large"]),
+            description: z.string().min(1).max(500),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
+
+export type ModelProfiles = z.infer<typeof modelProfilesSchema>;
+
+/**
+ * Platform-wide tool policy. Read-only is already a schema literal on every
+ * approved tool; this adds the name-shaped guard that used to live only in a
+ * test, so a mutating-sounding tool cannot be approved by config alone.
+ */
+export const toolPolicySchema = z
+  .object({
+    apiVersion: z.literal("sre.ai/v1alpha1"),
+    kind: z.literal("ToolPolicy"),
+    requireReadOnlyVerified: z.literal(true),
+    forbiddenToolNamePrefixes: z.array(z.string().min(1)).min(1),
+  })
+  .strict();
+
+export type ToolPolicy = z.infer<typeof toolPolicySchema>;
 
 /**
  * Tool access classification shown by the management portal — TDD §27.

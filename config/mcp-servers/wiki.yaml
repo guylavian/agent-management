@@ -1,0 +1,12 @@
+apiVersion: sre.ai/v1alpha1
+kind: McpServer
+metadata:
+  serverId: wiki
+  owner: sre-platform
+  description: "Internal knowledge-base MCP: runbook search and page reads."
+# Every tool is read-only-verified: the schema has no way to express an approved
+# mutating tool, so a write capability cannot be introduced by editing this file.
+tools:
+  - { toolName: wiki_search, readOnlyVerified: true, owner: sre-platform, environments: [prod, dr, lab], timeoutMs: 10000, retryPolicy: transient-once, evidenceKind: wiki }
+  - { toolName: wiki_read_page, readOnlyVerified: true, owner: sre-platform, environments: [prod, dr, lab], timeoutMs: 10000, retryPolicy: transient-once, evidenceKind: wiki }
+  - { toolName: wiki_route, readOnlyVerified: true, owner: sre-platform, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: none, evidenceKind: wiki }

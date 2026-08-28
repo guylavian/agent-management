@@ -11,9 +11,9 @@ COPY agent-engine ./agent-engine
 COPY orchestrator ./orchestrator
 COPY runtime-host ./runtime-host
 RUN npm ci --omit=dev --workspace @sre/runtime-host --include-workspace-root
-COPY agents ./agents
-COPY prompts ./prompts
-COPY policies ./policies
+# canonical logical configuration + every environment's deployment desired state
+COPY config ./config
+COPY deploy/environments ./deploy/environments
 USER node
 EXPOSE 3000
 CMD ["node", "runtime-host/src/main.ts"]

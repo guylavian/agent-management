@@ -1,12 +1,12 @@
 
-import { loadAgentCatalog } from "@sre/config";
+import { CONFIG_PATHS, loadEffectiveAgentCatalog } from "@sre/config";
 import { MockDelegationAuthority } from "@sre/auth";
 import { loadAgentInstance, type ManagerAgentConfig } from "@sre/config";
 import { MockModelClient, type ModelClient } from "@sre/llm";
 import { MockSpecialistTransport, type RuntimeDependencies } from "../src/index.ts";
 
-export const serviceRegistry = loadAgentCatalog("agents/registry.yaml");
-export const managerAgent = loadAgentInstance({ configFile: "agents/manager.yaml" }) as ManagerAgentConfig;
+export const serviceRegistry = loadEffectiveAgentCatalog({ ...CONFIG_PATHS, deploymentEnvironmentDir: "deploy/environments/production" });
+export const managerAgent = loadAgentInstance({ configFile: "config/agents/manager.yaml" }) as ManagerAgentConfig;
 
 export function distributedRuntime(model: ModelClient = new MockModelClient(), agentClient = new MockSpecialistTransport()): RuntimeDependencies {
   return {

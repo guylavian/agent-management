@@ -1,0 +1,11 @@
+apiVersion: sre.ai/v1alpha1
+kind: AgentDeployment
+# Deployment overlay ONLY. Routing, capabilities, prompt, tool access and
+# ownership are properties of the Agent and live in config/agents/active-directory.yaml;
+# the schema rejects them here.
+agentId: active-directory
+enabled: true
+replicas: 2
+resources:
+  requests: { cpu: 500m, memory: 512Mi }
+  limits: { cpu: "1", memory: 1Gi }

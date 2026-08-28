@@ -1,8 +1,10 @@
+# DEPRECATED by deploy/environments/<env>/rendered/agents/. Kept only until the
+# renderer's output replaces it in the ApplicationSet.
 # helm install sre-agent-observability deploy/helm -f deploy/helm/values/observability.yaml
 agent:
   name: observability
   mode: specialist
-  configFile: agents/observability.yaml
+  configFile: config/agents/observability.yaml
 replicaCount: 2
 resources:
   requests: { cpu: 500m, memory: 512Mi }

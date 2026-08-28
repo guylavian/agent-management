@@ -1,6 +1,19 @@
 import { z } from "zod";
 
 /**
+ * Canonical configuration layout. One constant so a path change is one edit,
+ * and so tests load exactly what the runtime loads rather than a fixture that
+ * can drift from it.
+ */
+export const CONFIG_PATHS = {
+  agentsDir: "config/agents",
+  promptsDir: "config/prompts",
+  mcpServersDir: "config/mcp-servers",
+  modelProfilesFile: "config/model-profiles/profiles.yaml",
+  toolPolicyFile: "config/policies/tool-policy.yaml",
+} as const;
+
+/**
  * Application configuration — fail-closed per TDD §22.
  * Every external integration is config-selected mock|real; a "real" client
  * requires its endpoint, and production forbids mocks entirely.
@@ -12,11 +25,14 @@ export const appConfigSchema = z
   .object({
     env: z.enum(["local", "test", "real-poc", "production"]).default("local"),
     port: z.coerce.number().int().min(1).max(65_535).default(3000),
-    agentsDir: z.string().min(1).default("agents"),
-    agentConfigFile: z.string().min(1).default("agents/manager.yaml"),
-    agentRegistryFile: z.string().min(1).default("agents/registry.yaml"),
-    promptsDir: z.string().min(1).default("prompts"),
-    approvedCatalogFile: z.string().min(1).default("policies/approved-tools.yaml"),
+    agentsDir: z.string().min(1).default(CONFIG_PATHS.agentsDir),
+    agentConfigFile: z.string().min(1).default("config/agents/manager.yaml"),
+    promptsDir: z.string().min(1).default(CONFIG_PATHS.promptsDir),
+    mcpServersDir: z.string().min(1).default(CONFIG_PATHS.mcpServersDir),
+    modelProfilesFile: z.string().min(1).default(CONFIG_PATHS.modelProfilesFile),
+    toolPolicyFile: z.string().min(1).default(CONFIG_PATHS.toolPolicyFile),
+    /** the active environment's deployment desired state — enablement, placement, model bindings */
+    deploymentEnvironmentDir: z.string().min(1).default("deploy/environments/production"),
     requestDeadlineMs: z.coerce.number().int().min(1_000).max(600_000).default(45_000),
     defaultEnvironment: z.string().min(1).default("prod"),
     clients: z
@@ -128,9 +144,11 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
     port: env.SRE_PORT,
     agentsDir: env.SRE_AGENTS_DIR,
     agentConfigFile: env.AGENT_CONFIG,
-    agentRegistryFile: env.SRE_AGENT_REGISTRY,
     promptsDir: env.SRE_PROMPTS_DIR,
-    approvedCatalogFile: env.SRE_APPROVED_CATALOG,
+    mcpServersDir: env.SRE_MCP_SERVERS_DIR,
+    modelProfilesFile: env.SRE_MODEL_PROFILES,
+    toolPolicyFile: env.SRE_TOOL_POLICY,
+    deploymentEnvironmentDir: env.SRE_DEPLOYMENT_ENVIRONMENT_DIR,
     requestDeadlineMs: env.SRE_REQUEST_DEADLINE_MS,
     defaultEnvironment: env.SRE_DEFAULT_ENVIRONMENT,
     clients: {

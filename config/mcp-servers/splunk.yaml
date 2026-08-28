@@ -1,0 +1,12 @@
+apiVersion: sre.ai/v1alpha1
+kind: McpServer
+metadata:
+  serverId: splunk
+  owner: sre-platform
+  description: "Splunk read-only MCP: scoped log searches for AD, platform and network events."
+# Every tool is read-only-verified: the schema has no way to express an approved
+# mutating tool, so a write capability cannot be introduced by editing this file.
+tools:
+  - { toolName: search_ad_events, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 15000, retryPolicy: transient-once }
+  - { toolName: search_platform_logs, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 15000, retryPolicy: transient-once }
+  - { toolName: search_network_logs, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 15000, retryPolicy: transient-once }

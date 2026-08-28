@@ -1,0 +1,15 @@
+apiVersion: sre.ai/v1alpha1
+kind: ModelBindings
+environment: local
+# Local Ollama through the OpenAI-compatible path. The endpoint is supplied by
+# the compose file, not rendered, so this file stays credential-free.
+profiles:
+  manager-router:
+    provider: ollama
+    model: qwen3:8b
+  tool-caller:
+    provider: ollama
+    model: qwen3:8b
+  tier-l-synthesis:
+    provider: ollama
+    model: qwen3:8b
