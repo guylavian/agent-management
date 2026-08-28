@@ -37,14 +37,14 @@ export function RunsPage() {
             <DataTable columns={COLUMNS} head={['TIME', 'USER', 'AGENTS', 'STATUS', 'TOOLS', 'EVIDENCE', 'DURATION']}>
               {runs.map(run => (
                 <DataRow key={run.requestId} columns={COLUMNS} onClick={() => { window.location.href = `/runs/${run.requestId}`; }}>
-                  <Body>{new Date(run.startedAt).toLocaleString()}</Body>
+                  <Body mono>{new Date(run.startedAt).toLocaleString()}</Body>
                   {/* the human initiator is carried as a hash; the portal never sees the raw subject */}
                   <Muted mono>{run.userSubjectHash.slice(0, 10)}…</Muted>
                   <Body>{run.agents.join(', ')}</Body>
                   <div><StatusPill tone={run.status === 'complete' ? 'ok' : run.status === 'partial' ? 'warn' : 'danger'}>{run.status}</StatusPill></div>
                   <Body>{run.toolCalls}</Body>
                   <Body>{run.evidenceCount}</Body>
-                  <Muted>{run.durationMs} ms</Muted>
+                  <Muted mono>{run.durationMs} ms</Muted>
                 </DataRow>
               ))}
             </DataTable>

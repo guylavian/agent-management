@@ -277,12 +277,12 @@ function RunsTab({ agentId }: { agentId: string }) {
           <DataTable columns={RUN_COLUMNS} head={['TIME', 'STATUS', 'AGENTS', 'TOOLS', 'EVIDENCE', 'DURATION']}>
             {runs.map(run => (
               <DataRow key={run.requestId} columns={RUN_COLUMNS} onClick={() => { window.location.href = `/runs/${run.requestId}`; }}>
-                <Body>{new Date(run.startedAt).toLocaleString()}</Body>
+                <Body mono>{new Date(run.startedAt).toLocaleString()}</Body>
                 <div><StatusPill tone={run.status === 'complete' ? 'ok' : run.status === 'partial' ? 'warn' : 'danger'}>{run.status}</StatusPill></div>
                 <Body>{run.agents.join(', ')}</Body>
                 <Body>{run.toolCalls}</Body>
                 <Body>{run.evidenceCount}</Body>
-                <Muted>{run.durationMs} ms</Muted>
+                <Muted mono>{run.durationMs} ms</Muted>
               </DataRow>
             ))}
           </DataTable>

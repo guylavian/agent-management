@@ -73,7 +73,7 @@ export function OverviewPage() {
                 <Body mono>{agent.modelProfile}</Body>
                 <Body>{agent.mcpCount}</Body>
                 {/* no run history reads as "never", never as a fabricated timestamp */}
-                <Muted>{lastByAgent.get(agent.id) ? new Date(lastByAgent.get(agent.id) as string).toLocaleTimeString() : 'never'}</Muted>
+                <Muted mono>{lastByAgent.get(agent.id) ? new Date(lastByAgent.get(agent.id) as string).toLocaleTimeString() : 'never'}</Muted>
                 <Muted mono>{agent.workloadClientId.replace('sre-agent-', '')}</Muted>
               </DataRow>
             ))}
