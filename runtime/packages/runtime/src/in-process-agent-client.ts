@@ -10,7 +10,7 @@ import {
 import type { AgentRegistry as AgentServiceRegistry } from "@sre/agent-registry";
 import { MockDelegationAuthority, type AuthorizationService, type DelegatedIdentityVerifier } from "@sre/auth";
 import type { AgentRegistry as ConfigAgentRegistry } from "@sre/config";
-import { redactText } from "@sre/evidence";
+import { redactText } from "@sre/redaction";
 import type { ModelClient } from "@sre/llm";
 import type { ToolHiveClient } from "@sre/mcp";
 import { classifyIntent } from "@sre/routing";

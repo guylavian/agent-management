@@ -4,10 +4,12 @@ export default defineConfig({
   test: {
     include: [
       "contracts/*/tests/**/*.test.ts",
+      "shared/*/tests/**/*.test.ts",
       "runtime/packages/*/tests/**/*.test.ts",
       "runtime/app/tests/**/*.test.ts",
       "management/packages/*/tests/**/*.test.ts",
       "eval/tests/**/*.test.ts",
+      "tests/**/*.test.ts",
     ],
     environment: "node",
     testTimeout: 15_000,

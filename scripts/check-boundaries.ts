@@ -2,11 +2,13 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Enforces the plane boundary that the architecture depends on.
+ * Enforces the architectural dependency direction the platform depends on.
  *
- * The rule is a dependency DIRECTION, not a naming convention:
+ * The rule is a DIRECTION, not a naming convention:
  *
  *     management/*  ──►  contracts/*  ◄──  runtime/*
+ *                          ▲
+ *                       shared/*
  *
  * The management plane may consume the canonical Agent contract, but it must
  * never import runtime code. If it could, the portal would become a second
@@ -14,7 +16,13 @@ import { join } from "node:path";
  * enforcement without touching the runtime. The runtime must likewise never
  * depend on the management plane, so a console outage cannot affect execution.
  *
- * `contracts` depends on nothing, which is what keeps it a contract.
+ * `contracts` depends on nothing, which is what keeps it a contract, and
+ * `shared` may rest only on contracts and other shared modules — otherwise the
+ * plane boundary would be routable through it.
+ *
+ * Zones are resolved from each workspace's package NAME, not from its directory
+ * name, because the two deliberately differ (shared/config-loader publishes
+ * @sre/config).
  */
 
 interface Violation {
@@ -23,9 +31,24 @@ interface Violation {
   detail: string;
 }
 
-const RUNTIME_PACKAGES = new Set(readdirSync("runtime/packages"));
-const MANAGEMENT_PACKAGES = new Set(readdirSync("management/packages"));
-const CONTRACT_PACKAGES = new Set(readdirSync("contracts"));
+/** Package names published from a zone root, e.g. shared/ -> {"auth", "config", ...}. */
+function packageNames(zone: string): Set<string> {
+  const names = new Set<string>();
+  for (const entry of readdirSync(zone)) {
+    try {
+      const parsed = JSON.parse(readFileSync(join(zone, entry, "package.json"), "utf8")) as { name?: string };
+      if (parsed.name?.startsWith("@sre/")) names.add(parsed.name.slice("@sre/".length));
+    } catch {
+      // not a workspace directory
+    }
+  }
+  return names;
+}
+
+const CONTRACT_PACKAGES = packageNames("contracts");
+const SHARED_PACKAGES = packageNames("shared");
+const RUNTIME_PACKAGES = packageNames("runtime/packages");
+const MANAGEMENT_PACKAGES = packageNames("management/packages");
 
 const violations: Violation[] = [];
 
@@ -92,12 +115,18 @@ check("contracts", (name: string) =>
     : `contract imports "@sre/${name}" — contracts must not depend on either plane`,
 );
 
+check("shared", (name: string) =>
+  CONTRACT_PACKAGES.has(name) || SHARED_PACKAGES.has(name)
+    ? undefined
+    : `shared imports "@sre/${name}" — shared may depend only on contracts and shared`,
+);
+
 if (violations.length > 0) {
-  console.error("plane boundary violations:\n");
+  console.error("boundary violations:\n");
   for (const violation of violations) console.error(`  ${violation.file}:${violation.line}\n    ${violation.detail}`);
   process.exit(1);
 }
 
 console.log(
-  `plane boundaries ok — ${CONTRACT_PACKAGES.size} contract, ${RUNTIME_PACKAGES.size} runtime, ${MANAGEMENT_PACKAGES.size} management package(s)`,
+  `boundaries ok — ${CONTRACT_PACKAGES.size} contract, ${SHARED_PACKAGES.size} shared, ${RUNTIME_PACKAGES.size} runtime, ${MANAGEMENT_PACKAGES.size} management package(s)`,
 );

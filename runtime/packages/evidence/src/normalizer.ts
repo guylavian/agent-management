@@ -1,6 +1,6 @@
 import type { SpecialistExecution } from "@sre/config";
-import type { Evidence } from "./evidence.ts";
-import { redactEvidence } from "./redaction.ts";
+import type { Evidence } from "@sre/evidence";
+import { redactEvidence } from "@sre/redaction";
 
 const encoder = new TextEncoder();
 

@@ -1,4 +1,4 @@
-import type { Evidence, SpecialistResult } from "./evidence.ts";
+import type { Evidence, SpecialistResult } from "@sre/evidence";
 
 export interface ReducedEvidence {
   evidence: Evidence[];

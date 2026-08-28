@@ -1,4 +1,5 @@
-import { evidenceGaps, renderCitations, type Evidence, type SpecialistResult } from "@sre/evidence";
+import type { Evidence, SpecialistResult } from "@sre/evidence";
+import { evidenceGaps, renderCitations } from "@sre/evidence-processing";
 import type { AssistantResponse, ExecutionContext } from "./types.ts";
 
 export function deterministicResponseBuilder(ctx: ExecutionContext, result: SpecialistResult): AssistantResponse {

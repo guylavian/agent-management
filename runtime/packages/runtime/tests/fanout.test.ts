@@ -1,5 +1,6 @@
 import { AgentTransportError, MockAgentClient } from "@sre/agent-client";
-import { reduceEvidence, type Evidence } from "@sre/evidence";
+import type { Evidence } from "@sre/evidence";
+import { reduceEvidence } from "@sre/evidence-processing";
 import { MockModelClient, type ChatRequest, type ChatResponse, type ModelClient } from "@sre/llm";
 import { describe, expect, it } from "vitest";
 import { executeRequest, shouldEscalate, type ExecutionContext } from "../src/index.ts";

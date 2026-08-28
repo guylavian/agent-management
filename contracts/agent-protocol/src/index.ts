@@ -52,3 +52,37 @@ export function assertSerializedLimit(value: unknown, maximum: number, label: st
 export function hashDelegatedSubject(subject: string): string {
   return createHash("sha256").update(subject).digest("hex");
 }
+
+/**
+ * The Manager→Specialist transport boundary.
+ *
+ * The orchestrator depends on this interface and on nothing else about how a
+ * specialist is reached. Implementations (HTTP, in-process) are constructed by
+ * the composition root, which is the only layer permitted to see both sides.
+ * That is what keeps `orchestrator ✕→ agent-engine` true even when a single
+ * process runs both.
+ */
+export interface SpecialistTransport {
+  readonly mode: "mock" | "real";
+  execute(agentId: string, request: AgentExecutionRequest, signal: AbortSignal): Promise<AgentExecutionResponse>;
+}
+
+export type AgentTransportErrorCode =
+  | "AGENT_UNAVAILABLE"
+  | "AGENT_TIMEOUT"
+  | "AGENT_UNAUTHORIZED"
+  | "AGENT_EXECUTION_FAILED"
+  | "AGENT_INVALID_RESPONSE"
+  | "AGENT_RESPONSE_TOO_LARGE";
+
+/** Transport-level failure. Carries a protocol error code, never a provider message. */
+export class AgentTransportError extends Error {
+  readonly code: AgentTransportErrorCode;
+  readonly retryable: boolean;
+  constructor(code: AgentTransportErrorCode, message: string, retryable: boolean) {
+    super(message);
+    this.name = "AgentTransportError";
+    this.code = code;
+    this.retryable = retryable;
+  }
+}

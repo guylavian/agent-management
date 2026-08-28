@@ -1,4 +1,4 @@
-import type { ReducedEvidence } from "@sre/evidence";
+import type { ReducedEvidence } from "@sre/evidence-processing";
 import type { ExecutionContext } from "./types.ts";
 
 export function shouldEscalate(ctx: ExecutionContext, reduced: ReducedEvidence): boolean {

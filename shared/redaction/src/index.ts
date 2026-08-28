@@ -1,4 +1,4 @@
-import type { Evidence } from "./evidence.ts";
+import type { Evidence } from "@sre/evidence";
 
 const RULES: Array<{ category: string; pattern: RegExp }> = [
   { category: "private-key", pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/giu },

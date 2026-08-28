@@ -1,5 +1,5 @@
 {
-  "name": "@sre/evidence",
+  "name": "@sre/evidence-processing",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@sre/config": "*",
-    "zod": "4.4.3"
+    "@sre/evidence": "*",
+    "@sre/redaction": "*"
   }
 }

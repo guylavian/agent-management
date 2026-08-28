@@ -9,6 +9,7 @@
   "packageManager": "npm@11.7.0",
   "workspaces": [
     "contracts/*",
+    "shared/*",
     "runtime/app",
     "runtime/packages/*",
     "management/packages/*"
@@ -26,9 +27,9 @@
     "real-poc:start": "./scripts/start-real-poc.sh",
     "real-poc:verify": "./scripts/verify-real-poc.sh",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint contracts runtime management scripts eval --ignore-pattern 'management/portal/**'",
+    "lint": "oxlint contracts shared runtime management scripts eval tests --ignore-pattern 'management/portal/**'",
     "test": "vitest run",
-    "validate:yaml": "vitest run runtime/packages/config/tests/yaml-validation.test.ts",
+    "validate:yaml": "vitest run shared/config-loader/tests/yaml-validation.test.ts",
     "validate:boundaries": "node --import tsx scripts/check-boundaries.ts",
     "validate:deploy": "helm lint runtime/deploy/helm && helm template sre-agent-manager runtime/deploy/helm -f runtime/deploy/helm/values/manager.yaml > /dev/null && helm template sre-agent-active-directory runtime/deploy/helm -f runtime/deploy/helm/values/active-directory.yaml > /dev/null && helm template sre-agent-openshift runtime/deploy/helm -f runtime/deploy/helm/values/openshift.yaml > /dev/null && helm template sre-agent-network-observability runtime/deploy/helm -f runtime/deploy/helm/values/network-observability.yaml > /dev/null && helm template sre-agent-keycloak runtime/deploy/helm -f runtime/deploy/helm/values/keycloak.yaml > /dev/null && helm template sre-agent-observability runtime/deploy/helm -f runtime/deploy/helm/values/observability.yaml > /dev/null && helm lint management/deploy/portal && helm template sre-agent-portal management/deploy/portal > /dev/null",
     "gen:schema": "node --import tsx scripts/gen-schema.ts",

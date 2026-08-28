@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { enforceEvidenceSetBudget, normalizeEvidence, redactText, type Evidence } from "../src/index.ts";
+import type { Evidence } from "@sre/evidence";
+import { redactText } from "@sre/redaction";
+import { enforceEvidenceSetBudget, normalizeEvidence } from "../src/index.ts";
 
 const base: Evidence = { id: "e1", kind: "telemetry", source: "tool", system: "ad", environment: "prod", rawExcerpt: "x".repeat(5000), citation: "mcp://ad/tool", status: "ok", requestId: "req" };
 const limits = { maxToolCalls: 1, maxModelTurns: 1, timeoutMs: 1000, maxEvidenceBytes: 4096, maxContextTokens: 1000, maxEvidenceItems: 2, maxRawExcerptBytes: 512 };

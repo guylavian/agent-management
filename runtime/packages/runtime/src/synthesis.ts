@@ -1,4 +1,5 @@
-import { evidenceGaps, renderCitations, type ReducedEvidence, type SpecialistResult } from "@sre/evidence";
+import type { SpecialistResult } from "@sre/evidence";
+import { evidenceGaps, renderCitations, type ReducedEvidence } from "@sre/evidence-processing";
 import type { ModelClient } from "@sre/llm";
 import { incrementMetric, withSpan } from "@sre/telemetry";
 import type { AssistantResponse, ExecutionContext } from "./types.ts";

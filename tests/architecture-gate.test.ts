@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadAgentRegistry } from "@sre/config";
 import { MockToolHiveClient, invokeVisibleTool, visibleTools } from "@sre/mcp";
-import { AuthorizationService, MockOidcClient } from "../src/index.ts";
+import { AuthorizationService, MockOidcClient } from "@sre/auth";
 
 const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
 

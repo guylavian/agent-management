@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { reduceEvidence, type SpecialistResult } from "../src/index.ts";
+import type { SpecialistResult } from "@sre/evidence";
+import { reduceEvidence } from "../src/index.ts";
 
 describe("evidence reducer", () => {
   it("deduplicates evidence and detects same-environment state conflicts", () => {

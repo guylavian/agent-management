@@ -46,7 +46,7 @@ import {
   type ManagerAgentConfig,
   type SpecialistAgentConfig,
 } from "@sre/config";
-import { redactText } from "@sre/evidence";
+import { redactText } from "@sre/redaction";
 import { MockModelClient, RealOpenAiCompatibleClient, type ModelClient } from "@sre/llm";
 import { DirectMcpClient, mcpEndpointsFromEnv, MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "@sre/mcp";
 import { classifyIntent, extractEntities } from "@sre/routing";

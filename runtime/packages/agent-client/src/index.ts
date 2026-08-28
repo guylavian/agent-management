@@ -2,6 +2,7 @@ import { context, propagation } from "@opentelemetry/api";
 import { readFile } from "node:fs/promises";
 import {
   AGENT_EXECUTION_PATH,
+  AgentTransportError,
   MAX_AGENT_REQUEST_BYTES,
   MAX_AGENT_RESPONSE_BYTES,
   agentExecutionResponseSchema,
@@ -9,13 +10,14 @@ import {
   serializedBytes,
   type AgentExecutionRequest,
   type AgentExecutionResponse,
+  type SpecialistTransport,
 } from "@sre/agent-protocol";
+
+export { AgentTransportError, type AgentTransportErrorCode } from "@sre/agent-protocol";
 import type { AgentRegistry } from "@sre/agent-registry";
 
-export interface AgentClient {
-  readonly mode: "mock" | "real";
-  execute(agentId: string, request: AgentExecutionRequest, signal: AbortSignal): Promise<AgentExecutionResponse>;
-}
+/** @deprecated name kept during the migration; the contract is SpecialistTransport. */
+export type AgentClient = SpecialistTransport;
 
 export interface WorkloadTokenProvider {
   getToken(audience: string): Promise<string>;
@@ -58,25 +60,6 @@ export class ClientCredentialsWorkloadTokenProvider implements WorkloadTokenProv
 
 export class MockWorkloadTokenProvider implements WorkloadTokenProvider {
   async getToken(_audience: string): Promise<string> { return "mock-manager-workload-token-for-local-tests"; }
-}
-
-export type AgentTransportErrorCode =
-  | "AGENT_UNAVAILABLE"
-  | "AGENT_TIMEOUT"
-  | "AGENT_UNAUTHORIZED"
-  | "AGENT_EXECUTION_FAILED"
-  | "AGENT_INVALID_RESPONSE"
-  | "AGENT_RESPONSE_TOO_LARGE";
-
-export class AgentTransportError extends Error {
-  readonly code: AgentTransportErrorCode;
-  readonly retryable: boolean;
-  constructor(code: AgentTransportErrorCode, message: string, retryable: boolean) {
-    super(message);
-    this.name = "AgentTransportError";
-    this.code = code;
-    this.retryable = retryable;
-  }
 }
 
 export class HttpAgentClient implements AgentClient {

@@ -1,6 +1,8 @@
 import { AuthorizationService, subjectHash, type ToolCredential, type ToolCredentialExchanger, type WorkloadIdentity } from "@sre/auth";
 import { accessServers, audienceFor, type AgentRegistry, type ApprovedCatalog, type SpecialistAgentConfig } from "@sre/config";
-import { enforceEvidenceSetBudget, redactText, specialistResultSchema, type DomainHandoff, type Evidence, type RuntimeError, type SpecialistResult } from "@sre/evidence";
+import { specialistResultSchema, type DomainHandoff, type Evidence, type RuntimeError, type SpecialistResult } from "@sre/evidence";
+import { enforceEvidenceSetBudget } from "@sre/evidence-processing";
+import { redactText } from "@sre/redaction";
 import type { ModelClient, ChatMessage, ToolSchema } from "@sre/llm";
 import { invokeVisibleToolForSpecialist, toolFailureEvidence, toolResultToEvidence, validateToolArguments, visibleToolsForSpecialist, type ToolHiveClient, type ToolInvocation, type VisibleTool } from "@sre/mcp";
 import { z } from "zod";
