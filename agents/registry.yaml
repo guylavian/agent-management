@@ -4,16 +4,16 @@ agents:
   - agentId: active-directory
     endpoint: http://sre-agent-active-directory.sre-assistant.svc.cluster.local
     owner: domain-services
-    description: Active Directory, LDAP, Kerberos, domain controllers, identity, and AD replication
+    description: Identity and authentication — Active Directory, LDAP, Kerberos, domain controllers, AD replication, and Keycloak (realms, clients, users, login).
     enabled: true
     environments: [prod, dr, lab]
     requiredRoles: [infra-read]
     allowedNeedsDomains: [network-observability]
     routing:
-      exactTerms: ["active directory", "domain controller", "domain controllers", "kerberos", "ldap", "ad replication"]
+      exactTerms: ["active directory", "domain controller", "domain controllers", "kerberos", "ldap", "ad replication", "keycloak", "login failure", "login failures", "realm", "identity provider"]
       entityPatterns: ["\\bDC-[A-Z0-9-]+\\b"]
       ambiguousTerms: ["replication", "policy", "certificate", "cluster"]
-      capabilities: ["AD replication and domain-controller health", "Kerberos/LDAP authentication", "AD-integrated DNS"]
+      capabilities: ["AD replication and domain-controller health", "Kerberos/LDAP authentication", "AD-integrated DNS", "Keycloak realms/clients/users and login investigation"]
       exclusions: ["network transport and routing", "OpenShift workloads"]
   - agentId: openshift
     endpoint: http://sre-agent-openshift.sre-assistant.svc.cluster.local

@@ -69,6 +69,11 @@ export const MOCK_TOOLS: McpTool[] = [
   { serverId: "network", name: "get_bgp_status", description: "Read BGP neighbor state", inputSchema: objectSchema({ device: { type: "string" }, mode: { type: "string" } }, ["device"]) },
   { serverId: "splunk", name: "search_network_logs", description: "Search network logs", inputSchema: objectSchema({ query: { type: "string" }, mode: { type: "string" } }, ["query"]) },
   { serverId: "network", name: "get_load_balancer_pool", description: "Read load balancer pool state", inputSchema: objectSchema({ pool: { type: "string" }, mode: { type: "string" } }, ["pool"]) },
+  { serverId: "keycloak", name: "keycloak_health", description: "Read Keycloak connectivity and visible realms", inputSchema: objectSchema({ mode: { type: "string" } }) },
+  { serverId: "keycloak", name: "list_realms", description: "List Keycloak realms", inputSchema: objectSchema({ mode: { type: "string" } }) },
+  { serverId: "keycloak", name: "list_clients", description: "List clients in a Keycloak realm", inputSchema: objectSchema({ realm: { type: "string" }, mode: { type: "string" } }) },
+  { serverId: "keycloak", name: "find_user", description: "Find a user in a Keycloak realm", inputSchema: objectSchema({ realm: { type: "string" }, username: { type: "string" }, mode: { type: "string" } }, ["username"]) },
+  { serverId: "keycloak", name: "keycloak_read", description: "Run a read-only Keycloak Admin API operation", inputSchema: objectSchema({ operation: { type: "string" }, mode: { type: "string" } }, ["operation"]) },
   { serverId: "wiki", name: "wiki_search", description: "Top-k internal wiki reference-note hits for a domain", inputSchema: objectSchema({ domain: { type: "string" }, q: { type: "string" }, k: { type: "integer" }, mode: { type: "string" } }, ["domain", "q"]) },
   { serverId: "wiki", name: "wiki_read_page", description: "Read an internal wiki page/note by slug", inputSchema: objectSchema({ slug: { type: "string" }, offset: { type: "integer" }, mode: { type: "string" } }, ["slug"]) },
   { serverId: "wiki", name: "wiki_route", description: "Route a query to its likely wiki domain(s)", inputSchema: objectSchema({ q: { type: "string" }, mode: { type: "string" } }, ["q"]) },
@@ -164,6 +169,11 @@ function canUse(identity: RequestIdentity, toolName: string): boolean {
 
 function cannedResult(call: ToolInvocation): unknown {
   const entity = Object.values(call.arguments).find((value) => typeof value === "string" && !["ok", "failure"].includes(value));
+  if (call.toolName === "keycloak_health") return { url: "https://keycloak.sre.local", auth_realm: "sre-test", visible_realms: ["sre-test"], read_operations: 148 };
+  if (call.toolName === "list_realms") return [{ realm: "master" }, { realm: "sre-test" }];
+  if (call.toolName === "list_clients") return [{ clientId: "sre-test-client", enabled: true }, { clientId: "account", enabled: true }];
+  if (call.toolName === "find_user") return { username: call.arguments.username ?? "sre-test-user", enabled: true, realm: call.arguments.realm ?? "sre-test" };
+  if (call.toolName === "keycloak_read") return { operation: call.arguments.operation, ok: true };
   if (call.toolName === "wiki_route") return { domains: ["keycloak"], confident: true };
   if (call.toolName === "wiki_search") return [{ id: "kc-login-troubleshooting", title: "Keycloak login failure troubleshooting", score: 0.91, snippet: "Documented procedure: check clock skew, LDAP federation, and realm event logs.", updatedAt: "2026-02-10" }];
   if (call.toolName === "wiki_read_page") return { slug: call.arguments.slug ?? "kc-login-troubleshooting", title: "Keycloak login failure troubleshooting", version: "3", updatedAt: "2026-02-10", body: "Documented steps: 1) verify clock skew, 2) check LDAP federation, 3) review realm login events." };

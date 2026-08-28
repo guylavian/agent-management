@@ -9,8 +9,8 @@ spec:
   prompt: { systemFile: prompts/active-directory.md }
   rag: { enabled: true, collections: [ad-wiki], baselineRetrieval: true, maxFollowupRetrievals: 1, topK: 8 }
   mcp:
-    servers: [active-directory, splunk, prometheus, wiki]
-    allowedTools: [get_replication_status, get_dc_health, list_domain_controllers, get_dns_health, search_ad_events, query_ad_metrics, wiki_search, wiki_read_page]
+    servers: [active-directory, splunk, prometheus, keycloak, wiki]
+    allowedTools: [get_replication_status, get_dc_health, list_domain_controllers, get_dns_health, search_ad_events, query_ad_metrics, keycloak_health, list_realms, list_clients, find_user, keycloak_read, wiki_search, wiki_read_page]
   execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
   discovery: { allowedNeedsDomains: [network-observability] }
   authorization: { requiredRoles: [infra-read] }

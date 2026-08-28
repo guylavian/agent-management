@@ -11,7 +11,9 @@ describe("startup configuration", () => {
     // wiki is a shared MCP tool on the specialists, not a standalone agent
     expect(registry.getSpecialist("active-directory")?.spec.mcp.allowedTools).toContain("wiki_search");
     expect(registry.getSpecialist("active-directory")?.spec.execution.maxEvidenceBytes).toBe(262_144);
-    expect(registry.catalog.tools).toHaveLength(21);
+    expect(registry.catalog.tools).toHaveLength(26);
+    // the AD/identity specialist covers Keycloak too
+    expect(registry.getSpecialist("active-directory")?.spec.mcp.allowedTools).toContain("keycloak_health");
     expect(registry.catalog.tools.filter((tool) => tool.serverId === "wiki").every((tool) => tool.evidenceKind === "wiki")).toBe(true);
   });
 

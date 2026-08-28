@@ -19,6 +19,11 @@ tools:
   - { serverId: network, toolName: get_bgp_status, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
   - { serverId: splunk, toolName: search_network_logs, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 15000, retryPolicy: transient-once }
   - { serverId: network, toolName: get_load_balancer_pool, readOnlyVerified: true, owner: network-observability, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once }
+  - { serverId: keycloak, toolName: keycloak_health, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
+  - { serverId: keycloak, toolName: list_realms, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
+  - { serverId: keycloak, toolName: list_clients, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
+  - { serverId: keycloak, toolName: find_user, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
+  - { serverId: keycloak, toolName: keycloak_read, readOnlyVerified: true, owner: domain-services, environments: [prod, dr, lab], timeoutMs: 10000, retryPolicy: transient-once, evidenceKind: config }
   - { serverId: wiki, toolName: wiki_search, readOnlyVerified: true, owner: sre-platform, environments: [prod, dr, lab], timeoutMs: 10000, retryPolicy: transient-once, evidenceKind: wiki }
   - { serverId: wiki, toolName: wiki_read_page, readOnlyVerified: true, owner: sre-platform, environments: [prod, dr, lab], timeoutMs: 10000, retryPolicy: transient-once, evidenceKind: wiki }
   - { serverId: wiki, toolName: wiki_route, readOnlyVerified: true, owner: sre-platform, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: none, evidenceKind: wiki }

@@ -92,7 +92,7 @@ export class MockModelClient implements ModelClient {
       const agents = [
         ...(question.includes("openshift") || question.includes("pod") ? ["openshift"] : []),
         ...(question.includes("network") || question.includes("prometheus") || question.includes("slow") ? ["network-observability"] : []),
-        ...(question.includes("active directory") || question.includes("domain controller") || question.includes("ad ") || question.includes("authentication") ? ["active-directory"] : []),
+        ...(question.includes("active directory") || question.includes("domain controller") || question.includes("ad ") || question.includes("authentication") || question.includes("keycloak") || question.includes("login") || question.includes("realm") ? ["active-directory"] : []),
       ];
       const selected = [...new Set(agents)].slice(0, 2);
       const routes = selected.map((agent) => ({ agent, task: managerTask(agent) }));
@@ -111,11 +111,14 @@ export class MockModelClient implements ModelClient {
         const evidenceIds = toolResults.map((message) => extractEvidenceId(message.content)).filter((id): id is string => typeof id === "string").slice(0, 8);
         return { toolCalls: [{ id: "mock-answer", name: "answer", arguments: { summary: "The available evidence reports the requested system state (documented and/or live, as cited).", evidenceIds } }], usage: { promptTokens: 48, completionTokens: 20 } };
       }
+      const wantsDocs = question.includes("wiki") || question.includes("documentation") || question.includes("documented") || question.includes("runbook") || question.includes("procedure");
       const preferred = realTools.find((tool) =>
         (question.includes("replication") && tool.name === "get_replication_status")
         || (question.includes("pod") && tool.name === "get_pod_status")
         || ((question.includes("slow") || question.includes("prometheus")) && tool.name === "query_prometheus")
-        || ((question.includes("wiki") || question.includes("documentation") || question.includes("documented") || question.includes("runbook") || question.includes("procedure")) && tool.name === "wiki_search"),
+        || (wantsDocs && tool.name === "wiki_search")
+        // live Keycloak state (not a documentation question) → a Keycloak read tool
+        || (!wantsDocs && (question.includes("keycloak") || question.includes("login") || question.includes("realm")) && tool.name === "keycloak_health"),
       ) ?? realTools[0];
       if (preferred !== undefined) {
         return { toolCalls: [{ id: "mock-call-1", name: preferred.name, arguments: argumentsForSchema(preferred.inputSchema, mode) }], usage: { promptTokens: 48, completionTokens: 16 } };
