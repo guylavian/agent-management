@@ -21,7 +21,7 @@ import {
 export const overviewPage = PageBlueprint.make({
   name: 'overview',
   params: {
-    path: '/agent-management',
+    path: '/',
     title: 'Overview',
     noHeader: true,
     routeRef: rootRouteRef,
@@ -32,7 +32,7 @@ export const overviewPage = PageBlueprint.make({
 export const agentsPage = PageBlueprint.make({
   name: 'agents',
   params: {
-    path: '/agent-management/agents',
+    path: '/agents',
     title: 'Agents',
     noHeader: true,
     routeRef: agentsRouteRef,
@@ -43,7 +43,7 @@ export const agentsPage = PageBlueprint.make({
 export const createAgentPage = PageBlueprint.make({
   name: 'create-agent',
   params: {
-    path: '/agent-management/create',
+    path: '/create-agent',
     title: 'Create Agent',
     noHeader: true,
     routeRef: createAgentRouteRef,
@@ -54,7 +54,7 @@ export const createAgentPage = PageBlueprint.make({
 export const permissionsPage = PageBlueprint.make({
   name: 'permissions',
   params: {
-    path: '/agent-management/permissions',
+    path: '/permissions',
     title: 'Permissions',
     noHeader: true,
     routeRef: permissionsRouteRef,
@@ -65,7 +65,7 @@ export const permissionsPage = PageBlueprint.make({
 export const mcpServersPage = PageBlueprint.make({
   name: 'mcp-servers',
   params: {
-    path: '/agent-management/mcp-servers',
+    path: '/mcp-servers',
     title: 'MCP Servers',
     noHeader: true,
     routeRef: mcpServersRouteRef,
@@ -76,7 +76,7 @@ export const mcpServersPage = PageBlueprint.make({
 export const runsPage = PageBlueprint.make({
   name: 'runs',
   params: {
-    path: '/agent-management/runs',
+    path: '/runs',
     title: 'Runs',
     noHeader: true,
     routeRef: runsRouteRef,

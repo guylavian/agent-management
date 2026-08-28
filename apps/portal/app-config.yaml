@@ -12,11 +12,9 @@ app:
     # The catalog is mounted at /catalog by default but is overridden here to
     # serve as the root page. To switch to the Home page, comment out the
     # catalog path override and uncomment the home path override.
-    # The product surface is the landing page; the Backstage catalog stays
-    # available at /catalog but is not what an operator sees first.
-    - page:agent-management/overview:
-        config:
-          path: /
+    # The plugin already registers Overview at /, so the product surface is the
+    # landing page. The Backstage catalog stays reachable but is not what an
+    # operator sees first.
     - page:catalog:
         config:
           path: /catalog

@@ -2,20 +2,23 @@ import { useState } from 'react';
 import { useAgentActions, useMcpServers } from '../api/client';
 import {
   AsyncState,
+  Breadcrumb,
   Button,
-  Card,
-  Cell,
-  ClassificationBadge,
+  C,
+  DataRow,
+  DataTable,
+  DefinitionList,
   Field,
-  Grid,
-  KeyValue,
+  MONO,
+  ModeBadge,
   Mono,
-  PageShell,
-  Pill,
-  Row,
-  Table,
+  Muted,
+  Page,
+  Panel,
+  SectionTitle,
+  StatusPill,
   inputStyle,
-  palette,
+  selectStyle,
 } from './common';
 import type { AgentDraft, ChangePreview } from '../api/types';
 
@@ -28,6 +31,8 @@ const DEFAULT_LIMITS = {
   maxEvidenceItems: 32,
   maxContextTokens: 12000,
 };
+
+const TOOL_COLUMNS = '40px 2fr .7fr';
 
 /** Create Agent wizard (TDD §24–§30). */
 export function CreateAgentPage() {
@@ -70,7 +75,7 @@ export function CreateAgentPage() {
     setBusy(true);
     setIssues([]);
     try {
-      setPreview(await actions.preview({ ...draft, ...(limits ? {} : {}) }));
+      setPreview(await actions.preview(draft));
     } catch (error) {
       setPreview(undefined);
       const body = error as { issues?: string[]; message?: string };
@@ -92,194 +97,260 @@ export function CreateAgentPage() {
   };
 
   return (
-    <PageShell title="Create Agent" subtitle={STEPS[step]}>
-      <Card>
-        <ol style={{ display: 'flex', gap: 10, listStyle: 'none', margin: 0, padding: 0, flexWrap: 'wrap' }}>
-          {STEPS.map((label, index) => (
-            <li key={label}>
-              <Pill tone={index === step ? 'ok' : index < step ? 'neutral' : 'neutral'}>{index + 1}. {label}</Pill>
-            </li>
-          ))}
-        </ol>
-      </Card>
+    <div style={{ padding: '26px 32px 40px 32px', maxWidth: 1060, margin: '0 auto', fontFamily: "'Figtree',Helvetica,Arial,sans-serif", color: C.text, fontSize: 14 }}>
+      <Breadcrumb items={[{ label: 'Agents', onClick: () => { window.location.href = '/agents'; } }, { label: 'Create agent' }]} />
+      <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.3px', marginBottom: 20 }}>Create Agent</div>
 
-      {step === 0 && (
-        <Card title="Basics & routing">
-          <Grid min={280}>
-            <Field label="Agent name" hint="lowercase kebab-case; becomes the file name and the workload client id">
-              <input style={inputStyle} value={draft.name} onChange={event => patch({ name: event.target.value })} placeholder="check-point" />
-            </Field>
-            <Field label="Display name">
-              <input style={inputStyle} value={draft.displayName} onChange={event => patch({ displayName: event.target.value })} placeholder="Check Point Agent" />
-            </Field>
-            <Field label="Owner / team">
-              <input style={inputStyle} value={draft.owner} onChange={event => patch({ owner: event.target.value })} placeholder="network-security" />
-            </Field>
-            <Field label="Allowed cross-domain agents" hint="comma separated; the Manager mediates every hand-off">
-              <input style={inputStyle} value={(draft.crossDomainAllowed ?? []).join(', ')} onChange={event => patch({ crossDomainAllowed: splitList(event.target.value) })} placeholder="observability" />
-            </Field>
-          </Grid>
-          <p style={{ color: palette.muted, fontSize: 13 }}>
-            A new agent is created with lifecycle <Mono>draft</Mono>. Routing vocabulary (terms, capabilities, exclusions) lives in the
-            service registry and is set when the agent is registered with the Manager.
-          </p>
-        </Card>
-      )}
+      <Stepper step={step} onSelect={setStep} />
 
-      {step === 1 && (
-        <Card title="Intelligence">
-          <Grid min={280}>
-            <Field label="Model profile" hint="agents reference a profile, never a hardcoded model">
-              <select style={inputStyle} value={draft.modelProfile} onChange={event => patch({ modelProfile: event.target.value })}>
-                {['tool-caller', 'manager-router', 'synthesis'].map(profile => <option key={profile} value={profile}>{profile}</option>)}
-              </select>
-            </Field>
-            <Field label="Tier">
-              <select style={inputStyle} value={draft.modelTier} onChange={event => patch({ modelTier: event.target.value as 'small' | 'large' })}>
-                <option value="small">small</option>
-                <option value="large">large</option>
-              </select>
-            </Field>
-            <Field label="Resolved model">
-              <input style={{ ...inputStyle, background: palette.canvas }} value="resolved by the runtime for this environment" readOnly />
-            </Field>
-            <Field label="Provider">
-              <input style={{ ...inputStyle, background: palette.canvas }} value="configured per environment (no cloud coupling)" readOnly />
-            </Field>
-          </Grid>
-          <Field label="System prompt" hint={`${prompt.trim() ? Math.ceil(prompt.length / 4) : 0} tokens (estimate) · saved to prompts/${draft.name || '<name>'}.md`}>
-            <textarea style={{ ...inputStyle, minHeight: 180, fontFamily: 'ui-monospace, monospace' }} value={prompt} onChange={event => setPrompt(event.target.value)} />
-          </Field>
-          {prompt.trim().length === 0 && <p style={{ color: palette.warn, fontSize: 13 }}>A prompt file is required before the agent can start.</p>}
-        </Card>
-      )}
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 26 }}>
+        {step === 0 && (
+          <>
+            <StepHeading title="Basics & Routing" subtitle="Identity and ownership of the new specialist." />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 18px', maxWidth: 760 }}>
+              <Field label="Agent name" hint="Machine name · lowercase, hyphens. The workload client id is derived from it.">
+                <input style={{ ...inputStyle, fontFamily: MONO, padding: '9px 12px', fontSize: 13.5 }} value={draft.name} onChange={event => patch({ name: event.target.value })} placeholder="check-point" />
+              </Field>
+              <Field label="Display name">
+                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5 }} value={draft.displayName} onChange={event => patch({ displayName: event.target.value })} placeholder="Check Point Agent" />
+              </Field>
+              <Field label="Owner / team">
+                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5 }} value={draft.owner} onChange={event => patch({ owner: event.target.value })} placeholder="network-security" />
+              </Field>
+              <Field label="Allowed cross-domain agents" hint="Comma separated. Escalation always returns through the Manager.">
+                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5 }} value={(draft.crossDomainAllowed ?? []).join(', ')} onChange={event => patch({ crossDomainAllowed: splitList(event.target.value) })} placeholder="observability" />
+              </Field>
+            </div>
+            <div style={{ marginTop: 18 }}>
+              <Muted size={12.5}>
+                A new agent is created with lifecycle <Mono>draft</Mono>. Routing vocabulary lives in the service registry and is set when the agent is registered with the Manager.
+              </Muted>
+            </div>
+          </>
+        )}
 
-      {step === 2 && (
-        <AsyncState loading={servers.loading} error={servers.error}>
-          <Card title="Workload identity">
-            <KeyValue
-              items={[
-                ['Create dedicated Keycloak client', <Pill tone="ok" key="c">yes — one identity per agent</Pill>],
-                ['Client ID', <Mono key="i">{clientId}</Mono>],
-                ['Authentication', 'service account (confidential client)'],
-                ['Token policy', 'short-lived, one MCP audience per token'],
-              ]}
-            />
-          </Card>
-          {(servers.value ?? []).map(server => (
-            <Card key={server.id} title={`${server.id} MCP`} action={<Pill tone="neutral">aud: {server.expectedAudience}</Pill>}>
-              <Table head={['', 'Tool', 'Access']}>
-                {server.tools.map(tool => {
-                  const selectable = tool.classification === 'read';
-                  const checked = draft.access.find(item => item.mcp === server.id)?.tools.includes(tool.name) ?? false;
-                  return (
-                    <Row key={tool.name}>
-                      <Cell>
-                        {/* UNKNOWN and WRITE are not selectable: fail closed */}
-                        <input type="checkbox" aria-label={`${server.id} ${tool.name}`} disabled={!selectable} checked={checked} onChange={() => toggleTool(server.id, tool.name)} />
-                      </Cell>
-                      <Cell><Mono>{tool.name}</Mono></Cell>
-                      <Cell><ClassificationBadge classification={tool.classification} /></Cell>
-                    </Row>
-                  );
-                })}
-              </Table>
-            </Card>
-          ))}
-        </AsyncState>
-      )}
-
-      {step === 3 && (
-        <Card title="Security & runtime">
-          <Grid min={280}>
-            <Field label="Allowed human roles" hint="comma separated; all are required (AND)">
-              <input style={inputStyle} value={draft.requiredRoles.join(', ')} onChange={event => patch({ requiredRoles: splitList(event.target.value) })} />
+        {step === 1 && (
+          <>
+            <StepHeading title="Intelligence" subtitle="Agents reference a model profile, never a hardcoded model." />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 18px', maxWidth: 760, marginBottom: 20 }}>
+              <Field label="Model profile">
+                <select style={{ ...selectStyle, padding: '9px 12px', fontSize: 13.5 }} value={draft.modelProfile} onChange={event => patch({ modelProfile: event.target.value })}>
+                  {['tool-caller', 'manager-router', 'synthesis'].map(profile => <option key={profile} value={profile}>{profile}</option>)}
+                </select>
+              </Field>
+              <Field label="Tier">
+                <select style={{ ...selectStyle, padding: '9px 12px', fontSize: 13.5 }} value={draft.modelTier} onChange={event => patch({ modelTier: event.target.value as 'small' | 'large' })}>
+                  <option value="small">small</option>
+                  <option value="large">large</option>
+                </select>
+              </Field>
+              <Field label="Resolved model">
+                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5, background: C.canvas, color: C.muted }} value="resolved by the runtime for this environment" readOnly />
+              </Field>
+              <Field label="Provider">
+                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5, background: C.canvas, color: C.muted }} value="configured per environment — no cloud coupling" readOnly />
+              </Field>
+            </div>
+            <Field label="System prompt" hint={`${prompt.trim() ? Math.ceil(prompt.length / 4) : 0} tokens (estimate) · saved to prompts/${draft.name || '<name>'}.md`}>
+              <textarea style={{ ...inputStyle, minHeight: 200, fontFamily: MONO, lineHeight: 1.55, resize: 'vertical' }} value={prompt} onChange={event => setPrompt(event.target.value)} />
             </Field>
-            <Field label="Read-only enforcement">
-              <input style={{ ...inputStyle, background: palette.canvas }} value="enforced — write agents are not supported" readOnly />
-            </Field>
-            <Field label="Delegation">
-              <input style={{ ...inputStyle, background: palette.canvas }} value="human identity is carried as a signed delegated credential" readOnly />
-            </Field>
-          </Grid>
-          <div style={{ marginTop: 14 }}>
-            <Button variant="ghost" onClick={() => setAdvanced(!advanced)}>{advanced ? 'Hide' : 'Show'} advanced settings</Button>
-          </div>
-          {advanced && (
-            <Grid min={220}>
-              {Object.entries(limits).map(([key, val]) => (
-                <Field key={key} label={key}>
-                  <input type="number" style={inputStyle} value={val} onChange={event => setLimits({ ...limits, [key]: Number(event.target.value) })} />
-                </Field>
-              ))}
-            </Grid>
-          )}
-          <Card title="Effective MCP authorization">
-            {draft.access.length === 0 ? (
-              <p style={{ color: palette.muted, margin: 0 }}>No MCP access selected.</p>
-            ) : (
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
-                {draft.access.map(entry => <li key={entry.mcp}><strong>{entry.mcp}</strong> (aud sre-toolhive:{entry.mcp}): {entry.tools.join(', ')}</li>)}
-              </ul>
+            {prompt.trim().length === 0 && (
+              <div style={{ marginTop: 10 }}><StatusPill tone="warn">A prompt file is required before the agent can start</StatusPill></div>
             )}
-          </Card>
-        </Card>
-      )}
+          </>
+        )}
 
-      {step === 4 && (
-        <>
-          <Card title="Review">
-            <KeyValue
+        {step === 2 && (
+          <AsyncState loading={servers.loading} error={servers.error}>
+            <StepHeading title="Identity, Knowledge & Tools" subtitle="Every agent gets its own Keycloak workload client. Never a shared credential." />
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, marginBottom: 18, background: C.canvas }}>
+              <DefinitionList
+                items={[
+                  ['Create dedicated Keycloak client', <StatusPill tone="ok" key="c">yes — one identity per agent</StatusPill>],
+                  ['Client ID', <Mono key="i">{clientId}</Mono>],
+                  ['Authentication', 'service account (confidential client)'],
+                  ['Token policy', 'short-lived, one MCP audience per token'],
+                ]}
+              />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {(servers.value ?? []).map(server => {
+                const selectedCount = draft.access.find(item => item.mcp === server.id)?.tools.length ?? 0;
+                return (
+                  <Panel
+                    key={server.id}
+                    padded={false}
+                    title={`${server.id} MCP`}
+                    action={<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Muted size={12}>aud {server.expectedAudience}</Muted>{selectedCount > 0 && <StatusPill tone="ok" dot={false}>{selectedCount} selected</StatusPill>}</div>}
+                  >
+                    <DataTable columns={TOOL_COLUMNS} head={['', 'TOOL', 'ACCESS']}>
+                      {server.tools.map(tool => {
+                        // UNKNOWN and WRITE are not selectable: fail closed
+                        const selectable = tool.classification === 'read';
+                        const checked = draft.access.find(item => item.mcp === server.id)?.tools.includes(tool.name) ?? false;
+                        return (
+                          <DataRow key={tool.name} columns={TOOL_COLUMNS}>
+                            <input type="checkbox" aria-label={`${server.id} ${tool.name}`} disabled={!selectable} checked={checked} onChange={() => toggleTool(server.id, tool.name)} />
+                            <div style={{ fontFamily: MONO, fontSize: 12.5, color: selectable ? C.bodySoft : C.dim }}>{tool.name}</div>
+                            <div><ModeBadge classification={tool.classification} /></div>
+                          </DataRow>
+                        );
+                      })}
+                    </DataTable>
+                  </Panel>
+                );
+              })}
+            </div>
+          </AsyncState>
+        )}
+
+        {step === 3 && (
+          <>
+            <StepHeading title="Security & Runtime" subtitle="Who may invoke this agent, and the budgets the runtime enforces." />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 18px', maxWidth: 760, marginBottom: 18 }}>
+              <Field label="Allowed human roles" hint="Comma separated; all are required (AND).">
+                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5 }} value={draft.requiredRoles.join(', ')} onChange={event => patch({ requiredRoles: splitList(event.target.value) })} />
+              </Field>
+              <Field label="Read-only enforcement">
+                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5, background: C.canvas, color: C.muted }} value="enforced — write agents are not supported" readOnly />
+              </Field>
+            </div>
+
+            <SectionTitle>Effective MCP authorization</SectionTitle>
+            {draft.access.length === 0 ? (
+              <Muted>No MCP access selected.</Muted>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
+                {draft.access.map(entry => (
+                  <div key={entry.mcp} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <strong style={{ fontSize: 13 }}>{entry.mcp}</strong>
+                    <Mono>sre-toolhive:{entry.mcp}</Mono>
+                    <Muted size={12.5}>{entry.tools.join(', ')}</Muted>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <Button variant="secondary" onClick={() => setAdvanced(!advanced)}>{advanced ? 'Hide' : 'Show'} advanced settings</Button>
+            {advanced && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16, marginTop: 16 }}>
+                {Object.entries(limits).map(([key, val]) => (
+                  <Field key={key} label={key}>
+                    <input type="number" style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5 }} value={val} onChange={event => setLimits({ ...limits, [key]: Number(event.target.value) })} />
+                  </Field>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {step === 4 && (
+          <>
+            <StepHeading title="Review & Create Change" subtitle="Creating an agent opens a pull request. Nothing reaches production until it is merged." />
+            <DefinitionList
               items={[
                 ['Agent', draft.displayName || draft.name || '—'],
                 ['Owner', draft.owner || '—'],
-                ['Lifecycle', 'draft'],
-                ['Model profile', draft.modelProfile],
+                ['Lifecycle', <Mono key="l">draft</Mono>],
+                ['Model profile', <Mono key="m">{draft.modelProfile}</Mono>],
                 ['Workload identity', <Mono key="w">{clientId}</Mono>],
                 ['Human roles', draft.requiredRoles.join(', ')],
                 ['Cross-domain', (draft.crossDomainAllowed ?? []).join(', ') || 'none'],
-                ['MCP resources', draft.access.map(entry => `${entry.mcp} (${entry.tools.length} tools)`).join(', ') || 'none'],
+                ['MCP resources', draft.access.map(entry => `${entry.mcp} (${entry.tools.length})`).join(', ') || 'none'],
               ]}
             />
-          </Card>
-          <Card title="Generated configuration" action={<Button onClick={runPreview} disabled={busy}>Preview YAML</Button>}>
-            {issues.length > 0 && (
-              <ul style={{ color: palette.dangerSolid, margin: '0 0 12px', paddingLeft: 18 }}>
-                {issues.map(issue => <li key={issue}>{issue}</li>)}
-              </ul>
-            )}
-            {preview ? (
-              <>
-                <pre style={{ background: palette.canvas, padding: 16, borderRadius: 10, overflowX: 'auto', fontSize: 12.5, margin: 0 }}>{preview.yaml}</pre>
-                <p style={{ fontWeight: 600, marginBottom: 6, marginTop: 16 }}>Merging this change will:</p>
-                <ul style={{ margin: 0, paddingLeft: 18, color: palette.text, fontSize: 13.5 }}>
-                  {preview.effects.map(effect => <li key={effect}>{effect}</li>)}
-                </ul>
-              </>
-            ) : (
-              <p style={{ color: palette.muted, margin: 0 }}>Preview the change to see the exact file that will be committed.</p>
-            )}
-          </Card>
-          <Card title="Create change">
-            {/* there is deliberately no Deploy button: production changes only through a merged PR */}
-            <p style={{ color: palette.muted, fontSize: 13, marginTop: 0 }}>
-              Creating an agent opens a pull request. Nothing reaches production until it is reviewed, merged and reconciled by Argo CD.
-            </p>
-            <Button onClick={createPr} disabled={busy || !preview}>Create Pull Request</Button>
-            {pr && (
-              <p style={{ marginBottom: 0, marginTop: 12 }}>
-                {pr.status === 'created' ? <a href={pr.url} style={{ color: palette.accent }}>{pr.url}</a> : <Pill tone="warn">Not configured: {pr.reason}</Pill>}
-              </p>
-            )}
-          </Card>
-        </>
-      )}
 
-      <div style={{ display: 'flex', gap: 10 }}>
-        <Button variant="ghost" onClick={() => setStep(Math.max(0, step - 1))} disabled={step === 0}>Back</Button>
+            <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
+              <Button onClick={runPreview} disabled={busy}>Preview YAML</Button>
+              {/* deliberately no Deploy button: production changes only through a merged PR */}
+              <Button variant="secondary" onClick={createPr} disabled={busy || !preview}>Create Pull Request</Button>
+            </div>
+
+            {issues.length > 0 && (
+              <div style={{ marginTop: 16, background: C.redSoft, border: `1px solid ${C.redSoft}`, borderRadius: 10, padding: 14 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 6 }}>This draft cannot be generated</div>
+                <ul style={{ margin: 0, paddingLeft: 18, color: C.red, fontSize: 12.5 }}>
+                  {issues.map(issue => <li key={issue}>{issue}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {preview && (
+              <div style={{ marginTop: 18 }}>
+                <SectionTitle>Generated configuration · {preview.path}</SectionTitle>
+                <pre style={{ background: '#1d2233', color: '#e8eaf5', padding: 18, borderRadius: 10, overflowX: 'auto', fontSize: 12.5, margin: 0, fontFamily: MONO, lineHeight: 1.6 }}>{preview.yaml}</pre>
+                <div style={{ marginTop: 16 }}>
+                  <SectionTitle>Merging this change will</SectionTitle>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: C.body, lineHeight: 1.8 }}>
+                    {preview.effects.map(effect => <li key={effect}>{effect}</li>)}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {pr && (
+              <div style={{ marginTop: 16 }}>
+                {pr.status === 'created' ? (
+                  <a href={pr.url} style={{ color: C.accent, fontWeight: 700 }}>{pr.url}</a>
+                ) : (
+                  <StatusPill tone="warn">Not configured: {pr.reason}</StatusPill>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+        <Button variant="secondary" onClick={() => setStep(Math.max(0, step - 1))} disabled={step === 0}>Back</Button>
         <Button onClick={() => setStep(Math.min(STEPS.length - 1, step + 1))} disabled={step === STEPS.length - 1}>Next</Button>
       </div>
-    </PageShell>
+    </div>
+  );
+}
+
+function StepHeading(props: { title: string; subtitle: string }) {
+  return (
+    <>
+      <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>{props.title}</div>
+      <div style={{ fontSize: 13, color: C.muted, marginBottom: 20 }}>{props.subtitle}</div>
+    </>
+  );
+}
+
+function Stepper(props: { step: number; onSelect: (step: number) => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 24 }}>
+      {STEPS.map((label, index) => {
+        const done = index < props.step;
+        const active = index === props.step;
+        return (
+          <div key={label} style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, cursor: 'pointer', flex: 'none' }} onClick={() => props.onSelect(index)}>
+              <div
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 99,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  background: done || active ? C.accent : C.surface,
+                  color: done || active ? '#fff' : C.faint,
+                  border: `1.5px solid ${done || active ? C.accent : '#cdd2e0'}`,
+                }}
+              >
+                {done ? '✓' : index + 1}
+              </div>
+              <div style={{ fontSize: 11.5, fontWeight: active ? 700 : 600, color: active ? C.accent : C.faint, whiteSpace: 'nowrap' }}>{label}</div>
+            </div>
+            {index < STEPS.length - 1 && <div style={{ height: 2, flex: 1, background: done ? C.accent : C.border, margin: '0 8px', marginBottom: 18 }} />}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
