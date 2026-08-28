@@ -92,7 +92,7 @@ export type ApiDependencies = ManagerDependencies | SpecialistDependencies;
 export function buildDependencies(env: Record<string, string | undefined> = process.env): ApiDependencies {
   const config = loadAppConfig(env);
   const agent = loadAgentInstance({ configFile: config.agentConfigFile, approvedCatalogFile: config.approvedCatalogFile });
-  const model = config.clients.llm === "mock" ? new MockModelClient() : new RealOpenAiCompatibleClient(config.llm.tierSUrl as string, undefined, config.llm.model, config.llm.systemSuffix);
+  const model = config.clients.llm === "mock" ? new MockModelClient() : buildRealModel(config);
   const mockDelegation = new MockDelegationAuthority({ issuer: config.delegation.issuer, secret: config.delegation.mockSecret });
 
   if (agent.spec.type === "manager") {
@@ -134,7 +134,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       agentClient,
       identityIssuer,
       model,
-      synthesisModel: config.clients.llm === "mock" ? model : new RealOpenAiCompatibleClient(config.llm.tierLUrl as string, undefined, config.llm.tierLModel ?? config.llm.model, config.llm.systemSuffix),
+      synthesisModel: config.clients.llm === "mock" ? model : config.llm.baseUrl ? model : new RealOpenAiCompatibleClient(config.llm.tierLUrl as string, { modelMap: buildModelMap(config, config.llm.tierLModel ?? config.llm.model), ...(config.llm.systemSuffix ? { systemSuffix: config.llm.systemSuffix } : {}) }),
       oidc: config.clients.oidc === "mock" ? new MockOidcClient(config.oidc) : new RealOidcClient(config.oidc),
       sessionStore: config.clients.postgres === "mock" ? new MockSessionStore() : new PostgresSessionStore(config.postgres.connectionString as string),
     };
@@ -162,6 +162,28 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     identityVerifier,
     ...(config.clients.agent === "real" ? { workloadOidc: new RealOidcClient(config.internalOidc) } : {}),
   };
+}
+
+/** Maps logical profiles to configured model ids; falls back to a single served model. */
+function buildModelMap(config: AppConfig, fallback?: string): Record<string, string> {
+  const map: Record<string, string> = {};
+  const manager = config.llm.managerModel ?? fallback;
+  const tool = config.llm.toolCallerModel ?? fallback;
+  const synthesis = config.llm.synthesisModel ?? config.llm.tierLModel ?? fallback;
+  if (manager) map["manager-router"] = manager;
+  if (tool) map["tool-caller"] = tool;
+  if (synthesis) map["tier-l-synthesis"] = synthesis;
+  return map;
+}
+
+function buildRealModel(config: AppConfig): RealOpenAiCompatibleClient {
+  const baseUrl = config.llm.baseUrl ?? config.llm.tierSUrl;
+  if (baseUrl === undefined) throw new Error("real llm requires SRE_LLM_BASE_URL or SRE_LLM_TIER_S_URL");
+  return new RealOpenAiCompatibleClient(baseUrl, {
+    ...(config.llm.apiKey ? { apiKey: config.llm.apiKey } : {}),
+    modelMap: buildModelMap(config, config.llm.model),
+    ...(config.llm.systemSuffix ? { systemSuffix: config.llm.systemSuffix } : {}),
+  });
 }
 
 function buildToolhive(config: AppConfig, env: Record<string, string | undefined>, verifier?: import("@sre/auth").ToolCredentialVerifier): ToolHiveClient {

@@ -8,6 +8,9 @@ export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
   toolCallId?: string;
+  name?: string;
+  /** on an assistant message: the native tool calls the model made (replayed to the provider) */
+  toolCalls?: ToolCall[];
 }
 
 export interface ChatRequest {
@@ -96,18 +99,40 @@ export class MockModelClient implements ModelClient {
       return { content: JSON.stringify({ routes, confidence: routes.length ? 0.92 : 0.3, abstain: routes.length === 0, alternates: routes.length === 0 ? ["active-directory", "network-observability"] : undefined, reasonCodes: question.includes("slow") ? ["diagnostic-language"] : ["semantic-match"] }), usage: { promptTokens: 32, completionTokens: 24 } };
     }
     if (request.tools !== undefined && request.tools.length > 0) {
-      const preferred = request.tools.find((tool) =>
+      // native tool-calling convergence: collect once, then answer via the control tool
+      const controlNames = new Set(["answer", "need_domain", "insufficient_evidence"]);
+      const realTools = request.tools.filter((tool) => !controlNames.has(tool.name));
+      const toolResults = request.messages.filter((message) => message.role === "tool");
+      const mode = question.includes("timeout") ? "timeout" : question.includes("failure") ? "failure" : question.includes("empty") ? "empty" : "ok";
+      if (toolResults.length > 0) {
+        if (question.includes("network dependency")) {
+          return { toolCalls: [{ id: "mock-need-domain", name: "need_domain", arguments: { needsDomain: "network-observability", reason: "Live network evidence is required." } }], usage: { promptTokens: 48, completionTokens: 16 } };
+        }
+        const evidenceIds = toolResults.map((message) => extractEvidenceId(message.content)).filter((id): id is string => typeof id === "string").slice(0, 8);
+        return { toolCalls: [{ id: "mock-answer", name: "answer", arguments: { summary: "The available evidence reports the requested system state (documented and/or live, as cited).", evidenceIds } }], usage: { promptTokens: 48, completionTokens: 20 } };
+      }
+      const preferred = realTools.find((tool) =>
         (question.includes("replication") && tool.name === "get_replication_status")
         || (question.includes("pod") && tool.name === "get_pod_status")
-        || (question.includes("slow") && tool.name === "query_prometheus"),
-      ) ?? request.tools[0];
+        || ((question.includes("slow") || question.includes("prometheus")) && tool.name === "query_prometheus")
+        || ((question.includes("wiki") || question.includes("documentation") || question.includes("documented") || question.includes("runbook") || question.includes("procedure")) && tool.name === "wiki_search"),
+      ) ?? realTools[0];
       if (preferred !== undefined) {
-        const mode = question.includes("timeout") ? "timeout" : question.includes("failure") ? "failure" : question.includes("empty") ? "empty" : "ok";
-        // emit only properties the selected tool declares, so schema validation (which is now enforced) passes
         return { toolCalls: [{ id: "mock-call-1", name: preferred.name, arguments: argumentsForSchema(preferred.inputSchema, mode) }], usage: { promptTokens: 48, completionTokens: 16 } };
       }
+      return { toolCalls: [{ id: "mock-insufficient", name: "insufficient_evidence", arguments: { reason: "No tools are available to investigate the request." } }], usage: { promptTokens: 32, completionTokens: 12 } };
     }
     return { content: "Mock model response grounded in the supplied evidence.", usage: { promptTokens: 32, completionTokens: 12 } };
+  }
+}
+
+/** Extract the evidence id from a native tool-result message (the loop encodes it as JSON). */
+function extractEvidenceId(content: string): string | undefined {
+  try {
+    const parsed = JSON.parse(content) as { id?: unknown };
+    return typeof parsed.id === "string" ? parsed.id : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -142,50 +167,98 @@ function argumentsForSchema(inputSchema: Record<string, unknown>, mode: string):
   return args;
 }
 
+export interface RealModelClientOptions {
+  apiKey?: string;
+  /** maps logical profile (manager-router, tool-caller, tier-l-synthesis) → served model id */
+  modelMap?: Record<string, string>;
+  /** prepended system message (e.g. "/no_think" for local qwen3); usually unset for Groq */
+  systemSuffix?: string;
+}
+
+export class ModelRequestError extends Error {
+  readonly code: "MODEL_RATE_LIMITED" | "MODEL_UNAVAILABLE" | "MODEL_INVALID_OUTPUT";
+  readonly status?: number;
+  constructor(code: ModelRequestError["code"], message: string, status?: number) {
+    super(message);
+    this.name = "ModelRequestError";
+    this.code = code;
+    if (status !== undefined) this.status = status;
+  }
+}
+
+/**
+ * Provider-agnostic OpenAI-compatible client (Groq, Ollama, or an on-prem vLLM
+ * endpoint). Logical agent profiles map to served model ids through config, so
+ * no provider URL or model name is hardcoded in business logic.
+ */
 export class RealOpenAiCompatibleClient implements ModelClient {
   readonly mode = "real" as const;
   readonly #baseUrl: string;
-  readonly #apiKey?: string;
-  readonly #modelOverride?: string;
-  readonly #systemSuffix?: string;
+  readonly #options: RealModelClientOptions;
 
-  // modelOverride forces the served model name (e.g. "qwen3:8b" for Ollama).
-  // systemSuffix prepends a system message (e.g. "/no_think" to disable qwen3 CoT).
-  constructor(baseUrl: string, apiKey?: string, modelOverride?: string, systemSuffix?: string) {
+  constructor(baseUrl: string, options: RealModelClientOptions = {}) {
     this.#baseUrl = baseUrl.replace(/\/$/u, "");
-    this.#apiKey = apiKey;
-    this.#modelOverride = modelOverride;
-    this.#systemSuffix = systemSuffix;
+    this.#options = options;
+  }
+
+  #endpoint(): string {
+    // Groq base ends with /v1; a bare host (Ollama) does not — normalize either way
+    return this.#baseUrl.endsWith("/v1") ? `${this.#baseUrl}/chat/completions` : `${this.#baseUrl}/v1/chat/completions`;
   }
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
-    const suffixMessages = this.#systemSuffix ? [{ role: "system", content: this.#systemSuffix }] : [];
+    const suffixMessages: ChatMessage[] = this.#options.systemSuffix ? [{ role: "system", content: this.#options.systemSuffix }] : [];
     const body = {
-      model: this.#modelOverride ?? request.model,
-      messages: [...suffixMessages, ...request.messages.map(({ role, content, toolCallId }) => ({ role, content, ...(toolCallId ? { tool_call_id: toolCallId } : {}) }))],
-      ...(request.tools ? { tools: request.tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })) } : {}),
+      model: this.#options.modelMap?.[request.model] ?? request.model,
+      messages: [...suffixMessages, ...request.messages].map(serializeMessage),
+      ...(request.tools ? { tools: request.tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })), tool_choice: "auto" } : {}),
       ...(request.guidedJsonSchema ? { response_format: { type: "json_schema", json_schema: { name: "structured_output", schema: request.guidedJsonSchema, strict: true } } } : {}),
       ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
     };
-    const response = await fetch(`${this.#baseUrl}/v1/chat/completions`, {
+    const response = await fetch(this.#endpoint(), {
       method: "POST",
-      headers: { "content-type": "application/json", ...(this.#apiKey ? { authorization: `Bearer ${this.#apiKey}` } : {}) },
+      headers: { "content-type": "application/json", ...(this.#options.apiKey ? { authorization: `Bearer ${this.#options.apiKey}` } : {}) },
       body: JSON.stringify(body),
       signal: request.signal,
     });
-    if (!response.ok) throw new Error(`model request failed (${response.status})`);
-    const result = await response.json() as {
+    if (response.status === 429) throw new ModelRequestError("MODEL_RATE_LIMITED", "model provider rate limited the request", 429);
+    if (!response.ok) throw new ModelRequestError("MODEL_UNAVAILABLE", `model request failed (${response.status})`, response.status);
+    let result: {
       choices?: Array<{ message?: { content?: string; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> } }>;
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
+    try {
+      result = await response.json() as typeof result;
+    } catch {
+      throw new ModelRequestError("MODEL_INVALID_OUTPUT", "model provider returned a non-JSON body");
+    }
     const message = result.choices?.[0]?.message;
-    if (message === undefined) throw new Error("model response has no choice");
+    if (message === undefined) throw new ModelRequestError("MODEL_INVALID_OUTPUT", "model response has no choice");
+    let toolCalls: ToolCall[] | undefined;
+    if (message.tool_calls) {
+      try {
+        toolCalls = message.tool_calls.map((call) => ({ id: call.id, name: call.function.name, arguments: JSON.parse(call.function.arguments || "{}") as Record<string, unknown> }));
+      } catch {
+        throw new ModelRequestError("MODEL_INVALID_OUTPUT", "model returned unparseable tool-call arguments");
+      }
+    }
     return {
       ...(message.content ? { content: message.content } : {}),
-      ...(message.tool_calls ? { toolCalls: message.tool_calls.map((call) => ({ id: call.id, name: call.function.name, arguments: JSON.parse(call.function.arguments) as Record<string, unknown> })) } : {}),
+      ...(toolCalls ? { toolCalls } : {}),
       usage: { promptTokens: result.usage?.prompt_tokens ?? 0, completionTokens: result.usage?.completion_tokens ?? 0 },
     };
   }
+}
+
+/** Serialize a ChatMessage to the OpenAI wire shape, including assistant tool_calls and tool results. */
+function serializeMessage(message: ChatMessage): Record<string, unknown> {
+  if (message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0) {
+    return { role: "assistant", content: message.content || null, tool_calls: message.toolCalls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) };
+  }
+  if (message.role === "tool") {
+    return { role: "tool", content: message.content, ...(message.toolCallId ? { tool_call_id: message.toolCallId } : {}), ...(message.name ? { name: message.name } : {}) };
+  }
+  return { role: message.role, content: message.content };
 }
 
 function structured(response: ChatResponse, schema: Record<string, unknown> | undefined): ChatResponse {

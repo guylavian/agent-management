@@ -47,9 +47,16 @@ export const appConfigSchema = z
     }).strict(),
     llm: z
       .object({
+        // unified OpenAI-compatible endpoint (Groq / on-prem vLLM); preferred over tier URLs
+        baseUrl: z.string().optional(),
+        apiKey: z.string().optional(),
+        // logical profile → served model id
+        managerModel: z.string().optional(),
+        toolCallerModel: z.string().optional(),
+        synthesisModel: z.string().optional(),
+        // legacy per-tier endpoints (Ollama) kept for back-compat
         tierSUrl: z.string().optional(),
         tierLUrl: z.string().optional(),
-        // served model name override (e.g. "qwen3:8b" for Ollama); applies to both tiers unless tierLModel is set
         model: z.string().optional(),
         tierLModel: z.string().optional(),
         // prepended system message (e.g. "/no_think" for fast local qwen3)
@@ -121,7 +128,18 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
       audience: env.SRE_INTERNAL_OIDC_AUDIENCE,
       jwksUri: env.SRE_INTERNAL_OIDC_JWKS_URI,
     },
-    llm: { tierSUrl: env.SRE_LLM_TIER_S_URL, tierLUrl: env.SRE_LLM_TIER_L_URL, model: env.SRE_LLM_MODEL, tierLModel: env.SRE_LLM_TIER_L_MODEL, systemSuffix: env.SRE_LLM_SYSTEM_SUFFIX },
+    llm: {
+      baseUrl: env.SRE_LLM_BASE_URL,
+      apiKey: env.SRE_LLM_API_KEY,
+      managerModel: env.SRE_MODEL_MANAGER,
+      toolCallerModel: env.SRE_MODEL_TOOL_CALLER,
+      synthesisModel: env.SRE_MODEL_SYNTHESIS,
+      tierSUrl: env.SRE_LLM_TIER_S_URL,
+      tierLUrl: env.SRE_LLM_TIER_L_URL,
+      model: env.SRE_LLM_MODEL,
+      tierLModel: env.SRE_LLM_TIER_L_MODEL,
+      systemSuffix: env.SRE_LLM_SYSTEM_SUFFIX,
+    },
     toolhive: { url: env.SRE_TOOLHIVE_URL },
     toolCredential: { issuer: env.SRE_TOOL_CREDENTIAL_ISSUER, audiencePrefix: env.SRE_TOOL_CREDENTIAL_AUDIENCE_PREFIX, tokenEndpoint: env.SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT },
     rag: { url: env.SRE_RAG_URL },
@@ -161,8 +179,8 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
   if (config.clients.agent === "real" && !config.internalOidc.jwksUri) {
     problems.push("agent client is real but SRE_INTERNAL_OIDC_JWKS_URI is unset");
   }
-  if (config.clients.llm === "real" && (!config.llm.tierSUrl || !config.llm.tierLUrl)) {
-    problems.push("llm client is real but SRE_LLM_TIER_S_URL or SRE_LLM_TIER_L_URL is unset");
+  if (config.clients.llm === "real" && !config.llm.baseUrl && (!config.llm.tierSUrl || !config.llm.tierLUrl)) {
+    problems.push("llm client is real but neither SRE_LLM_BASE_URL nor SRE_LLM_TIER_S_URL/SRE_LLM_TIER_L_URL is set");
   }
   if (config.clients.toolhive === "real" && !config.toolhive.url) {
     problems.push("toolhive client is real but SRE_TOOLHIVE_URL is unset");
