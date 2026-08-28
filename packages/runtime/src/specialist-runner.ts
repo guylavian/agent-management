@@ -50,7 +50,8 @@ export async function runSpecialistInstance(agent: SpecialistAgentConfig, catalo
 
 async function runSpecialistLoop(agent: SpecialistAgentConfig, catalog: ApprovedCatalog, ctx: ExecutionContext, deps: Omit<SpecialistDependencies, "registry">, handoff?: DomainHandoff): Promise<SpecialistResult> {
   const agentId = agent.name;
-  if (!deps.authorization.authorizeAgent(ctx.identity, agent, ctx.environment).allowed) return failed(agentId, "AUTHZ_DENIED", "Specialist access denied");
+  const agentDecision = await withSpan("authorization.check", { "request.id": ctx.requestId, "agent.id": agentId, "authorization.subject": "agent", "agent.lifecycle": agent.spec.lifecycle }, async () => deps.authorization.authorizeAgent(ctx.identity, agent, ctx.environment));
+  if (!agentDecision.allowed) return failed(agentId, "AUTHZ_DENIED", "Specialist access denied");
 
   const budget = agent.spec.execution;
   const deadline = Math.min(ctx.deadline, Date.now() + budget.timeoutMs);
@@ -66,7 +67,8 @@ async function runSpecialistLoop(agent: SpecialistAgentConfig, catalog: Approved
     const exchanges = await Promise.allSettled(accessServers(agent.spec).map(async (serverId) => {
       const audience = audienceFor(agent.spec, serverId);
       if (audience === undefined) return;
-      const credential = await deps.credentialExchanger?.exchange(workload(agent), ctx.identity, audience, deadline);
+      // attributes name the workload and the audience; the token itself is never recorded
+      const credential = await withSpan("workload.token", { "request.id": ctx.requestId, "agent.id": agent.name, "workload.client_id": agent.spec.identity.clientId, "mcp.server": serverId, "token.audience": audience }, async () => deps.credentialExchanger?.exchange(workload(agent), ctx.identity, audience, deadline));
       if (credential) credentials.set(serverId, credential);
     }));
     void exchanges;
@@ -183,7 +185,8 @@ async function executeTool(agent: SpecialistAgentConfig, catalog: ApprovedCatalo
   if (credential === undefined && deps.credentialExchanger !== undefined) {
     const audience = audienceFor(agent.spec, selected.approved.serverId);
     if (audience === undefined) throw Object.assign(new Error("Tool access denied"), { code: "TOOL_DENIED" });
-    credential = await deps.credentialExchanger.exchange(workload(agent), ctx.identity, audience, deadline);
+    // attributes name the workload and the audience; the token itself is never recorded
+    credential = await withSpan("workload.token", { "request.id": ctx.requestId, "agent.id": agent.name, "workload.client_id": agent.spec.identity.clientId, "mcp.server": selected.approved.serverId, "token.audience": audience }, () => deps.credentialExchanger?.exchange(workload(agent), ctx.identity, audience, deadline) as Promise<ToolCredential>);
     credentials.set(selected.approved.serverId, credential);
   }
   const invocation: ToolInvocation = { serverId: selected.approved.serverId, toolName: selected.schema.name, arguments: args, environment: ctx.environment, requestId: ctx.requestId, identity: ctx.identity, ...(credential ? { credential } : {}), timeoutMs: Math.min(selected.approved.timeoutMs, Math.max(1, deadline - Date.now())) };
@@ -192,7 +195,7 @@ async function executeTool(agent: SpecialistAgentConfig, catalog: ApprovedCatalo
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       incrementMetric("sre_tool_calls_total");
-      const result = await withSpan(`mcp.${invocation.serverId}.${invocation.toolName}`, { "request.id": ctx.requestId, "agent.id": agent.name, "mcp.server": invocation.serverId, "mcp.tool": invocation.toolName, environment: ctx.environment }, () => withDeadline(Math.min(deadline, Date.now() + invocation.timeoutMs), (signal) => invokeVisibleToolForSpecialist(catalog, deps.authorization, deps.toolhive, agent, { ...invocation, signal }), ctx.signal));
+      const result = await withSpan(`toolhive.call.${invocation.serverId}.${invocation.toolName}`, { "request.id": ctx.requestId, "agent.id": agent.name, "workload.client_id": agent.spec.identity.clientId, "mcp.server": invocation.serverId, "mcp.tool": invocation.toolName, "token.audience": credential?.audience ?? "none", environment: ctx.environment }, () => withDeadline(Math.min(deadline, Date.now() + invocation.timeoutMs), (signal) => invokeVisibleToolForSpecialist(catalog, deps.authorization, deps.toolhive, agent, { ...invocation, signal }), ctx.signal));
       return { evidence: toolResultToEvidence(invocation, result, agent.name, selected.approved.evidenceKind) };
     } catch (error) {
       lastError = error;
