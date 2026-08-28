@@ -38,17 +38,19 @@ export interface ProposeOptions {
   requestedBy: string;
   /** true when the agent already exists, so the summary says "update" */
   update?: boolean;
+  /** which environment the new Agent is enabled in; deployment is opt-in per environment */
+  targetEnvironment?: string;
 }
 
 export function proposeAgentChange(options: ProposeOptions): { change: ProposedChange; generated: GeneratedChange } {
-  const generated = generateAgentChange(options.draft);
+  const generated = generateAgentChange(options.draft, options.targetEnvironment);
   const name = generated.document.metadata.name;
   const spec = generated.document.spec;
   if (spec.type !== "specialist") throw new Error("only specialist agents are proposed by the portal");
   const verb = options.update === true ? "Update" : "Add";
 
   const effects = [
-    `${options.update === true ? "update" : "create"} agents/${name}.yaml (canonical Agent policy)`,
+    ...generated.files.map((file) => `${options.update === true ? "update" : "create"} ${file.path}`),
     `Keycloak: reconcile workload client ${spec.identity.clientId} (${spec.lifecycle === "active" ? "enabled" : "disabled"})`,
     ...spec.access.map((entry) => `Keycloak: optional scope sre-toolhive-${entry.mcp} and ${entry.tools.length} tool grant(s) on ${entry.mcp}`),
     `Runtime: allowlist ${spec.access.length} MCP(s), ${spec.access.reduce((total, entry) => total + entry.tools.length, 0)} tool(s)`,
@@ -67,6 +69,10 @@ export function proposeAgentChange(options: ProposeOptions): { change: ProposedC
     "",
     ...spec.access.map((entry) => `- \`${entry.mcp}\` (aud \`${entry.audience}\`): ${entry.tools.join(", ")}`),
     "",
+    "## Files in this change",
+    "",
+    ...generated.files.map((file) => `- \`${file.path}\``),
+    "",
     "## What merging this changes",
     "",
     ...effects.map((effect) => `- ${effect}`),
@@ -80,7 +86,7 @@ export function proposeAgentChange(options: ProposeOptions): { change: ProposedC
       branch: `agent/${options.update === true ? "update" : "add"}-${name}`,
       title: `${verb} ${name} SRE agent`,
       body,
-      files: [{ path: generated.path, content: generated.yaml }],
+      files: generated.files.map((file) => ({ path: file.path, content: file.contents })),
       effects,
     },
   };

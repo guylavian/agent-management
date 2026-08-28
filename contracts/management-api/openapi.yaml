@@ -1,0 +1,575 @@
+openapi: 3.1.0
+info:
+  title: SRE Agent Platform — management API
+  version: 0.1.0
+  description: >-
+    The NEUTRAL contract between the execution plane, which implements this API
+    (runtime-host/src/management), and the management plane, which consumes it
+    (portal/plugins/agent-management).
+
+    It lives under contracts/ rather than beside either implementation because
+    both sides depend on it and neither owns it. TypeScript types for both sides
+    are GENERATED from this file (`npm run gen:management-api`), so the runtime
+    and the portal cannot disagree about a shape, and the Backstage Yarn
+    workspace never imports TypeScript source from the npm workspace.
+
+    Everything here is a PROJECTION of runtime state. No response carries a
+    token, a secret, a raw credential, model reasoning or unredacted tool output,
+    and no endpoint mutates running policy: an Agent changes by merging a pull
+    request. Every route sits behind the same human authentication as /v1/query.
+
+servers:
+  - url: /management
+
+paths:
+  /agents:
+    get:
+      operationId: listAgents
+      summary: Every specialist Agent, projected from the canonical configuration.
+      responses:
+        "200":
+          description: Agent summaries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agents]
+                properties:
+                  agents:
+                    type: array
+                    items: { $ref: "#/components/schemas/AgentSummary" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /agents/{id}:
+    get:
+      operationId: getAgent
+      parameters: [{ $ref: "#/components/parameters/AgentId" }]
+      responses:
+        "200":
+          description: Agent detail including per-MCP access.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentDetail" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /agents/{id}/health:
+    get:
+      operationId: getAgentHealth
+      summary: Configured posture, not a live probe.
+      description: >-
+        Reachability is reported as `unknown` until a probe exists. Reporting
+        "healthy" without having asked the Agent would be fabricated telemetry.
+      parameters: [{ $ref: "#/components/parameters/AgentId" }]
+      responses:
+        "200":
+          description: Configured health posture.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentHealth" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /agents/{id}/metrics:
+    get:
+      operationId: getAgentMetrics
+      parameters: [{ $ref: "#/components/parameters/AgentId" }]
+      responses:
+        "200":
+          description: In-process run statistics, or not-configured.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: "#/components/schemas/AgentMetrics" }
+                  - { $ref: "#/components/schemas/NotConfigured" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /mcp-servers:
+    get:
+      operationId: listMcpServers
+      responses:
+        "200":
+          description: Approved MCP servers and which Agents may reach them.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [servers]
+                properties:
+                  servers:
+                    type: array
+                    items: { $ref: "#/components/schemas/McpServer" }
+
+  /permissions:
+    get:
+      operationId: getPermissionMatrix
+      responses:
+        "200":
+          description: Agent × MCP grant matrix.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PermissionMatrix" }
+
+  /runs:
+    get:
+      operationId: listRuns
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: Bounded, in-process run history.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runs]
+                properties:
+                  runs:
+                    type: array
+                    items: { $ref: "#/components/schemas/RunSummary" }
+
+  /runs/{id}:
+    get:
+      operationId: getRun
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: One run with its execution graph.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /evaluations:
+    get:
+      operationId: getEvaluations
+      responses:
+        "200":
+          description: Not configured — no evaluation backend is wired.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotConfigured" }
+
+  /agents/preview:
+    post:
+      operationId: previewAgentChange
+      summary: Validate a draft and render its canonical YAML. Changes nothing.
+      description: >-
+        Runs the same schema the runtime loads at startup, so the portal cannot
+        preview a file that would fail to load.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentDraft" }
+      responses:
+        "200":
+          description: The change-set that would be proposed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangePreview" }
+        "400": { $ref: "#/components/responses/DraftInvalid" }
+
+  /agents/change:
+    post:
+      operationId: proposeAgentChange
+      summary: Propose the change as a pull request.
+      description: >-
+        The only way an Agent changes. There is deliberately no endpoint that
+        deploys to production.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentDraft" }
+      responses:
+        "201":
+          description: Pull request opened.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangeResult" }
+        "400": { $ref: "#/components/responses/DraftInvalid" }
+        "501":
+          description: No Git provider is configured; nothing was proposed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangeResult" }
+
+components:
+  parameters:
+    AgentId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[a-z][a-z0-9-]*$" }
+
+  responses:
+    Unauthenticated:
+      description: Authentication required or failed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    NotFound:
+      description: No such resource.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    DraftInvalid:
+      description: The draft failed validation; no file was generated.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/DraftError" }
+
+  schemas:
+    ToolClassification:
+      type: string
+      enum: [read, write, unknown]
+      description: A tool absent from the approved catalog is `unknown`, never `read`.
+
+    AgentLifecycle:
+      type: string
+      enum: [draft, active, disabled, decommissioning, removed]
+
+    ToolView:
+      type: object
+      additionalProperties: false
+      required: [name, classification]
+      properties:
+        name: { type: string }
+        classification: { $ref: "#/components/schemas/ToolClassification" }
+        role: { type: string, description: "Keycloak client role representing this grant, when granted." }
+
+    McpAccessView:
+      type: object
+      additionalProperties: false
+      required: [mcp, allowed, allowedTools, blockedTools]
+      properties:
+        mcp: { type: string }
+        allowed: { type: boolean }
+        audience: { type: string }
+        audienceScope: { type: string }
+        allowedTools:
+          type: array
+          items: { $ref: "#/components/schemas/ToolView" }
+        blockedTools:
+          type: array
+          description: Approved-catalog tools on this MCP the Agent is NOT granted.
+          items: { $ref: "#/components/schemas/ToolView" }
+
+    AgentSummary:
+      type: object
+      additionalProperties: false
+      required: [id, displayName, owner, lifecycle, enabled, modelProfile, modelTier, mcpCount, toolCount, workloadClientId, readOnly]
+      properties:
+        id: { type: string }
+        displayName: { type: string }
+        owner: { type: string }
+        lifecycle: { $ref: "#/components/schemas/AgentLifecycle" }
+        enabled: { type: boolean }
+        modelProfile: { type: string, description: Logical profile; the environment binds it to a served model. }
+        modelTier: { type: string }
+        mcpCount: { type: integer }
+        toolCount: { type: integer }
+        workloadClientId: { type: string, description: "Derived, never author-supplied." }
+        readOnly: { type: boolean }
+
+    AgentIdentityView:
+      type: object
+      additionalProperties: false
+      required: [provider, clientId, authentication, tokenPolicy]
+      properties:
+        provider: { type: string }
+        clientId: { type: string }
+        authentication: { type: string }
+        tokenPolicy: { type: string }
+
+    AgentDetail:
+      type: object
+      additionalProperties: false
+      required: [id, displayName, owner, lifecycle, enabled, modelProfile, modelTier, mcpCount, toolCount, workloadClientId, readOnly, promptFile, requiredRoles, crossDomainAllowed, limits, access, identity]
+      properties:
+        id: { type: string }
+        displayName: { type: string }
+        owner: { type: string }
+        lifecycle: { $ref: "#/components/schemas/AgentLifecycle" }
+        enabled: { type: boolean }
+        modelProfile: { type: string }
+        modelTier: { type: string }
+        mcpCount: { type: integer }
+        toolCount: { type: integer }
+        workloadClientId: { type: string }
+        readOnly: { type: boolean }
+        promptFile: { type: string }
+        requiredRoles:
+          type: array
+          items: { type: string }
+        crossDomainAllowed:
+          type: array
+          items: { type: string }
+        limits:
+          type: object
+          additionalProperties: { type: number }
+        access:
+          type: array
+          items: { $ref: "#/components/schemas/McpAccessView" }
+        identity: { $ref: "#/components/schemas/AgentIdentityView" }
+
+    AgentHealth:
+      type: object
+      additionalProperties: false
+      required: [agentId, lifecycle, routable, reachability, reason]
+      properties:
+        agentId: { type: string }
+        lifecycle: { $ref: "#/components/schemas/AgentLifecycle" }
+        routable: { type: boolean }
+        reachability: { type: string, enum: [unknown] }
+        reason: { type: string }
+
+    AgentMetrics:
+      type: object
+      additionalProperties: false
+      required: [agentId, source, requestCount, successRate]
+      properties:
+        agentId: { type: string }
+        source: { type: string }
+        requestCount: { type: integer }
+        successRate: { type: number }
+        p95LatencyMs: { type: number }
+        lastActivity: { type: string }
+
+    McpServer:
+      type: object
+      additionalProperties: false
+      required: [id, toolCount, tools, agents, expectedAudience, audienceScope, readOnlyVerified]
+      properties:
+        id: { type: string }
+        toolCount: { type: integer }
+        tools:
+          type: array
+          items: { $ref: "#/components/schemas/ToolView" }
+        agents:
+          type: array
+          description: Agents whose canonical policy grants them this MCP.
+          items: { type: string }
+        expectedAudience: { type: string }
+        audienceScope: { type: string }
+        readOnlyVerified: { type: boolean, description: True only when every approved tool on the server is read-only-verified. }
+        toolhiveEndpoint: { type: string }
+
+    PermissionCell:
+      type: object
+      additionalProperties: false
+      required: [agent, mcp, allowed, toolCount]
+      properties:
+        agent: { type: string }
+        mcp: { type: string }
+        allowed: { type: boolean }
+        toolCount: { type: integer }
+
+    PermissionRow:
+      type: object
+      additionalProperties: false
+      required: [agent, cells]
+      properties:
+        agent: { type: string }
+        cells:
+          type: array
+          items: { $ref: "#/components/schemas/PermissionCell" }
+
+    PermissionMatrix:
+      type: object
+      additionalProperties: false
+      required: [mcps, rows]
+      properties:
+        mcps:
+          type: array
+          items: { type: string }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/PermissionRow" }
+
+    RunSummary:
+      type: object
+      additionalProperties: false
+      required: [requestId, startedAt, durationMs, status, userSubjectHash, agents, toolCalls, evidenceCount]
+      properties:
+        requestId: { type: string }
+        startedAt: { type: string }
+        durationMs: { type: integer }
+        status: { type: string, enum: [complete, partial, failed] }
+        userSubjectHash: { type: string, description: Hashed initiator; a raw subject never leaves the runtime. }
+        agents:
+          type: array
+          items: { type: string }
+        toolCalls: { type: integer }
+        evidenceCount: { type: integer }
+
+    RunNode:
+      type: object
+      additionalProperties: false
+      required: [id, kind, label, status, startedAt, durationMs]
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [manager.route, specialist, authorization.check, workload.token, tool.request, toolhive.call, evidence, domain.escalation, synthesis]
+        label: { type: string }
+        parentId: { type: string }
+        status: { type: string, enum: [ok, denied, failed, timeout] }
+        startedAt: { type: string }
+        durationMs: { type: integer }
+        agentId: { type: string }
+        mcp: { type: string }
+        tool: { type: string }
+        round: { type: integer, description: Which bounded round produced this node. }
+
+    RunDetail:
+      type: object
+      additionalProperties: false
+      required: [requestId, startedAt, durationMs, status, userSubjectHash, environment, agents, workloads, toolCalls, deniedToolCalls, evidenceCount, modelProfiles, nodes]
+      properties:
+        requestId: { type: string }
+        startedAt: { type: string }
+        durationMs: { type: integer }
+        status: { type: string, enum: [complete, partial, failed] }
+        userSubjectHash: { type: string }
+        environment: { type: string }
+        agents:
+          type: array
+          items: { type: string }
+        workloads:
+          type: array
+          description: Workload client ids that actually executed.
+          items: { type: string }
+        toolCalls: { type: integer }
+        deniedToolCalls: { type: integer }
+        evidenceCount: { type: integer }
+        modelProfiles:
+          type: array
+          items: { type: string }
+        nodes:
+          type: array
+          items: { $ref: "#/components/schemas/RunNode" }
+
+    AgentDraftAccess:
+      type: object
+      additionalProperties: false
+      required: [mcp, tools]
+      properties:
+        mcp: { type: string }
+        tools:
+          type: array
+          items: { type: string }
+
+    AgentDraftRouting:
+      type: object
+      additionalProperties: false
+      properties:
+        exactTerms: { type: array, items: { type: string } }
+        entityPatterns: { type: array, items: { type: string } }
+        ambiguousTerms: { type: array, items: { type: string } }
+        capabilities: { type: array, items: { type: string } }
+        exclusions: { type: array, items: { type: string } }
+
+    AgentDraft:
+      type: object
+      additionalProperties: false
+      description: >-
+        What the portal collects to create or update an Agent. The workload
+        client id and every ToolHive audience are DERIVED from the name, never
+        supplied, so the portal cannot grant an Agent another Agent's identity.
+      required: [name, owner, modelTier, modelProfile, requiredRoles, access]
+      properties:
+        name: { type: string, pattern: "^[a-z][a-z0-9-]*$" }
+        owner: { type: string }
+        displayName: { type: string }
+        description: { type: string }
+        lifecycle: { $ref: "#/components/schemas/AgentLifecycle" }
+        modelTier: { type: string, enum: [small, large] }
+        modelProfile: { type: string }
+        promptFile: { type: string }
+        prompt: { type: string, description: The system prompt body; persisted to config/prompts/<name>.md. }
+        environments: { type: array, items: { type: string } }
+        routing: { $ref: "#/components/schemas/AgentDraftRouting" }
+        requiredRoles: { type: array, items: { type: string } }
+        crossDomainAllowed: { type: array, items: { type: string } }
+        access:
+          type: array
+          items: { $ref: "#/components/schemas/AgentDraftAccess" }
+        limits:
+          type: object
+          additionalProperties: { type: number }
+
+    ChangedFile:
+      type: object
+      additionalProperties: false
+      required: [path, contents]
+      properties:
+        path: { type: string }
+        contents: { type: string }
+
+    ChangePreview:
+      type: object
+      additionalProperties: false
+      required: [path, yaml, branch, title, effects, files]
+      properties:
+        path: { type: string, description: Path of the canonical Agent document. }
+        yaml: { type: string }
+        branch: { type: string }
+        title: { type: string }
+        effects:
+          type: array
+          items: { type: string }
+        files:
+          type: array
+          description: Every file in the change-set — Agent, prompt and deployment overlay.
+          items: { $ref: "#/components/schemas/ChangedFile" }
+
+    ChangeResult:
+      type: object
+      additionalProperties: false
+      required: [status, branch, effects]
+      properties:
+        status: { type: string, enum: [created, not-configured] }
+        url: { type: string }
+        reason: { type: string }
+        branch: { type: string }
+        effects:
+          type: array
+          items: { type: string }
+
+    NotConfigured:
+      type: object
+      additionalProperties: false
+      description: Answered when a deployment has no backend wired, instead of inventing numbers.
+      required: [status, reason]
+      properties:
+        status: { type: string, enum: [not-configured] }
+        reason: { type: string }
+
+    ApiError:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        requestId: { type: string }
+
+    DraftError:
+      type: object
+      additionalProperties: false
+      required: [code, message, issues]
+      properties:
+        code: { type: string, enum: [AGENT_DRAFT_INVALID] }
+        message: { type: string }
+        issues:
+          type: array
+          items: { type: string }

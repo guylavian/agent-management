@@ -110,7 +110,7 @@ export function managementRouter(deps: ManagementDeps): Router {
   router.post("/agents/preview", (request: Request, response: Response) => {
     try {
       const { change, generated } = proposeAgentChange({ draft: request.body as AgentDraft, requestedBy: request.identity?.subject ?? "unknown", update: deps.registry.getSpecialist((request.body as AgentDraft)?.name ?? "") !== undefined });
-      response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, effects: change.effects });
+      response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, effects: change.effects, files: generated.files });
     } catch (error) {
       respondDraftError(response, error);
     }

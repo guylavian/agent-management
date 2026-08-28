@@ -1,0 +1,9 @@
+{
+  "name": "@sre/management-api-contract",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./generated/types.ts"
+  }
+}

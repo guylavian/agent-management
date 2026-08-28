@@ -15,6 +15,7 @@
     "@sre/config": "*",
     "@sre/evidence": "*",
     "@sre/llm": "*",
+    "@sre/management-api-contract": "*",
     "@sre/orchestrator": "*",
     "@sre/redaction": "*",
     "@sre/telemetry": "*",

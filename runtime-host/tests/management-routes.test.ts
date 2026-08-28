@@ -95,6 +95,7 @@ describe("GitOps change flow", () => {
     displayName: "Check Point Agent",
     modelTier: "small",
     modelProfile: "tool-caller",
+    prompt: "You are the Check Point specialist. Investigate firewall policy and gateway state using only approved read-only tools.",
     requiredRoles: ["network-read"],
     access: [{ mcp: "wiki", tools: ["wiki_search", "wiki_read_page"] }],
   };

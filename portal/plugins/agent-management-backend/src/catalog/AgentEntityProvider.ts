@@ -3,28 +3,15 @@ import type { Entity } from '@backstage/catalog-model';
 import type { LoggerService, SchedulerService } from '@backstage/backend-plugin-api';
 import type { RuntimeManagementClient } from '../services/RuntimeManagementClient';
 
-interface AgentSummary {
-  id: string;
-  displayName: string;
-  owner: string;
-  lifecycle: string;
-  modelProfile: string;
-  workloadClientId: string;
-  mcpCount: number;
-  toolCount: number;
-}
-
-interface AgentDetail extends AgentSummary {
-  access: Array<{ mcp: string; allowed: boolean }>;
-  crossDomainAllowed: string[];
-}
+// generated from contracts/management-api/openapi.yaml — never hand-declared
+import type { AgentDetail, AgentSummary } from '../api/generated-types';
 
 /**
  * Derives Backstage catalog entities from the canonical Agent definitions
  * (TDD §42).
  *
- * Entities come from the runtime's projection of `agents/*.yaml` rather than a
- * second hand-maintained catalog-info file, so the catalog cannot disagree with
+ * Entities come from the runtime's projection of `config/agents/*.yaml` rather
+ * than a second hand-maintained catalog-info file, so the catalog cannot disagree with
  * what the runtime actually enforces. Agents are emitted as Components owned by
  * their team, each depending on the MCP Resources it is allowed to reach.
  */
@@ -97,8 +84,8 @@ export class AgentEntityProvider implements EntityProvider {
         title: agent.displayName,
         description: `SRE specialist agent (${agent.modelProfile})`,
         annotations: {
-          'backstage.io/managed-by-location': `url:agents/${agent.id}.yaml`,
-          'backstage.io/managed-by-origin-location': `url:agents/${agent.id}.yaml`,
+          'backstage.io/managed-by-location': `url:config/agents/${agent.id}.yaml`,
+          'backstage.io/managed-by-origin-location': `url:config/agents/${agent.id}.yaml`,
           'sre.ai/workload-client-id': agent.workloadClientId,
           'sre.ai/lifecycle': agent.lifecycle,
           'sre.ai/model-profile': agent.modelProfile,

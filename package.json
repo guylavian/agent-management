@@ -40,8 +40,9 @@
     "eval": "node --import tsx eval/run.ts",
     "load": "node --import tsx eval/load/run-load.ts",
     "render:deploy": "node --import tsx scripts/render-agent-deployment.ts",
-    "gen:all": "npm run gen:schema && npm run gen:supply-chain && npm run render:deploy",
-    "check:generated": "npm run gen:all && git diff --exit-code -- contracts/agent-schema/generated deploy/schemas deploy/environments/*/rendered deploy/supply-chain"
+    "gen:all": "npm run gen:schema && npm run gen:management-api && npm run gen:supply-chain && npm run render:deploy",
+    "check:generated": "npm run gen:all && git diff --exit-code -- contracts/agent-schema/generated contracts/management-api/generated portal/plugins/agent-management/src/api/generated-types.ts deploy/schemas deploy/environments/*/rendered deploy/supply-chain",
+    "gen:management-api": "node --import tsx scripts/gen-management-api-types.ts"
   },
   "devDependencies": {
     "@types/express": "5.0.6",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { agentDocumentSchema, classifyTool } from "@sre/agent-schema";
-import { CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
+import { agentDeploymentOverlaySchema, CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
 import { parse as parseYaml } from "yaml";
 import {
   agentDetail,
@@ -102,6 +102,7 @@ describe("GitOps YAML generation", () => {
     displayName: "Check Point Agent",
     modelTier: "small" as const,
     modelProfile: "tool-caller",
+    prompt: "You are the Check Point specialist. Investigate firewall policy and gateway state using only approved read-only tools.",
     requiredRoles: ["network-read"],
     crossDomainAllowed: ["observability"],
     access: [{ mcp: "wiki", tools: ["wiki_search", "wiki_read_page"] }],
@@ -123,6 +124,29 @@ describe("GitOps YAML generation", () => {
 
   it("writes the canonical audience for every MCP", () => {
     expect(generateAgentChange(draft).yaml).toContain("audience: sre-toolhive:wiki");
+  });
+
+  /**
+   * An Agent, a prompt it references and an overlay that decides where it runs
+   * are one change or none. Generating the Agent alone would produce a document
+   * that fails startup on a missing prompt and is never rendered for any
+   * environment.
+   */
+  it("generates the Agent, its prompt and its deployment overlay as one change-set", () => {
+    const change = generateAgentChange(draft);
+    expect(change.files.map((file) => file.path)).toEqual([
+      "config/agents/check-point.yaml",
+      "config/prompts/check-point.md",
+      "deploy/environments/production/agents/check-point.yaml",
+    ]);
+    const prompt = change.files.find((file) => file.path.endsWith(".md"));
+    expect(prompt?.contents).toContain("Investigate firewall policy");
+    const overlay = change.files.find((file) => file.path.startsWith("deploy/"));
+    expect(agentDeploymentOverlaySchema.parse(parseYaml(overlay!.contents))).toMatchObject({ agentId: "check-point", enabled: false });
+  });
+
+  it("refuses to generate an Agent that references a prompt it does not create", () => {
+    expect(() => generateAgentChange({ ...draft, prompt: "   " })).toThrow(/system prompt is required/u);
   });
 
   it("rejects an invalid draft instead of generating a broken file", () => {
