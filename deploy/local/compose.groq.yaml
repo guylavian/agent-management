@@ -1,5 +1,5 @@
 # Groq provider overlay for the distributed PoC.
-#   GROQ_API_KEY=... docker compose -f docker-compose.agents.yml -f docker-compose.groq.yml up -d
+#   GROQ_API_KEY=... docker compose -f deploy/local/compose.agents.yaml -f deploy/local/compose.groq.yaml up -d
 #
 # Points every agent at the Groq OpenAI-compatible endpoint with native tool
 # calling. Swap SRE_LLM_BASE_URL + SRE_MODEL_* for an on-prem air-gapped endpoint

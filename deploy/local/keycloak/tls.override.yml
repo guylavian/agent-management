@@ -1,6 +1,6 @@
 # TLS overlay: adds HTTPS (8443) to Keycloak for the Keycloak MCP, which refuses
 # cleartext http. Run scripts/gen-keycloak-cert.sh first, then:
-#   docker compose -f docker-compose.yml -f infra/keycloak/tls.override.yml up -d
+#   docker compose -f deploy/local/compose.yaml -f deploy/local/keycloak/tls.override.yml up -d
 services:
   keycloak:
     environment:
@@ -11,7 +11,7 @@ services:
       # Prometheus http scrape of keycloak:9000 work as configured.
       KC_HTTP_MANAGEMENT_SCHEME: http
     volumes:
-      - ./infra/keycloak/certs:/etc/keycloak-certs:ro
+      - ./deploy/local/keycloak/certs:/etc/keycloak-certs:ro
       # Local-disk workaround: the Docker VM overlay is full; redirect Keycloak's
       # Quarkus build scratch (/tmp) and its H2 data dir to the host disk so
       # `start-dev` augmentation and the embedded DB can write instead of failing

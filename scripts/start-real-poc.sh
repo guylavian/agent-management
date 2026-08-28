@@ -28,7 +28,7 @@ docker info >/dev/null
 test -x "$bin/thv" && test -x "$bin/prometheus-mcp" || "$root/scripts/prepare-real-poc.sh"
 "$root/scripts/gen-keycloak-cert.sh"
 chmod +x "$root/scripts/gen-manager-cert.sh"; "$root/scripts/gen-manager-cert.sh"
-docker compose --env-file "$env_file" -f "$root/docker-compose.yml" -f "$root/infra/keycloak/tls.override.yml" up -d
+docker compose --env-file "$env_file" -f "$root/deploy/local/compose.yaml" -f "$root/deploy/local/keycloak/tls.override.yml" up -d
 
 wait_http() {
   local url="$1" label="$2"

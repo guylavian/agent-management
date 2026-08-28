@@ -4,7 +4,7 @@
 # and falls back to the mock gateway for its domain backends (no local AD/OCP/net
 # MCP or ToolHive). qwen3:8b via Ollama. Identity is mock-but-shared (local dev).
 #
-#   docker compose -f docker-compose.agents.yml up -d
+#   docker compose -f deploy/local/compose.agents.yaml up -d
 #   TOKEN=$(curl -s -X POST http://localhost:3000/dev/token/alice | sed -E 's/.*"token":"([^"]+)".*/\1/')
 #   curl -s -X POST http://localhost:3000/v1/query -H "authorization: Bearer $TOKEN" -H "content-type: application/json" -d '{"question":"According to our documentation, how should Keycloak login failures be investigated?","environment":"prod"}'
 x-agent-base: &agent-base

@@ -33,7 +33,7 @@ docker compose up -d
 # your existing wikikb MCP on :8642 (docker start wikikb)
 
 # agents (manager + specialists), Groq provider overlay
-GROQ_API_KEY=<key> docker compose -f docker-compose.agents.yml -f docker-compose.groq.yml up -d
+GROQ_API_KEY=<key> docker compose -f deploy/local/compose.agents.yaml -f deploy/local/compose.groq.yaml up -d
 ./scripts/verify-local-stack.sh
 ```
 

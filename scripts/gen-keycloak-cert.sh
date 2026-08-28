@@ -3,7 +3,7 @@
 # Required only for the Keycloak MCP path (it refuses cleartext http://).
 # Dev only — the private key is gitignored and must never leave the machine.
 set -euo pipefail
-DIR="$(cd "$(dirname "$0")/.." && pwd)/infra/keycloak/certs"
+DIR="$(cd "$(dirname "$0")/.." && pwd)/deploy/local/keycloak/certs"
 mkdir -p "$DIR"
 if [ -f "$DIR/tls.crt" ] && [ -f "$DIR/tls.key" ]; then
   echo "cert already present at $DIR (delete to regenerate)"; exit 0

@@ -1,4 +1,6 @@
-# Local PoC infrastructure — Keycloak + Prometheus (+ MCP)
+# Local development environment — Keycloak + Prometheus (+ MCP)
+
+Assets live under `deploy/local/`; this page is the human guide to them.
 
 For the supported no-mock Manager-to-specialist path, use
 [`docs/REAL-POC.md`](../docs/REAL-POC.md). The commands below describe only the
@@ -13,11 +15,11 @@ automatically.
 
 ```bash
 ollama pull qwen3:8b            # local model for the agents
-docker compose up -d            # Keycloak + Prometheus (from repo root)
+docker compose -f deploy/local/compose.yaml up -d   # Keycloak + Prometheus
 ./scripts/verify-local-stack.sh # health + scrape verification, no browser
 ```
 
-`docker compose up -d` alone brings up a healthy Keycloak with the `sre-test`
+`docker compose -f deploy/local/compose.yaml up -d` alone brings up a healthy Keycloak with the `sre-test`
 realm imported and Prometheus already scraping it.
 
 ## Local URLs (defaults)
@@ -43,14 +45,14 @@ Ports are configurable (compose reads these env vars, with the defaults shown):
 
 > The metrics endpoint is on the **management port (9000)**, deliberately not the
 > application port (8080). Prometheus scrapes `keycloak:9000/metrics` on the
-> compose network (see `infra/prometheus/prometheus.yml`).
+> compose network (see `deploy/local/prometheus/prometheus.yml`).
 
 ## What is provisioned
 
 - **Keycloak 26.6** in `start-dev` mode (H2 in-memory; dev only, no production
   write capabilities). Metrics + health enabled; user login-event metrics
   enabled via the `user-event-metrics` feature.
-- **Realm import** `infra/keycloak/realm-sre-test.json`:
+- **Realm import** `deploy/local/keycloak/realm-sre-test.json`:
   - realm `sre-test` (events enabled, login/login-error captured)
   - client `sre-test-client` (confidential; secret `sre-test-client-secret`;
     direct-access-grants on for scripted login testing)
@@ -133,7 +135,7 @@ HTTPS. The realm import provisions a dedicated read-only service account
 ```bash
 # 1. self-signed localhost cert + Keycloak HTTPS on 8443 (dev only)
 ./scripts/gen-keycloak-cert.sh
-docker compose -f docker-compose.yml -f infra/keycloak/tls.override.yml up -d
+docker compose -f deploy/local/compose.yaml -f deploy/local/keycloak/tls.override.yml up -d
 
 # 2. run the Keycloak MCP against it (stdio)
 KEYCLOAK_URL=https://localhost:8443 \
@@ -164,5 +166,5 @@ verify script reports the MCP check as SKIP rather than faking success.
 ## Teardown
 
 ```bash
-docker compose down          # stop; keeps nothing (H2 is in-memory)
+docker compose -f deploy/local/compose.yaml down   # stop; keeps nothing (H2 is in-memory)
 ```

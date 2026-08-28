@@ -63,7 +63,7 @@ describe("startup configuration", () => {
   });
 
   it("publishes a strict JSON Schema", () => {
-    const schema = JSON.parse(readFileSync("schemas/agent.schema.json", "utf8")) as { additionalProperties?: boolean; properties?: { spec?: { oneOf?: unknown[] } } };
+    const schema = JSON.parse(readFileSync("contracts/agent-schema/generated/agent.schema.json", "utf8")) as { additionalProperties?: boolean; properties?: { spec?: { oneOf?: unknown[] } } };
     expect(schema.additionalProperties).toBe(false);
     expect(schema.properties?.spec?.oneOf).toHaveLength(2);
   });

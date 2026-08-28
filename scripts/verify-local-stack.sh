@@ -63,7 +63,7 @@ if [ -n "${PROMETHEUS_MCP_ENDPOINT}" ]; then
   { [ "$c" != "000" ] && [ -n "$c" ]; } && ok "Prometheus MCP reachable (${PROMETHEUS_MCP_ENDPOINT}, http ${c})" \
     || no "Prometheus MCP unreachable (${PROMETHEUS_MCP_ENDPOINT})"
 else
-  sk "Prometheus MCP HTTP check (reference server is stdio; see infra/README.md smoke test)"
+  sk "Prometheus MCP HTTP check (reference server is stdio; see docs/local-development.md smoke test)"
 fi
 
 echo

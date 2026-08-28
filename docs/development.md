@@ -65,13 +65,17 @@ rejects any of them in `real-poc` or `production`.
 Preferably through the portal (Create Agent → Preview YAML → Create Pull
 Request). By hand:
 
-1. write `agents/<name>.yaml` (see [agent-policy.md](architecture/agent-policy.md))
-2. write `prompts/<name>.md`
-3. add the tools to `policies/approved-tools.yaml` — only `readOnlyVerified` tools
-4. register routing metadata in `agents/registry.yaml`
-5. add `<name>` to `agents/manager.yaml` under `spec.agents.allowed`
-6. add `runtime/deploy/helm/values/<name>.yaml`
-7. `npm run check`
+1. write `config/agents/<name>.yaml` — identity, routing, access and limits, all
+   in one file (see [agent-policy.md](architecture/agent-policy.md))
+2. write `config/prompts/<name>.md`
+3. if a new MCP server is involved, add `config/mcp-servers/<server>.yaml`; only
+   `readOnlyVerified` tools may be approved
+4. add `<name>` to `config/agents/manager.yaml` under `spec.agents.allowed`
+5. enable it where it should run: `deploy/environments/<env>/agents/<name>.yaml`
+6. `npm run render:deploy && npm run check`
+
+There is deliberately no routing registry to update: the Manager's catalog is
+derived from step 1 intersected with step 5.
 
 The workload client id and ToolHive audience are derived; do not invent them.
 Reconcile Keycloak with `@sre/keycloak-provisioning` (idempotent; dry-run first).
