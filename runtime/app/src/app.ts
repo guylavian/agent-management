@@ -5,18 +5,17 @@ import type { DispatchFunc, InjectOptions, Response as InjectResponse } from "li
 import {
   HttpAgentClient,
   ClientCredentialsWorkloadTokenProvider,
-  MockAgentClient,
   MockWorkloadTokenProvider,
   ProjectedWorkloadTokenProvider,
-  type AgentClient,
 } from "@sre/agent-client";
 import {
   MAX_AGENT_REQUEST_BYTES,
   MAX_AGENT_RESPONSE_BYTES,
   agentExecutionRequestSchema,
   assertSerializedLimit,
+  type SpecialistTransport,
 } from "@sre/agent-protocol";
-import { loadAgentServiceRegistry, type AgentRegistry as AgentServiceRegistry } from "@sre/agent-registry";
+import { loadAgentCatalog, type AgentCatalog } from "@sre/config";
 import {
   AuthorizationService,
   JwksDelegatedIdentityVerifier,
@@ -49,10 +48,11 @@ import {
 import { redactText } from "@sre/redaction";
 import { MockModelClient, RealOpenAiCompatibleClient, type ModelClient } from "@sre/llm";
 import { DirectMcpClient, mcpEndpointsFromEnv, MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "@sre/agent-engine";
-import { extractEntities } from "@sre/routing";
+import { extractEntities } from "@sre/orchestrator";
 import { runSpecialistInstance, type SpecialistExecutionContext } from "@sre/agent-engine";
-import { executeRequest, InProcessAgentClient, type AssistantResponse } from "@sre/runtime";
-import { DisabledSessionStore, MockSessionStore, PostgresSessionStore, type BoundedSessionContext, type SessionStore } from "@sre/session";
+import { executeRequest, MockSpecialistTransport, type AssistantResponse } from "@sre/orchestrator";
+import { InProcessSpecialistTransport } from "./in-process-transport.ts";
+import { DisabledSessionStore, MockSessionStore, PostgresSessionStore, type BoundedSessionContext, type SessionStore } from "@sre/orchestrator";
 import { incrementMetric, observeDuration, observeInflight, renderMetrics, withExtractedContext, withSpan } from "@sre/telemetry";
 import { z } from "zod";
 import { buildRunRecord, GitHubGitOpsProvider, InMemoryRunStore, UnconfiguredGitOpsProvider, type GitOpsProvider, type RunStore, type SpecialistResultLike } from "@sre/management-api";
@@ -77,8 +77,8 @@ export interface ManagerDependencies extends CommonDependencies {
   agent: ManagerAgentConfig;
   oidc: OidcClient;
   synthesisModel: ModelClient;
-  registry: AgentServiceRegistry;
-  agentClient: AgentClient;
+  registry: AgentCatalog;
+  agentClient: SpecialistTransport;
   identityIssuer: DelegatedIdentityIssuer;
   sessionStore: SessionStore;
   delegationPublicJwk?: Record<string, unknown>;
@@ -117,16 +117,16 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
 
   if (agent.spec.type === "manager") {
     const managerAgent = agent as ManagerAgentConfig;
-    const registry = loadAgentServiceRegistry(config.agentRegistryFile);
+    const registry = loadAgentCatalog(config.agentRegistryFile);
     for (const agentId of managerAgent.spec.agents.allowed) {
       if (registry.resolve(agentId) === undefined) throw new Error(`manager allows unregistered agent ${agentId}`);
     }
-    let agentClient: AgentClient;
+    let agentClient: SpecialistTransport;
     if (config.clients.agent === "inprocess") {
       // single-process local PoC: the manager executes specialists in-process.
       // Uses the same delegation authority so the per-agent identity JWT verifies.
       const fullRegistry = loadAgentRegistry({ agentsDir: config.agentsDir, promptsDir: config.promptsDir, approvedCatalogFile: config.approvedCatalogFile });
-      agentClient = new InProcessAgentClient(
+      agentClient = new InProcessSpecialistTransport(
         fullRegistry,
         {
           authorization: new AuthorizationService(fullRegistry),
@@ -136,7 +136,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
         mockDelegation as MockDelegationAuthority,
       );
     } else if (config.clients.agent === "mock") {
-      agentClient = new MockAgentClient();
+      agentClient = new MockSpecialistTransport();
     } else if (config.clients.agent === "http-local") {
       // distributed local PoC: HTTP fan-out with a fixed mock workload token
       agentClient = new HttpAgentClient(registry, new MockWorkloadTokenProvider());

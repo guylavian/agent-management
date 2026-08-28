@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MockAgentClient } from "@sre/agent-client";
+import { MockSpecialistTransport } from "@sre/orchestrator";
 import { MockDelegationAuthority, MockOidcClient } from "@sre/auth";
 import { buildDependencies, createApp } from "../src/app.ts";
 
@@ -36,7 +36,7 @@ describe("local API", () => {
     const deps = buildDependencies({});
     if (deps.mode !== "manager") throw new Error("expected manager mode");
     const oidc = deps.oidc as MockOidcClient;
-    const client = deps.agentClient as MockAgentClient;
+    const client = deps.agentClient as MockSpecialistTransport;
     const app = createApp(deps);
     const headers = { authorization: `Bearer ${await oidc.issueTestToken("alice")}` };
     const first = await app.inject({ method: "POST", url: "/v1/query", headers, payload: { question: "Is AD replication healthy on DC-TLV-99?", environment: "prod", sessionId: "s-1" } });

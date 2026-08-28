@@ -6,6 +6,7 @@ export default defineConfig({
       "contracts/*/tests/**/*.test.ts",
       "shared/*/tests/**/*.test.ts",
       "agent-engine/tests/**/*.test.ts",
+      "orchestrator/tests/**/*.test.ts",
       "runtime/packages/*/tests/**/*.test.ts",
       "runtime/app/tests/**/*.test.ts",
       "management/packages/*/tests/**/*.test.ts",

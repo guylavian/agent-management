@@ -5,8 +5,9 @@ import { loadAgentRegistry } from "@sre/config";
 import type { Evidence, RuntimeError, SpecialistResult } from "@sre/evidence";
 import { MockModelClient, type ChatRequest, type ChatResponse, type ModelClient } from "@sre/llm";
 import { MockToolHiveClient } from "@sre/agent-engine";
-import { loadAgentServiceRegistry } from "@sre/agent-registry";
-import { executeRequest, inProcessRuntimeDependencies, type AssistantResponse } from "@sre/runtime";
+import { loadAgentCatalog } from "@sre/config";
+import { inProcessRuntimeDependencies } from "@sre/api";
+import { executeRequest, type AssistantResponse } from "@sre/orchestrator";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { exportHumanReviewJsonl, MockGrader, TierLJudgeGrader, type GradeResult, type Grader, type HumanReviewRecord } from "./graders/index.ts";
@@ -48,7 +49,7 @@ class CountingModel implements ModelClient {
 }
 
 const corpus = corpusSchema.parse(parseYaml(readFileSync("eval/questions/cases.yaml", "utf8")));
-const serviceRegistry = loadAgentServiceRegistry("agents/registry.yaml");
+const serviceRegistry = loadAgentCatalog("agents/registry.yaml");
 const records: HarnessRecord[] = [];
 const humanReview: HumanReviewRecord[] = [];
 for (const [caseIndex, benchmark] of corpus.cases.entries()) {

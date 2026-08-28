@@ -9,6 +9,6 @@
   "dependencies": {
     "@opentelemetry/api": "1.9.1",
     "@sre/agent-protocol": "*",
-    "@sre/agent-registry": "*"
+    "@sre/config": "*"
   }
 }

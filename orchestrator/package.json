@@ -1,0 +1,23 @@
+{
+  "name": "@sre/orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sre/agent-protocol": "*",
+    "@sre/auth": "*",
+    "@sre/config": "*",
+    "@sre/evidence": "*",
+    "@sre/llm": "*",
+    "@sre/redaction": "*",
+    "@sre/telemetry": "*",
+    "pg": "8.22.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/pg": "8.21.0"
+  }
+}

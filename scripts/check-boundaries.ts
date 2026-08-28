@@ -48,6 +48,7 @@ function packageNames(zone: string): Set<string> {
 const CONTRACT_PACKAGES = packageNames("contracts");
 const SHARED_PACKAGES = packageNames("shared");
 const AGENT_ENGINE = "agent-engine";
+const ORCHESTRATOR = "orchestrator";
 const RUNTIME_PACKAGES = packageNames("runtime/packages");
 const MANAGEMENT_PACKAGES = packageNames("management/packages");
 
@@ -132,6 +133,18 @@ check("agent-engine", (name: string) =>
   CONTRACT_PACKAGES.has(name) || SHARED_PACKAGES.has(name) || name === AGENT_ENGINE
     ? undefined
     : `agent-engine imports "@sre/${name}" — the engine may depend only on contracts and shared`,
+);
+
+/**
+ * The orchestrator dispatches to specialists through the SpecialistTransport
+ * contract and must never import the engine that runs one — not even in
+ * single-process local mode, where it would be easy and wrong. The in-process
+ * adapter therefore lives in the composition root, not here.
+ */
+check("orchestrator", (name: string) =>
+  CONTRACT_PACKAGES.has(name) || SHARED_PACKAGES.has(name) || name === ORCHESTRATOR
+    ? undefined
+    : `orchestrator imports "@sre/${name}" — the orchestrator may depend only on contracts and shared${name === AGENT_ENGINE ? "; reach specialists through SpecialistTransport instead" : ""}`,
 );
 
 if (violations.length > 0) {

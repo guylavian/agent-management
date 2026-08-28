@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { hashDelegatedSubject, type AgentExecutionRequest } from "@sre/agent-protocol";
-import { loadAgentServiceRegistry } from "@sre/agent-registry";
-import { AgentTransportError, HttpAgentClient, MockAgentClient } from "../src/index.ts";
+import { loadAgentCatalog } from "@sre/config";
+import { AgentTransportError } from "@sre/agent-protocol";
+import { HttpAgentClient } from "../src/index.ts";
 
 const request = (): AgentExecutionRequest => ({
   requestId: "req-client",
@@ -18,17 +19,10 @@ const request = (): AgentExecutionRequest => ({
 });
 
 describe("agent clients", () => {
-  it("provides a deterministic protocol-level mock", async () => {
-    const client = new MockAgentClient();
-    const result = await client.execute("active-directory", request(), new AbortController().signal);
-    expect(result.agentId).toBe("active-directory");
-    expect(client.calls).toHaveLength(1);
-  });
-
   it("maps service authorization failures without retrying", async () => {
     let calls = 0;
     const client = new HttpAgentClient(
-      loadAgentServiceRegistry("agents/registry.yaml"),
+      loadAgentCatalog("agents/registry.yaml"),
       { async getToken() { return "workload-token"; } },
       async () => { calls += 1; return new Response("denied", { status: 403 }); },
     );
@@ -39,7 +33,7 @@ describe("agent clients", () => {
   it("retries one transient service failure only", async () => {
     let calls = 0;
     const client = new HttpAgentClient(
-      loadAgentServiceRegistry("agents/registry.yaml"),
+      loadAgentCatalog("agents/registry.yaml"),
       { async getToken() { return "workload-token"; } },
       async () => {
         calls += 1;
@@ -54,7 +48,7 @@ describe("agent clients", () => {
   it("reports internal specialist failure distinctly and without retrying", async () => {
     let calls = 0;
     const client = new HttpAgentClient(
-      loadAgentServiceRegistry("agents/registry.yaml"),
+      loadAgentCatalog("agents/registry.yaml"),
       { async getToken() { return "workload-token"; } },
       async () => { calls += 1; return new Response(JSON.stringify({ code: "AGENT_EXECUTION_FAILED" }), { status: 500 }); },
     );
@@ -65,7 +59,7 @@ describe("agent clients", () => {
   it("treats a specialist's oversized-response 502 as terminal, not transient", async () => {
     let calls = 0;
     const client = new HttpAgentClient(
-      loadAgentServiceRegistry("agents/registry.yaml"),
+      loadAgentCatalog("agents/registry.yaml"),
       { async getToken() { return "workload-token"; } },
       async () => { calls += 1; return new Response(JSON.stringify({ code: "AGENT_RESPONSE_TOO_LARGE" }), { status: 502 }); },
     );

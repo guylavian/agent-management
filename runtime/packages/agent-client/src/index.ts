@@ -7,14 +7,13 @@ import {
   MAX_AGENT_RESPONSE_BYTES,
   agentExecutionResponseSchema,
   assertSerializedLimit,
-  serializedBytes,
   type AgentExecutionRequest,
   type AgentExecutionResponse,
   type SpecialistTransport,
 } from "@sre/agent-protocol";
 
 export { AgentTransportError, type AgentTransportErrorCode } from "@sre/agent-protocol";
-import type { AgentRegistry } from "@sre/agent-registry";
+import type { AgentCatalog } from "@sre/config";
 
 /** @deprecated name kept during the migration; the contract is SpecialistTransport. */
 export type AgentClient = SpecialistTransport;
@@ -64,11 +63,11 @@ export class MockWorkloadTokenProvider implements WorkloadTokenProvider {
 
 export class HttpAgentClient implements AgentClient {
   readonly mode = "real" as const;
-  readonly registry: AgentRegistry;
+  readonly registry: AgentCatalog;
   readonly tokens: WorkloadTokenProvider;
   readonly fetchImplementation: typeof fetch;
   constructor(
-    registry: AgentRegistry,
+    registry: AgentCatalog,
     tokens: WorkloadTokenProvider,
     fetchImplementation: typeof fetch = fetch,
   ) {
@@ -125,67 +124,4 @@ export class HttpAgentClient implements AgentClient {
     void lastError;
     throw new AgentTransportError("AGENT_UNAVAILABLE", "Agent service is unavailable", true);
   }
-}
-
-export class MockAgentClient implements AgentClient {
-  readonly mode = "mock" as const;
-  readonly calls: Array<{ agentId: string; request: AgentExecutionRequest }> = [];
-  readonly #scripts = new Map<string, Array<AgentExecutionResponse | AgentTransportError>>();
-
-  enqueue(agentId: string, result: AgentExecutionResponse | AgentTransportError): void {
-    const queue = this.#scripts.get(agentId) ?? [];
-    queue.push(result);
-    this.#scripts.set(agentId, queue);
-  }
-
-  async execute(agentId: string, request: AgentExecutionRequest, signal: AbortSignal): Promise<AgentExecutionResponse> {
-    if (signal.aborted) throw new AgentTransportError("AGENT_TIMEOUT", "Agent service timed out", false);
-    assertSerializedLimit(request, MAX_AGENT_REQUEST_BYTES, "agent request");
-    this.calls.push({ agentId, request: structuredClone(request) });
-    const scripted = this.#scripts.get(agentId)?.shift();
-    if (scripted instanceof AgentTransportError) throw scripted;
-    const response = scripted ?? mockResponse(agentId, request);
-    if (serializedBytes(response) > MAX_AGENT_RESPONSE_BYTES) throw new AgentTransportError("AGENT_RESPONSE_TOO_LARGE", "Agent response exceeds the size limit", false);
-    return agentExecutionResponseSchema.parse(response);
-  }
-}
-
-function mockResponse(agentId: string, request: AgentExecutionRequest): AgentExecutionResponse {
-  const source = agentId === "active-directory" ? "ad" : agentId === "openshift" ? "os" : "net";
-  const needsDomain = agentId === "active-directory" && /network dependency/iu.test(request.question) ? ["network-observability"] : undefined;
-  return {
-    agentId,
-    status: "complete",
-    summary: `${agentId} completed the bounded investigation.`,
-    evidence: [
-      {
-        id: `rag:${source}:${request.requestId}`,
-        kind: "wiki",
-        source: `${agentId}-wiki`,
-        system: agentId,
-        environment: request.environment,
-        citation: `wiki://${agentId}/runbook`,
-        status: "ok",
-        requestId: request.requestId,
-        agentId,
-        rawExcerpt: `Approved ${agentId} runbook evidence.`,
-        redaction: { applied: false },
-      },
-      {
-        id: `mcp:${source}:${request.requestId}`,
-        kind: "telemetry",
-        source: `${agentId}-live`,
-        system: agentId,
-        environment: request.environment,
-        observedAt: new Date().toISOString(),
-        citation: `mcp://${agentId}/health`,
-        status: "ok",
-        requestId: request.requestId,
-        agentId,
-        payload: { state: "healthy" },
-        redaction: { applied: false },
-      },
-    ],
-    ...(needsDomain ? { needsDomain } : {}),
-  };
 }
