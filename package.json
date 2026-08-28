@@ -13,6 +13,13 @@
   ],
   "scripts": {
     "dev:local": "SRE_CLIENT_AGENT=inprocess node --import tsx --env-file-if-exists=.env.local apps/api/src/server.ts",
+    "dev:runtime": "npm run dev:local",
+    "dev:portal": "cd apps/portal && yarn start",
+    "dev": "npm run dev:runtime & npm run dev:portal",
+    "build": "npm run typecheck && npm run build:portal",
+    "build:portal": "cd apps/portal && yarn build:all",
+    "install:portal": "cd apps/portal && yarn install",
+    "check:portal": "cd apps/portal && yarn tsc",
     "real-poc:prepare": "./scripts/prepare-real-poc.sh",
     "real-poc:start": "./scripts/start-real-poc.sh",
     "real-poc:verify": "./scripts/verify-real-poc.sh",

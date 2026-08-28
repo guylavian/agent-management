@@ -1,9 +1,12 @@
-import { createRouteRef, createSubRouteRef } from '@backstage/frontend-plugin-api';
+import { createRouteRef } from '@backstage/frontend-plugin-api';
 
+/**
+ * Each sidebar section is its own page extension, so each needs a top-level
+ * RouteRef. PageBlueprint does not accept a SubRouteRef.
+ */
 export const rootRouteRef = createRouteRef();
-
-export const agentsRouteRef = createSubRouteRef({ parent: rootRouteRef, path: '/agents' });
-export const createAgentRouteRef = createSubRouteRef({ parent: rootRouteRef, path: '/create' });
-export const permissionsRouteRef = createSubRouteRef({ parent: rootRouteRef, path: '/permissions' });
-export const mcpServersRouteRef = createSubRouteRef({ parent: rootRouteRef, path: '/mcp-servers' });
-export const runsRouteRef = createSubRouteRef({ parent: rootRouteRef, path: '/runs' });
+export const agentsRouteRef = createRouteRef();
+export const createAgentRouteRef = createRouteRef();
+export const permissionsRouteRef = createRouteRef();
+export const mcpServersRouteRef = createRouteRef();
+export const runsRouteRef = createRouteRef();

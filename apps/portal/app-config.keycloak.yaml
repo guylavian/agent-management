@@ -1,0 +1,20 @@
+# Keycloak sign-in for the management plane.
+#
+# Layer this over the base config when a realm is reachable:
+#   yarn start --config app-config.yaml --config app-config.keycloak.yaml
+#
+# Human identity only. Signing in here never grants an Agent access to an MCP —
+# that is the runtime's decision, re-evaluated on every tool call.
+auth:
+  environment: development
+  providers:
+    oidc:
+      development:
+        metadataUrl: ${SRE_PORTAL_OIDC_METADATA_URL}
+        clientId: ${SRE_PORTAL_OIDC_CLIENT_ID}
+        clientSecret: ${SRE_PORTAL_OIDC_CLIENT_SECRET}
+        prompt: auto
+        signIn:
+          resolvers:
+            - resolver: preferredUsernameMatchingUserEntityName
+            - resolver: emailLocalPartMatchingUserEntityName

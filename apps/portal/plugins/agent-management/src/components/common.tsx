@@ -10,18 +10,34 @@ import type { AgentLifecycle, ToolClassification } from '../api/types';
  * package so the plugin has no styling dependency beyond React.
  */
 
+// tokens taken from the Agent Management Portal design reference
 export const palette = {
   surface: '#ffffff',
-  canvas: '#f6f7fb',
-  border: '#e3e6ef',
-  text: '#1c1f37',
-  muted: '#676b8a',
-  accent: '#5b4ff5',
-  ok: '#12a557',
-  warn: '#d68a00',
-  danger: '#d92d420',
-  dangerSolid: '#d92d42',
+  canvas: '#f8f9fc',
+  subtle: '#fbfbfd',
+  border: '#e6e8f0',
+  borderStrong: '#dcdfe9',
+  text: '#1d2233',
+  body: '#374057',
+  muted: '#6b7385',
+  faint: '#8b93a7',
+  accent: '#4f5be7',
+  accentHover: '#4049b8',
+  accentSoft: '#eef0fd',
+  ok: '#12794a',
+  okBright: '#19a15e',
+  okSoft: '#e7f0ec',
+  warn: '#946508',
+  warnAccent: '#e2a306',
+  warnSoft: '#fdf1d7',
+  teal: '#0e9384',
+  dangerSolid: '#c0384a',
+  dangerSoft: '#fdecee',
 };
+
+export const FONT = "'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
+export const MONO = 'ui-monospace, Menlo, monospace';
+export const CARD_SHADOW = '0 2px 10px rgba(29,34,51,.06)';
 
 export function Card(props: { title?: string; action?: ReactNode; children: ReactNode }) {
   return (
@@ -29,9 +45,9 @@ export function Card(props: { title?: string; action?: ReactNode; children: Reac
       style={{
         background: palette.surface,
         border: `1px solid ${palette.border}`,
-        borderRadius: 14,
+        borderRadius: 10,
         padding: 20,
-        boxShadow: '0 1px 2px rgba(28,31,55,0.04)',
+        boxShadow: CARD_SHADOW,
       }}
     >
       {(props.title || props.action) && (
@@ -49,7 +65,7 @@ export function StatTile(props: { label: string; value: ReactNode; tone?: 'defau
   const tone = props.tone ?? 'default';
   const color = tone === 'ok' ? palette.ok : tone === 'warn' ? palette.warn : tone === 'danger' ? palette.dangerSolid : palette.text;
   return (
-    <div style={{ background: palette.surface, border: `1px solid ${palette.border}`, borderRadius: 14, padding: '16px 18px' }}>
+    <div style={{ background: palette.surface, border: `1px solid ${palette.border}`, borderRadius: 10, padding: '16px 18px', boxShadow: CARD_SHADOW }}>
       <div style={{ fontSize: 12, color: palette.muted, textTransform: 'uppercase', letterSpacing: 0.4 }}>{props.label}</div>
       <div style={{ fontSize: 26, fontWeight: 650, color, marginTop: 6 }}>{props.value}</div>
     </div>
@@ -66,7 +82,7 @@ export function Grid(props: { min?: number; gap?: number; children: ReactNode })
 
 export function PageShell(props: { title: string; subtitle?: string; action?: ReactNode; children: ReactNode }) {
   return (
-    <div style={{ background: palette.canvas, minHeight: '100%', padding: 28 }}>
+    <div style={{ background: palette.canvas, minHeight: '100%', padding: 28, fontFamily: FONT, color: palette.body }}>
       <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 22 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 680, color: palette.text }}>{props.title}</h1>
@@ -81,10 +97,10 @@ export function PageShell(props: { title: string; subtitle?: string; action?: Re
 
 export function Pill(props: { tone: 'ok' | 'warn' | 'danger' | 'neutral'; children: ReactNode }) {
   const tones = {
-    ok: { bg: '#e6f7ee', fg: palette.ok },
-    warn: { bg: '#fdf3e2', fg: palette.warn },
-    danger: { bg: '#fdeaec', fg: palette.dangerSolid },
-    neutral: { bg: '#eef0f7', fg: palette.muted },
+    ok: { bg: palette.okSoft, fg: palette.ok },
+    warn: { bg: palette.warnSoft, fg: palette.warn },
+    danger: { bg: palette.dangerSoft, fg: palette.dangerSolid },
+    neutral: { bg: '#f1f2f7', fg: palette.muted },
   } as const;
   const tone = tones[props.tone];
   return (
@@ -154,7 +170,7 @@ export function Button(props: { onClick?: () => void; variant?: 'primary' | 'gho
         background: primary ? palette.accent : palette.surface,
         color: primary ? '#fff' : palette.text,
         border: `1px solid ${primary ? palette.accent : palette.border}`,
-        borderRadius: 10,
+        borderRadius: 8,
         padding: '9px 16px',
         fontSize: 13.5,
         fontWeight: 600,
@@ -179,7 +195,7 @@ export function Field(props: { label: string; hint?: string; children: ReactNode
 
 export const inputStyle = {
   border: `1px solid ${palette.border}`,
-  borderRadius: 10,
+  borderRadius: 8,
   padding: '9px 12px',
   fontSize: 13.5,
   color: palette.text,
@@ -225,5 +241,5 @@ export function AsyncState(props: { loading: boolean; error?: Error; children: R
 }
 
 export function Mono(props: { children: ReactNode }) {
-  return <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5, background: palette.canvas, padding: '2px 6px', borderRadius: 6 }}>{props.children}</code>;
+  return <code style={{ fontFamily: MONO, fontSize: 12.5, background: palette.canvas, padding: '2px 6px', borderRadius: 6 }}>{props.children}</code>;
 }

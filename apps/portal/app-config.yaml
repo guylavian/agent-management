@@ -1,6 +1,8 @@
 app:
   title: SRE Agent Management
-  baseUrl: http://localhost:3000
+  baseUrl: http://localhost:3010
+  listen:
+    port: 3010
 
   # Enable all packages by default, this will discover packages from packages/app/package.json
   packages: all
@@ -121,7 +123,7 @@ backend:
     # Content-Security-Policy directives follow the Helmet format: https://helmetjs.github.io/#reference
     # Default Helmet Content-Security-Policy values can be removed by setting the key to false
   cors:
-    origin: http://localhost:3000
+    origin: http://localhost:3010
     methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
     credentials: true
   # This is for local development only, it is not recommended to use this in production
@@ -170,20 +172,10 @@ techdocs:
 auth:
   # Human identity for the management plane. This is a DIFFERENT authorization
   # domain from Agent workload identity: signing in here never grants an Agent
-  # access to an MCP.
-  environment: ${SRE_PORTAL_AUTH_ENV}
+  # access to an MCP. Keycloak sign-in lives in app-config.keycloak.yaml, which
+  # is layered in with --config when the realm is available.
   providers:
     guest: {}
-    oidc:
-      development:
-        metadataUrl: ${SRE_PORTAL_OIDC_METADATA_URL}
-        clientId: ${SRE_PORTAL_OIDC_CLIENT_ID}
-        clientSecret: ${SRE_PORTAL_OIDC_CLIENT_SECRET}
-        prompt: auto
-        signIn:
-          resolvers:
-            - resolver: emailLocalPartMatchingUserEntityName
-            - resolver: preferredUsernameMatchingUserEntityName
   # see https://backstage.io/docs/ai/mcp-actions#client-id-metadata-documents
   # to learn more about client id metadata documents
   clientIdMetadataDocuments:
@@ -205,7 +197,14 @@ scaffolder:
 sreAgent:
   managementApi:
     baseUrl: ${SRE_MANAGEMENT_API_URL}
-    token: ${SRE_MANAGEMENT_API_TOKEN}
+    # Runtime tokens are short-lived. The portal mints and refreshes its own
+    # rather than holding a pasted token that expires minutes later.
+    oidc:
+      tokenUrl: ${SRE_MANAGEMENT_OIDC_TOKEN_URL}
+      clientId: ${SRE_MANAGEMENT_OIDC_CLIENT_ID}
+      clientSecret: ${SRE_MANAGEMENT_OIDC_CLIENT_SECRET}
+      username: ${SRE_MANAGEMENT_OIDC_USERNAME}
+      password: ${SRE_MANAGEMENT_OIDC_PASSWORD}
 
 catalog:
   import:
