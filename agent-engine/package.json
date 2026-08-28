@@ -1,5 +1,5 @@
 {
-  "name": "@sre/mcp",
+  "name": "@sre/agent-engine",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,6 +11,8 @@
     "@sre/auth": "*",
     "@sre/config": "*",
     "@sre/evidence": "*",
+    "@sre/llm": "*",
+    "@sre/redaction": "*",
     "@sre/telemetry": "*",
     "ajv": "8.20.0",
     "zod": "4.4.3"

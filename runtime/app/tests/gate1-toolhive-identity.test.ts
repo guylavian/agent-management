@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MockToolCredentialAuthority, type RequestIdentity, type WorkloadIdentity } from "@sre/auth";
-import { MockToolHiveClient, toolHiveAudience, type ToolInvocation } from "@sre/mcp";
+import { MockToolHiveClient, toolHiveAudience, type ToolInvocation } from "@sre/agent-engine";
 
 /** the Agent's own workload identity — the actor, distinct from the human subject */
 const AD_WORKLOAD: WorkloadIdentity = { clientId: "sre-agent-active-directory", provider: "keycloak", agentId: "active-directory" };

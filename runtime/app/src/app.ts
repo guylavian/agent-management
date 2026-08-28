@@ -48,9 +48,10 @@ import {
 } from "@sre/config";
 import { redactText } from "@sre/redaction";
 import { MockModelClient, RealOpenAiCompatibleClient, type ModelClient } from "@sre/llm";
-import { DirectMcpClient, mcpEndpointsFromEnv, MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "@sre/mcp";
-import { classifyIntent, extractEntities } from "@sre/routing";
-import { executeRequest, InProcessAgentClient, runSpecialistInstance, type AssistantResponse, type ExecutionContext } from "@sre/runtime";
+import { DirectMcpClient, mcpEndpointsFromEnv, MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "@sre/agent-engine";
+import { extractEntities } from "@sre/routing";
+import { runSpecialistInstance, type SpecialistExecutionContext } from "@sre/agent-engine";
+import { executeRequest, InProcessAgentClient, type AssistantResponse } from "@sre/runtime";
 import { DisabledSessionStore, MockSessionStore, PostgresSessionStore, type BoundedSessionContext, type SessionStore } from "@sre/session";
 import { incrementMetric, observeDuration, observeInflight, renderMetrics, withExtractedContext, withSpan } from "@sre/telemetry";
 import { z } from "zod";
@@ -417,7 +418,7 @@ function registerSpecialistRoutes(app: Express, deps: SpecialistDependencies): v
         const abort = new AbortController();
         request.on("close", () => { if (!response.writableEnded) abort.abort(); });
         const safeQuestion = redactText(parsed.data.question).value;
-        const executionContext: ExecutionContext = {
+        const executionContext: SpecialistExecutionContext = {
           request: {
             question: safeQuestion,
             environment: parsed.data.environment,
@@ -426,7 +427,6 @@ function registerSpecialistRoutes(app: Express, deps: SpecialistDependencies): v
           },
           identity,
           environment: parsed.data.environment,
-          intent: classifyIntent(safeQuestion),
           requestId: parsed.data.requestId,
           deadline,
           signal: abort.signal,

@@ -10,6 +10,7 @@
   "workspaces": [
     "contracts/*",
     "shared/*",
+    "agent-engine",
     "runtime/app",
     "runtime/packages/*",
     "management/packages/*"
@@ -27,7 +28,7 @@
     "real-poc:start": "./scripts/start-real-poc.sh",
     "real-poc:verify": "./scripts/verify-real-poc.sh",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint contracts shared runtime management scripts eval tests --ignore-pattern 'management/portal/**'",
+    "lint": "oxlint contracts shared agent-engine runtime management scripts eval tests --ignore-pattern 'management/portal/**'",
     "test": "vitest run",
     "validate:yaml": "vitest run shared/config-loader/tests/yaml-validation.test.ts",
     "validate:boundaries": "node --import tsx scripts/check-boundaries.ts",

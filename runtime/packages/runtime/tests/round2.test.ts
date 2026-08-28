@@ -2,9 +2,10 @@ import { AuthorizationService } from "@sre/auth";
 import { loadAgentRegistry } from "@sre/config";
 import { domainHandoffSchema, type SpecialistResult } from "@sre/evidence";
 import { MockModelClient, type ChatRequest, type ChatResponse, type ModelClient } from "@sre/llm";
-import { MockToolHiveClient } from "@sre/mcp";
+import { MockToolHiveClient } from "@sre/agent-engine";
 import { describe, expect, it } from "vitest";
-import { buildDomainHandoff, executeRequest, planRound2, runSpecialist, type ExecutionContext } from "../src/index.ts";
+import { runSpecialist } from "@sre/agent-engine";
+import { buildDomainHandoff, executeRequest, planRound2, type ExecutionContext } from "../src/index.ts";
 import { distributedRuntime, managerAgent, serviceRegistry } from "./distributed-fixture.ts";
 
 const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });

@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@sre/agent-client": "*",
+    "@sre/agent-engine": "*",
     "@sre/agent-protocol": "*",
     "@sre/agent-registry": "*",
     "@sre/auth": "*",
@@ -15,7 +16,6 @@
     "@sre/evidence": "*",
     "@sre/evidence-processing": "*",
     "@sre/llm": "*",
-    "@sre/mcp": "*",
     "@sre/redaction": "*",
     "@sre/routing": "*",
     "@sre/session": "*",

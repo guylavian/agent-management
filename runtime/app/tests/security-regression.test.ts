@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from "vitest";
 import { AuthorizationService, MockToolCredentialAuthority, type RequestIdentity, type WorkloadIdentity } from "@sre/auth";
 import { loadAgentRegistry, loadAppConfig, ConfigValidationError, isToolAllowed } from "@sre/config";
-import { MockToolHiveClient, invokeVisibleToolForSpecialist, toolHiveAudience } from "@sre/mcp";
+import { MockToolHiveClient, invokeVisibleToolForSpecialist, toolHiveAudience } from "@sre/agent-engine";
 import { buildDependencies, createApp, type ManagerDependencies } from "../src/app.ts";
 
 /**

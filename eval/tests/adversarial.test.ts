@@ -2,7 +2,7 @@ import { AuthorizationService } from "@sre/auth";
 import { loadAgentRegistry } from "@sre/config";
 import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
 import { MockModelClient } from "@sre/llm";
-import { MockToolHiveClient, type ToolInvocation, type ToolResult } from "@sre/mcp";
+import { MockToolHiveClient, type ToolInvocation, type ToolResult } from "@sre/agent-engine";
 import { loadAgentServiceRegistry } from "@sre/agent-registry";
 import { executeRequest, inProcessRuntimeDependencies } from "@sre/runtime";
 import { MockSessionStore } from "@sre/session";

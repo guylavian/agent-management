@@ -47,6 +47,7 @@ function packageNames(zone: string): Set<string> {
 
 const CONTRACT_PACKAGES = packageNames("contracts");
 const SHARED_PACKAGES = packageNames("shared");
+const AGENT_ENGINE = "agent-engine";
 const RUNTIME_PACKAGES = packageNames("runtime/packages");
 const MANAGEMENT_PACKAGES = packageNames("management/packages");
 
@@ -119,6 +120,18 @@ check("shared", (name: string) =>
   CONTRACT_PACKAGES.has(name) || SHARED_PACKAGES.has(name)
     ? undefined
     : `shared imports "@sre/${name}" — shared may depend only on contracts and shared`,
+);
+
+/**
+ * The Specialist engine is generic. It may rest on contracts and shared and on
+ * nothing else — in particular not on the orchestrator, because a specialist
+ * that could reach routing or fan-out could reach another specialist, and
+ * specialist-to-specialist communication is a red line.
+ */
+check("agent-engine", (name: string) =>
+  CONTRACT_PACKAGES.has(name) || SHARED_PACKAGES.has(name) || name === AGENT_ENGINE
+    ? undefined
+    : `agent-engine imports "@sre/${name}" — the engine may depend only on contracts and shared`,
 );
 
 if (violations.length > 0) {

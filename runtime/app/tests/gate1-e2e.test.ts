@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HttpAgentClient, MockWorkloadTokenProvider } from "@sre/agent-client";
 import { MockOidcClient } from "@sre/auth";
-import type { MockToolHiveClient } from "@sre/mcp";
+import type { MockToolHiveClient } from "@sre/agent-engine";
 import { buildDependencies, createApp } from "../src/app.ts";
 
 /**

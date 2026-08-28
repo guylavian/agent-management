@@ -3,9 +3,9 @@ import { context, trace, type Attributes, type Span } from "@opentelemetry/api";
 import { AuthorizationService, MockToolCredentialAuthority } from "@sre/auth";
 import { loadAgentRegistry } from "@sre/config";
 import { MockModelClient } from "@sre/llm";
-import { MockToolHiveClient } from "@sre/mcp";
+import { MockToolHiveClient } from "@sre/agent-engine";
 import { classifyIntent } from "@sre/routing";
-import { runSpecialistInstance } from "../src/index.ts";
+import { runSpecialistInstance } from "@sre/agent-engine";
 import type { ExecutionContext } from "../src/types.ts";
 
 /**

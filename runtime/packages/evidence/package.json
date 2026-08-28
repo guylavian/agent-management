@@ -7,8 +7,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@sre/config": "*",
-    "@sre/evidence": "*",
-    "@sre/redaction": "*"
+    "@sre/evidence": "*"
   }
 }

@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@sre/agent-client": "*",
+    "@sre/agent-engine": "*",
     "@sre/agent-protocol": "*",
     "@sre/agent-registry": "*",
     "@sre/auth": "*",
@@ -12,7 +13,7 @@
     "@sre/evidence": "*",
     "@sre/llm": "*",
     "@sre/management-api": "*",
-    "@sre/mcp": "*",
+    "@sre/redaction": "*",
     "@sre/runtime": "*",
     "@sre/session": "*",
     "@sre/telemetry": "*",

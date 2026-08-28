@@ -3,14 +3,15 @@ import { loadAgentRegistry } from "@sre/config";
 import { loadAgentServiceRegistry } from "@sre/agent-registry";
 import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
 import { MockModelClient } from "@sre/llm";
-import { MockToolHiveClient, type ToolInvocation, type ToolResult } from "@sre/mcp";
+import { MockToolHiveClient, type ToolInvocation, type ToolResult } from "@sre/agent-engine";
 import { describe, expect, it } from "vitest";
-import { executeRequest, inProcessRuntimeDependencies, runSpecialist, type ExecutionContext } from "../src/index.ts";
+import { runSpecialist, type SpecialistExecutionContext } from "@sre/agent-engine";
+import { executeRequest, inProcessRuntimeDependencies } from "../src/index.ts";
 
 const registry = loadAgentRegistry({ agentsDir: "agents", promptsDir: "prompts", approvedCatalogFile: "policies/approved-tools.yaml" });
 const serviceRegistry = loadAgentServiceRegistry("agents/registry.yaml");
 const alice = { subject: "alice", groups: [], roles: ["infra-read"], requestId: "req-deadline" };
-const context = (deadline: number): ExecutionContext => ({ request: { question: "AD replication", identity: alice }, identity: alice, environment: "prod", intent: "factual", requestId: alice.requestId, deadline });
+const context = (deadline: number): SpecialistExecutionContext => ({ request: { question: "AD replication", identity: alice }, identity: alice, environment: "prod", requestId: alice.requestId, deadline });
 
 /** A gateway whose backend never resolves unless cancelled — proves the deadline, not the backend, ends the wait. */
 class HangingGateway extends MockToolHiveClient {

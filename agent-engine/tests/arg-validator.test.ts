@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { validateToolArguments } from "../src/arg-validator.ts";
-import { isReadOnlyTool } from "../src/tool-filter.ts";
-import type { McpTool } from "../src/toolhive-client.ts";
+import { validateToolArguments } from "../src/tools/arg-validator.ts";
+import { isReadOnlyTool } from "../src/tools/tool-filter.ts";
+import type { McpTool } from "../src/tools/toolhive-client.ts";
 
 const tool: McpTool = {
   serverId: "active-directory",

@@ -4,7 +4,7 @@ import { AuthorizationService } from "@sre/auth";
 import { loadAgentRegistry } from "@sre/config";
 import type { Evidence, RuntimeError, SpecialistResult } from "@sre/evidence";
 import { MockModelClient, type ChatRequest, type ChatResponse, type ModelClient } from "@sre/llm";
-import { MockToolHiveClient } from "@sre/mcp";
+import { MockToolHiveClient } from "@sre/agent-engine";
 import { loadAgentServiceRegistry } from "@sre/agent-registry";
 import { executeRequest, inProcessRuntimeDependencies, type AssistantResponse } from "@sre/runtime";
 import { parse as parseYaml } from "yaml";

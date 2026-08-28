@@ -12,11 +12,8 @@ import { MockDelegationAuthority, type AuthorizationService, type DelegatedIdent
 import type { AgentRegistry as ConfigAgentRegistry } from "@sre/config";
 import { redactText } from "@sre/redaction";
 import type { ModelClient } from "@sre/llm";
-import type { ToolHiveClient } from "@sre/mcp";
-import { classifyIntent } from "@sre/routing";
+import { runSpecialistInstance, type SpecialistExecutionContext, type ToolHiveClient } from "@sre/agent-engine";
 import type { RuntimeDependencies } from "./execute-request.ts";
-import { runSpecialistInstance } from "./specialist-runner.ts";
-import type { ExecutionContext } from "./types.ts";
 
 export interface InProcessSpecialistDependencies {
   authorization: AuthorizationService;
@@ -56,7 +53,7 @@ export class InProcessAgentClient implements AgentClient {
     const deadline = Date.parse(request.deadline);
     if (deadline <= Date.now()) throw new AgentTransportError("AGENT_TIMEOUT", "Agent request deadline expired", false);
     const safeQuestion = redactText(request.question).value;
-    const ctx: ExecutionContext = {
+    const ctx: SpecialistExecutionContext = {
       request: {
         question: safeQuestion,
         environment: request.environment,
@@ -65,7 +62,6 @@ export class InProcessAgentClient implements AgentClient {
       },
       identity,
       environment: request.environment,
-      intent: classifyIntent(safeQuestion),
       requestId: request.requestId,
       deadline,
       signal,
