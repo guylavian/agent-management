@@ -1,5 +1,8 @@
 # This dockerfile builds an image for the backend package.
-# It should be executed with the root of the repo as docker context.
+# Build context is the PORTAL workspace root (portal/), not the repository root:
+#   cd portal && docker build . -f ../deploy/portal/Dockerfile
+# The Dockerfile lives under deploy/ so every deployment artifact has one home,
+# while the build itself stays inside Backstage's own workspace conventions.
 #
 # Before building this image, be sure to have run the following commands in the repo root:
 #
