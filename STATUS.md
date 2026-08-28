@@ -1,17 +1,25 @@
 # PoC status
 
-## Real local Keycloak/Prometheus milestone (current)
+## Management plane milestone (current)
 
 | Check | State |
 |---|---|
-| Runtime/config/source implementation | **PASS** — `npm run check` (133 tests, 7 YAML checks, Helm lint/render) |
-| First-class Keycloak specialist | **PASS** — Keycloak MCP + Wiki MCP only |
-| First-class Observability specialist | **PASS** — upstream Prometheus MCP + Wiki MCP only |
-| RAG in active execution | **REMOVED** |
-| Real ToolHive discovery/invocation | **IMPLEMENTED** — authenticated `tools/list` and `tools/call`, cancellation and timeouts |
-| Real smoke A-D | **BLOCKED (environment)** — GitHub DNS unavailable, Docker socket denied, `.env.real-poc` absent, real LLM/Wiki endpoints not listening |
+| Runtime/config/source implementation | **PASS** — `npm run check` (238 tests, 7 YAML checks, plane-boundary check, 2 Helm charts) |
+| Monorepo separated into planes | **PASS** — `contracts/` + `runtime/` + `management/`, boundary enforced in CI |
+| Canonical Agent schema | **PASS** — one definition in `contracts/agent-schema`; per-MCP `access[]` policy |
+| Per-agent Keycloak workload identity | **PASS (model)** — 5 distinct clients, no shared credential |
+| Agent → MCP → Tool enforcement | **PASS** — per-MCP scoping; proven against the live stack |
+| Backstage management portal | **PASS** — 8 routes render live data, no console errors |
+| Keycloak provisioning/reconciliation | **LIBRARY ONLY** — idempotent + tested, but no entrypoint invokes it |
+| Workload-client token acquisition | **WIRED, NOT ACTIVE** — real PoC still uses `signed-jwt` |
+| GitOps pull requests | **WIRED, NOT CONFIGURED** — no Git provider set; reports `not-configured` |
+| Real smoke A-D | **16 PASS / 3 FAIL** — the 3 are `MODEL_RATE_LIMITED` from the model provider, not code |
 
-The last attempted `scripts/verify-real-poc.sh` result was `0 PASS, 0 FAIL, 19 BLOCKED`. This is an external startup block, not a claimed integration pass. See `docs/REAL-POC.md`.
+Last `scripts/verify-real-poc.sh`: `16 PASS, 3 FAIL, 0 BLOCKED` (previous
+milestone: `0 PASS, 0 FAIL, 19 BLOCKED`). The infrastructure checks all pass;
+the three smoke failures are external provider rate limiting, confirmed from
+`exception.type: MODEL_RATE_LIMITED` in the specialist spans rather than
+inferred. Full per-feature classification: `docs/FINAL-REPORT.md`.
 
 ## Honest completion state
 
