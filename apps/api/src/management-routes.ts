@@ -3,8 +3,12 @@ import type { AgentRegistry, AppConfig } from "@sre/config";
 import {
   agentDetail,
   agentSummary,
+  AgentDraftError,
   mcpServerViews,
   permissionMatrix,
+  proposeAgentChange,
+  type AgentDraft,
+  type GitOpsProvider,
   type RunStore,
 } from "@sre/management-api";
 
@@ -21,6 +25,7 @@ export interface ManagementDeps {
   registry: AgentRegistry;
   config: AppConfig;
   runs: RunStore;
+  gitops: GitOpsProvider;
 }
 
 export function managementRouter(deps: ManagementDeps): Router {
@@ -97,7 +102,44 @@ export function managementRouter(deps: ManagementDeps): Router {
     response.json({ status: "not-configured", reason: "no evaluation backend is wired to this deployment" });
   });
 
+  /**
+   * Validate a draft and render the canonical YAML. Pure: it changes nothing,
+   * and it runs the same schema the runtime loads, so the portal cannot preview
+   * a file that would fail at startup.
+   */
+  router.post("/agents/preview", (request: Request, response: Response) => {
+    try {
+      const { change, generated } = proposeAgentChange({ draft: request.body as AgentDraft, requestedBy: request.identity?.subject ?? "unknown", update: deps.registry.getSpecialist((request.body as AgentDraft)?.name ?? "") !== undefined });
+      response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, effects: change.effects });
+    } catch (error) {
+      respondDraftError(response, error);
+    }
+  });
+
+  /**
+   * Propose the change as a pull request. This is the ONLY way an Agent
+   * changes; there is deliberately no endpoint that deploys to production.
+   */
+  router.post("/agents/change", async (request: Request, response: Response) => {
+    try {
+      const { change } = proposeAgentChange({ draft: request.body as AgentDraft, requestedBy: request.identity?.subject ?? "unknown", update: deps.registry.getSpecialist((request.body as AgentDraft)?.name ?? "") !== undefined });
+      const result = await deps.gitops.createPullRequest(change);
+      response.status(result.status === "created" ? 201 : 501).json({ ...result, branch: change.branch, effects: change.effects });
+    } catch (error) {
+      respondDraftError(response, error);
+    }
+  });
+
   return router;
+}
+
+function respondDraftError(response: Response, error: unknown): void {
+  if (error instanceof AgentDraftError) {
+    response.status(400).json({ code: "AGENT_DRAFT_INVALID", message: "Agent draft failed validation", issues: error.issues });
+    return;
+  }
+  // never echo a provider error body: it can disclose policy or infrastructure internals
+  response.status(502).json({ code: "GITOPS_UNAVAILABLE", message: "The change could not be proposed" });
 }
 
 function notFound(response: Response, kind: string): void {

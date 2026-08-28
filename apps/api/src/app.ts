@@ -54,7 +54,7 @@ import { executeRequest, InProcessAgentClient, runSpecialistInstance, type Assis
 import { DisabledSessionStore, MockSessionStore, PostgresSessionStore, type BoundedSessionContext, type SessionStore } from "@sre/session";
 import { incrementMetric, observeDuration, observeInflight, renderMetrics, withExtractedContext, withSpan } from "@sre/telemetry";
 import { z } from "zod";
-import { buildRunRecord, InMemoryRunStore, type RunStore, type SpecialistResultLike } from "@sre/management-api";
+import { buildRunRecord, GitHubGitOpsProvider, InMemoryRunStore, UnconfiguredGitOpsProvider, type GitOpsProvider, type RunStore, type SpecialistResultLike } from "@sre/management-api";
 import { oidcAuthenticationMiddleware } from "./middleware/oidc.ts";
 import { managementRouter } from "./management-routes.ts";
 
@@ -89,6 +89,8 @@ export interface ManagerDependencies extends CommonDependencies {
    */
   managementRegistry?: AgentRegistry;
   runs: RunStore;
+  /** opens Agent changes as pull requests; unconfigured deployments say so rather than pretend */
+  gitops: GitOpsProvider;
 }
 
 export interface SpecialistDependencies extends CommonDependencies {
@@ -165,6 +167,15 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       registry,
       agentClient,
       runs: new InMemoryRunStore(),
+      gitops: config.gitops.provider === "github"
+        ? new GitHubGitOpsProvider({
+            owner: config.gitops.owner as string,
+            repo: config.gitops.repo as string,
+            baseBranch: config.gitops.baseBranch,
+            token: () => config.gitops.token as string,
+            ...(config.gitops.apiBaseUrl ? { apiBaseUrl: config.gitops.apiBaseUrl } : {}),
+          })
+        : new UnconfiguredGitOpsProvider(),
       ...(managementRegistry ? { managementRegistry } : {}),
       identityIssuer,
       model,
@@ -268,7 +279,7 @@ export function createApp(deps: ApiDependencies): TestableApp {
     registerManagerRoutes(app, deps);
     // read-only management plane, behind the same human authentication as /v1/query
     if (deps.managementRegistry) {
-      app.use("/management", oidcAuthenticationMiddleware(deps.oidc), managementRouter({ registry: deps.managementRegistry, config: deps.config, runs: deps.runs }));
+      app.use("/management", oidcAuthenticationMiddleware(deps.oidc), managementRouter({ registry: deps.managementRegistry, config: deps.config, runs: deps.runs, gitops: deps.gitops }));
     }
   } else registerSpecialistRoutes(app, deps);
 
