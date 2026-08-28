@@ -9,3 +9,10 @@ sre-agent-platform-source.zip
 .env.real-poc
 .real-poc/
 infra/keycloak/certs/
+
+# Backstage portal build output and local install
+apps/portal/dist
+apps/portal/dist-types
+apps/portal/**/dist
+apps/portal/.yarn/cache
+apps/portal/.yarn/install-state.gz

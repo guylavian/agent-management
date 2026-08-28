@@ -69,4 +69,6 @@ backend.add(import('@backstage/plugin-signals-backend'));
 // mcp actions plugin
 backend.add(import('@backstage/plugin-mcp-actions-backend'));
 
+backend.add(import('@sre/backstage-plugin-agent-management-backend'));
+backend.add(import('@sre/backstage-plugin-agent-management-backend').then(m => m.catalogModuleSreAgents));
 backend.start();

@@ -45,6 +45,7 @@
     "@backstage/plugin-signals-backend": "^0.3.18",
     "@backstage/plugin-techdocs-backend": "^2.2.3",
     "@backstage/plugin-user-settings-backend": "^0.4.6",
+    "@sre/backstage-plugin-agent-management-backend": "workspace:^",
     "app": "link:../app",
     "better-sqlite3": "^12.0.0",
     "node-gyp": "^10.0.0",

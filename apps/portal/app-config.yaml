@@ -1,5 +1,5 @@
 app:
-  title: Scaffolded Backstage App
+  title: SRE Agent Management
   baseUrl: http://localhost:3000
 
   # Enable all packages by default, this will discover packages from packages/app/package.json
@@ -10,9 +10,14 @@ app:
     # The catalog is mounted at /catalog by default but is overridden here to
     # serve as the root page. To switch to the Home page, comment out the
     # catalog path override and uncomment the home path override.
-    - page:catalog:
+    # The product surface is the landing page; the Backstage catalog stays
+    # available at /catalog but is not what an operator sees first.
+    - page:agent-management/overview:
         config:
           path: /
+    - page:catalog:
+        config:
+          path: /catalog
     # - page:home:
     #     config:
     #       path: /
@@ -97,7 +102,7 @@ app:
               height: 4
 
 organization:
-  name: My Company
+  name: SRE Platform
 
 backend:
   # Used for enabling authentication, secret is shared by all backend plugins
@@ -163,10 +168,22 @@ techdocs:
     type: 'local' # Alternatives - 'googleGcs' or 'awsS3'. Read documentation for using alternatives.
 
 auth:
-  # see https://backstage.io/docs/auth/ to learn about auth providers
+  # Human identity for the management plane. This is a DIFFERENT authorization
+  # domain from Agent workload identity: signing in here never grants an Agent
+  # access to an MCP.
+  environment: ${SRE_PORTAL_AUTH_ENV}
   providers:
-    # See https://backstage.io/docs/auth/guest/provider
     guest: {}
+    oidc:
+      development:
+        metadataUrl: ${SRE_PORTAL_OIDC_METADATA_URL}
+        clientId: ${SRE_PORTAL_OIDC_CLIENT_ID}
+        clientSecret: ${SRE_PORTAL_OIDC_CLIENT_SECRET}
+        prompt: auto
+        signIn:
+          resolvers:
+            - resolver: emailLocalPartMatchingUserEntityName
+            - resolver: preferredUsernameMatchingUserEntityName
   # see https://backstage.io/docs/ai/mcp-actions#client-id-metadata-documents
   # to learn more about client id metadata documents
   clientIdMetadataDocuments:
@@ -182,6 +199,13 @@ auth:
 
 scaffolder:
   # see https://backstage.io/docs/features/software-templates/configuration for software template options
+
+# Read-only management API of the SRE runtime (execution plane). The portal
+# never talks to ToolHive or an MCP directly.
+sreAgent:
+  managementApi:
+    baseUrl: ${SRE_MANAGEMENT_API_URL}
+    token: ${SRE_MANAGEMENT_API_TOKEN}
 
 catalog:
   import:
