@@ -17,6 +17,8 @@ import {
   StatCard,
   StatGrid,
   StatusPill,
+  runStatusColor,
+  runStatusTone,
 } from './common';
 import type { RunNode } from '../api/types';
 
@@ -41,7 +43,7 @@ export function RunsPage() {
                   {/* the human initiator is carried as a hash; the portal never sees the raw subject */}
                   <Muted mono>{run.userSubjectHash.slice(0, 10)}…</Muted>
                   <Body>{run.agents.join(', ')}</Body>
-                  <div><StatusPill tone={run.status === 'complete' ? 'ok' : run.status === 'partial' ? 'warn' : 'danger'}>{run.status}</StatusPill></div>
+                  <div><StatusPill tone={runStatusTone(run.status)}>{run.status}</StatusPill></div>
                   <Body>{run.toolCalls}</Body>
                   <Body>{run.evidenceCount}</Body>
                   <Muted mono>{run.durationMs} ms</Muted>
@@ -66,7 +68,7 @@ export function RunDetailPage({ runId }: { runId: string }) {
         {value && (
           <>
             <StatGrid columns={5}>
-              <StatCard label="Status" value={value.status} dot={value.status === 'complete' ? C.greenBright : value.status === 'partial' ? C.amberBright : C.redBright} />
+              <StatCard label="Status" value={value.status} dot={runStatusColor(value.status)} />
               <StatCard label="Duration" value={`${value.durationMs} ms`} />
               <StatCard label="Tool calls" value={value.toolCalls} sub="through ToolHive" />
               <StatCard label="Denied calls" value={value.deniedToolCalls} sub={value.deniedToolCalls ? 'blocked by policy' : 'none'} dot={value.deniedToolCalls ? C.redBright : undefined} />

@@ -16,6 +16,7 @@ import {
   Panel,
   SectionTitle,
   StatusPill,
+  clickable,
   inputStyle,
   selectStyle,
 } from './common';
@@ -340,7 +341,7 @@ function Stepper(props: { step: number; onSelect: (step: number) => void }) {
         const active = index === props.step;
         return (
           <div key={label} style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, cursor: 'pointer', flex: 'none' }} onClick={() => props.onSelect(index)}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, cursor: 'pointer', flex: 'none' }} aria-label={`Go to step ${label}`} {...clickable(() => props.onSelect(index))}>
               <div
                 style={{
                   width: 26,

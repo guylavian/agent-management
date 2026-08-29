@@ -15,6 +15,7 @@ import {
   Panel,
   SectionTitle,
   StatusPill,
+  clickable,
 } from './common';
 
 /**
@@ -41,7 +42,8 @@ export function PermissionsPage() {
                     {row.cells.map(cell => (
                       <div
                         key={cell.mcp}
-                        onClick={() => setSelected({ agent: cell.agent, mcp: cell.mcp })}
+                        {...clickable(() => setSelected({ agent: cell.agent, mcp: cell.mcp }))}
+                        aria-label={`${cell.agent} access to ${cell.mcp}`}
                         title={`${cell.agent} → ${cell.mcp}`}
                         style={{ cursor: 'pointer', textAlign: 'center' }}
                       >
@@ -90,9 +92,8 @@ function PermissionDetail({ agent, mcp, onClose }: { agent: string; mcp: string;
       action={<button type="button" onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: C.muted, fontSize: 13, fontWeight: 600 }}>Close</button>}
     >
       <AsyncState loading={loading} error={error}>
-        {entry === undefined ? (
-          <Muted>No policy entry.</Muted>
-        ) : entry.allowed ? (
+        {entry === undefined && <Muted>No policy entry.</Muted>}
+        {entry !== undefined && entry.allowed ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             <div>
               <SectionTitle>Binding</SectionTitle>

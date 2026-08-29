@@ -17,6 +17,7 @@ import {
   SegmentedControl,
   StatusPill,
   avatarColor,
+  clickable,
   initials,
   inputStyle,
   selectStyle,
@@ -35,7 +36,7 @@ export function AgentsPage() {
   const [mcp, setMcp] = useState('all');
   const [view, setView] = useState('Table');
 
-  const agents = value ?? [];
+  const agents = useMemo(() => value ?? [], [value]);
   const teams = useMemo(() => [...new Set(agents.map(agent => agent.owner))].sort(), [agents]);
   const models = useMemo(() => [...new Set(agents.map(agent => agent.modelProfile))].sort(), [agents]);
   const mcpAgents = useMemo(() => new Map((servers.value ?? []).map(server => [server.id, new Set(server.agents)])), [servers.value]);
@@ -115,7 +116,7 @@ export function AgentsPage() {
             {filtered.map(agent => (
               <div
                 key={agent.id}
-                onClick={() => go(`/agents/${agent.id}`)}
+                {...clickable(() => go(`/agents/${agent.id}`))}
                 style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, cursor: 'pointer' }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 12 }}>

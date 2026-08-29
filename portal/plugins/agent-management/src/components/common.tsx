@@ -1,6 +1,28 @@
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, ReactNode, KeyboardEvent } from 'react';
 import { NotConfiguredError } from '../api/client';
 import type { AgentLifecycle, ToolClassification } from '../api/types';
+
+/**
+ * Makes a non-semantic element operable by keyboard as well as mouse.
+ *
+ * These cards, cells and breadcrumbs are styled containers rather than
+ * `<button>`s, which is a visual choice — it must not become an accessibility
+ * one. Spreading this gives them a role, focus order and Enter/Space handling,
+ * so nothing in the console is reachable only with a pointer.
+ */
+export function clickable(onClick: () => void) {
+  return {
+    role: 'button',
+    tabIndex: 0,
+    onClick,
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      onClick();
+    },
+  } as const;
+}
+
 
 /**
  * Design system for the Agent Management portal.
@@ -73,7 +95,7 @@ export function Breadcrumb(props: { items: Array<{ label: string; onClick?: () =
         <span key={item.label}>
           {index > 0 && ' / '}
           {item.onClick ? (
-            <span style={{ color: C.accent, fontWeight: 600, cursor: 'pointer' }} onClick={item.onClick}>{item.label}</span>
+            <span style={{ color: C.accent, fontWeight: 600, cursor: 'pointer' }} {...clickable(item.onClick)}>{item.label}</span>
           ) : (
             item.label
           )}
@@ -162,7 +184,7 @@ export function DataRow(props: { columns: string; onClick?: () => void; children
         borderBottom: `1px solid ${C.ruleSoft}`,
         cursor: props.onClick ? 'pointer' : 'default',
       }}
-      onClick={props.onClick}
+      {...(props.onClick ? clickable(props.onClick) : {})}
     >
       {props.children}
     </div>
@@ -398,4 +420,18 @@ export function AsyncState(props: { loading: boolean; error?: Error; children: R
 
 export function EmptyState(props: { children: ReactNode }) {
   return <div style={{ padding: '26px 18px', color: C.muted, fontSize: 13.5, textAlign: 'center' }}>{props.children}</div>;
+}
+
+/** Run status → pill tone. Named because it is used on four screens and read at a glance. */
+export function runStatusTone(status: string): 'ok' | 'warn' | 'danger' {
+  if (status === 'complete') return 'ok';
+  if (status === 'partial') return 'warn';
+  return 'danger';
+}
+
+/** Run status → dot colour, the same mapping in the palette's terms. */
+export function runStatusColor(status: string): string {
+  if (status === 'complete') return C.greenBright;
+  if (status === 'partial') return C.amberBright;
+  return C.redBright;
 }

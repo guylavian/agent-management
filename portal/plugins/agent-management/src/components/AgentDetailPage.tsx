@@ -28,6 +28,7 @@ import {
   avatarColor,
   initials,
   lifecycleTone,
+  runStatusTone,
 } from './common';
 import type { AgentDetail, McpAccessView } from '../api/types';
 
@@ -278,7 +279,7 @@ function RunsTab({ agentId }: { agentId: string }) {
             {runs.map(run => (
               <DataRow key={run.requestId} columns={RUN_COLUMNS} onClick={() => { window.location.href = `/runs/${run.requestId}`; }}>
                 <Body mono>{new Date(run.startedAt).toLocaleString()}</Body>
-                <div><StatusPill tone={run.status === 'complete' ? 'ok' : run.status === 'partial' ? 'warn' : 'danger'}>{run.status}</StatusPill></div>
+                <div><StatusPill tone={runStatusTone(run.status)}>{run.status}</StatusPill></div>
                 <Body>{run.agents.join(', ')}</Body>
                 <Body>{run.toolCalls}</Body>
                 <Body>{run.evidenceCount}</Body>
