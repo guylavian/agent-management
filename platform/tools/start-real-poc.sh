@@ -142,7 +142,7 @@ start_runtime observability-agent 3102 config/agents/observability.yaml
 
 thv="$bin/thv"
 "$thv" group create sre-real-poc >/dev/null 2>&1 || true
-for workload in sre-poc-keycloak sre-poc-prometheus sre-poc-wiki; do "$thv" rm "$workload" >/dev/null 2>&1 || true; done
+for workload in sre-poc-keycloak sre-poc-prometheus sre-poc-wiki sre-poc-kubernetes; do "$thv" rm "$workload" >/dev/null 2>&1 || true; done
 
 # Two independent gateway-side bounds, deliberately not one:
 #   --tools        the proxy exposes only approved tools at all (server-wide)
