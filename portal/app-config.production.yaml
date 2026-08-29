@@ -29,8 +29,35 @@ backend:
       #     $file: <file-path>/ca/server.crt
 
 auth:
+  # PRODUCTION HAS NO GUEST PROVIDER. Backstage only enables providers that
+  # appear here, so removing it is what makes guest sign-in impossible rather
+  # than merely discouraged. The OIDC settings below are required env vars:
+  # config substitution fails at startup if they are absent, so a misconfigured
+  # deployment refuses to start instead of coming up unauthenticated.
+  environment: production
   providers:
-    guest: {}
+    oidc:
+      production:
+        metadataUrl: ${SRE_PORTAL_OIDC_METADATA_URL}
+        clientId: ${SRE_PORTAL_OIDC_CLIENT_ID}
+        clientSecret: ${SRE_PORTAL_OIDC_CLIENT_SECRET}
+        prompt: auto
+        signIn:
+          resolvers:
+            - resolver: preferredUsernameMatchingUserEntityName
+            - resolver: emailLocalPartMatchingUserEntityName
+
+permission:
+  enabled: true
+  agentManagement:
+    # Groups whose members may PROPOSE an Agent change (a pull request).
+    # Reading the management plane needs only authentication.
+    #
+    # INTEGRATION BOUNDARY: which enterprise groups these are depends on what
+    # the IdP issues and how sign-in resolution maps it. Unset means no group
+    # qualifies and every write is denied — unmapped must not mean unrestricted.
+    adminGroups:
+      - group:default/sre-platform
 
 catalog:
   # Overrides the default list locations from app-config.yaml as these contain example data.

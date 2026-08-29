@@ -172,6 +172,8 @@ auth:
   # domain from Agent workload identity: signing in here never grants an Agent
   # access to an MCP. Keycloak sign-in lives in app-config.keycloak.yaml, which
   # is layered in with --config when the realm is available.
+  # LOCAL DEVELOPMENT ONLY. app-config.production.yaml has no guest provider,
+  # so this cannot leak into a production deployment.
   providers:
     guest: {}
   # see https://backstage.io/docs/ai/mcp-actions#client-id-metadata-documents
@@ -244,6 +246,11 @@ kubernetes:
 permission:
   # setting this to `false` will disable permissions
   enabled: true
+  agentManagement:
+    # local dev: the guest identity owns this group, so a developer can exercise
+    # the propose flow. Production configures real IdP groups.
+    adminGroups:
+      - user:development/guest
 
 # see https://backstage.io/docs/ai/mcp-actions for more details
 mcpActions:

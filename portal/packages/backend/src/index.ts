@@ -7,6 +7,7 @@
  */
 
 import { createBackend } from '@backstage/backend-defaults';
+import { agentManagementPermissionPolicy } from './permissions/policy';
 
 const backend = createBackend();
 
@@ -40,10 +41,10 @@ backend.add(import('@backstage/plugin-catalog-backend-module-logs'));
 
 // permission plugin
 backend.add(import('@backstage/plugin-permission-backend'));
-// See https://backstage.io/docs/permissions/getting-started for how to create your own permission policy
-backend.add(
-  import('@backstage/plugin-permission-backend-module-allow-all-policy'),
-);
+// NOT the allow-all policy: the agent.* permissions the management plugin
+// defines were being granted to everyone, including a guest. This one denies
+// every Agent write to anyone outside the configured admin groups.
+backend.add(agentManagementPermissionPolicy);
 
 // search plugin
 backend.add(import('@backstage/plugin-search-backend'));
