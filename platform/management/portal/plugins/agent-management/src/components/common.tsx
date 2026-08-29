@@ -130,8 +130,8 @@ export function PageHeader(props: { title: string; subtitle?: string; action?: R
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: S.lg, marginBottom: 24 }}>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.4px', lineHeight: 1.2 }}>{props.title}</div>
-        {props.subtitle && <div style={{ fontSize: 13.5, color: C.muted, marginTop: 6 }}>{props.subtitle}</div>}
+        <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.7px', lineHeight: 1.15 }}>{props.title}</div>
+        {props.subtitle && <div style={{ fontSize: 14, color: C.muted, marginTop: 8 }}>{props.subtitle}</div>}
       </div>
       {props.action}
     </div>
@@ -300,6 +300,42 @@ export function SoftChip(props: { children: ReactNode }) {
 }
 
 /**
+ * The abstract visual at the head of an agent card.
+ *
+ * The reference puts an illustration on every card. An Agent document contains
+ * no artwork and this system holds no people, so rather than invent either,
+ * the mark is GENERATED from the agent id: a small node-and-link figure whose
+ * layout is a function of the name, drawn in the owning team's tone. It says
+ * nothing it does not know — it is a coloured shape, like the tile — but it
+ * gives the card the visual weight the composition needs.
+ */
+function AgentGlyph({ id, owner }: { id: string; owner: string }) {
+  const tone = tileTone(owner);
+  let hash = 0;
+  for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) % 100003;
+  const nodes = Array.from({ length: 5 }, (_value, index) => {
+    const seed = (hash >> (index * 3)) % 97;
+    return { x: 18 + index * 26 + (seed % 9), y: 20 + ((seed * 7) % 34), r: 3 + (seed % 3) };
+  });
+  return (
+    <div style={{ height: 74, borderRadius: 8, background: tone.bg, overflow: 'hidden', marginBottom: 12, flex: 'none' }}>
+      <svg width="100%" height="74" viewBox="0 0 148 74" fill="none" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        {nodes.slice(0, -1).map((node, index) => {
+          const next = nodes[index + 1] as { x: number; y: number };
+          return <line key={index} x1={node.x} y1={node.y} x2={next.x} y2={next.y} stroke={tone.fg} strokeWidth="1.1" strokeOpacity=".38" />;
+        })}
+        {nodes.map((node, index) => (
+          <circle key={index} cx={node.x} cy={node.y} r={node.r} fill={tone.fg} fillOpacity={index % 2 === 0 ? '.55' : '.28'} />
+        ))}
+        <rect x="96" y="18" width="38" height="5" rx="2.5" fill={tone.fg} fillOpacity=".22" />
+        <rect x="96" y="29" width="26" height="5" rx="2.5" fill={tone.fg} fillOpacity=".16" />
+        <rect x="96" y="40" width="32" height="5" rx="2.5" fill={tone.fg} fillOpacity=".12" />
+      </svg>
+    </div>
+  );
+}
+
+/**
  * The card an agent gets in a grid: a tinted initials tile, the name, its
  * status, the description from its own document, and what it can reach.
  *
@@ -331,16 +367,22 @@ export function AgentGridCard(props: {
         transition: 'border-color .12s, box-shadow .12s',
       }}
     >
+      <AgentGlyph id={props.id} owner={props.owner} />
+
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <AgentTile id={props.id} owner={props.owner} size={40} />
+        <AgentTile id={props.id} owner={props.owner} size={34} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>{props.displayName}</div>
           <div style={{ marginTop: 3 }}><StatusPill tone={lifecycleTone(props.lifecycle)}>{props.lifecycle}</StatusPill></div>
         </div>
       </div>
 
+      {/* clamped to two lines: a five-line description made one card twice the
+          height of its neighbours and broke the grid's baseline */}
       {props.description !== undefined && (
-        <div style={{ fontSize: 12.5, color: C.bodySoft, lineHeight: 1.45, flex: 1 }}>{props.description}</div>
+        <div style={{ fontSize: 12.5, color: C.bodySoft, lineHeight: 1.45, flex: 1, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={props.description}>
+          {props.description}
+        </div>
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: S.sm, fontSize: 12, color: C.muted }}>
