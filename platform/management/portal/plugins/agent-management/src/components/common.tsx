@@ -271,19 +271,40 @@ export function Card(props: { onClick?: () => void; padded?: boolean; children: 
  * chosen by OWNER. It represents a service, never a person — there are no
  * photographs and no invented identities anywhere in this console.
  */
-export function AgentTile(props: { id: string; owner: string; size?: number }) {
+/**
+ * The agent's mark: its image when it has one, its initials when it does not.
+ *
+ * The fallback is not a placeholder to be replaced later — most agents will
+ * never have an image, and initials on the owning team's tone is the finished
+ * state for them. A failed load falls back too, so a missing or corrupt asset
+ * degrades to the same thing rather than to a broken-image icon.
+ */
+export function AgentTile(props: { id: string; owner: string; size?: number; avatar?: { asset: string; fit: 'cover' | 'contain' } }) {
   const size = props.size ?? 36;
   const tone = tileTone(props.owner);
+  const [failed, setFailed] = useState(false);
+  const radius = size >= 36 ? 10 : 6;
+  const showImage = props.avatar !== undefined && !failed;
+
   return (
     <div
       title={`owner: ${props.owner}`}
       style={{
-        width: size, height: size, borderRadius: size >= 36 ? 10 : 6, background: tone.bg, color: tone.fg,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
+        width: size, height: size, borderRadius: radius, background: tone.bg, color: tone.fg,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', overflow: 'hidden',
         fontSize: size >= 40 ? 13 : size >= 28 ? 11 : 9.5, fontWeight: 700, letterSpacing: '.2px',
       }}
     >
-      {initials(props.id)}
+      {showImage ? (
+        <img
+          src={`/api/agent-management/agents/${encodeURIComponent(props.id)}/avatar`}
+          alt=""
+          onError={() => setFailed(true)}
+          style={{ width: '100%', height: '100%', objectFit: props.avatar?.fit ?? 'contain', padding: props.avatar?.fit === 'contain' ? Math.round(size * 0.12) : 0, boxSizing: 'border-box' }}
+        />
+      ) : (
+        initials(props.id)
+      )}
     </div>
   );
 }
@@ -350,6 +371,23 @@ function AgentGlyph({ id, owner }: { id: string; owner: string }) {
   );
 }
 
+/** The card's header image, on the owning team's tone so it sits in the grid. */
+function AgentBanner({ id, owner, avatar }: { id: string; owner: string; avatar: { asset: string; fit: 'cover' | 'contain' } }) {
+  const tone = tileTone(owner);
+  const [failed, setFailed] = useState(false);
+  if (failed) return <AgentGlyph id={id} owner={owner} />;
+  return (
+    <div style={{ height: 108, borderRadius: 8, background: tone.bg, overflow: 'hidden', marginBottom: 14, flex: 'none' }}>
+      <img
+        src={`/api/agent-management/agents/${encodeURIComponent(id)}/avatar`}
+        alt=""
+        onError={() => setFailed(true)}
+        style={{ width: '100%', height: '100%', objectFit: avatar.fit, padding: avatar.fit === 'contain' ? 18 : 0, boxSizing: 'border-box' }}
+      />
+    </div>
+  );
+}
+
 /**
  * The card an agent gets in a grid: a tinted initials tile, the name, its
  * status, the description from its own document, and what it can reach.
@@ -362,6 +400,7 @@ function AgentGlyph({ id, owner }: { id: string; owner: string }) {
 export function AgentGridCard(props: {
   id: string; displayName: string; description?: string; owner: string;
   lifecycle: AgentLifecycle; mcpCount: number; toolCount: number; readOnly: boolean;
+  avatar?: { asset: string; fit: 'cover' | 'contain' };
   onOpen: () => void;
 }) {
   const [hover, setHover] = useState(false);
@@ -382,10 +421,12 @@ export function AgentGridCard(props: {
         transition: 'border-color .12s, box-shadow .12s',
       }}
     >
-      <AgentGlyph id={props.id} owner={props.owner} />
+      {props.avatar === undefined
+        ? <AgentGlyph id={props.id} owner={props.owner} />
+        : <AgentBanner id={props.id} owner={props.owner} avatar={props.avatar} />}
 
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <AgentTile id={props.id} owner={props.owner} size={34} />
+        <AgentTile id={props.id} owner={props.owner} size={34} {...(props.avatar ? { avatar: props.avatar } : {})} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>{props.displayName}</div>
           <div style={{ marginTop: 3 }}><StatusPill tone={lifecycleTone(props.lifecycle)}>{props.lifecycle}</StatusPill></div>

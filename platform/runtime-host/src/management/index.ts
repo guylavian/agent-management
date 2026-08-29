@@ -1,3 +1,4 @@
+export * from "./avatar.ts";
 export * from "./contract.ts";
 export * from "./manager-yaml.ts";
 export * from "./prompt-assist.ts";

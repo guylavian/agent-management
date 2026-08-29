@@ -36,7 +36,14 @@ export async function createRouter({
   gitops: typeof gitOpsPublisherRef.T;
 }): Promise<express.Router> {
   const router = Router();
-  router.use(express.json());
+  /*
+   * An avatar is up to 1 MB, which is ~1.37 MB once base64-encoded — well past
+   * the 100 KB default, so an upload would have been rejected by the body
+   * parser before any of the validation ran. The ceiling is deliberately just
+   * above what the runtime accepts, so the definitive answer still comes from
+   * the runtime rather than from a limit here.
+   */
+  router.use(express.json({ limit: '2mb' }));
 
   const requirePermission = async (request: express.Request, permission: BasicPermission): Promise<void> => {
     const credentials = await httpAuth.credentials(request, { allow: ['user'] });
@@ -133,6 +140,36 @@ export async function createRouter({
     const preview = rendered.body;
     const outcome = await gitops.createPullRequest({ branch: preview.branch, title: preview.title, body: preview.body, files: preview.files });
     response.status(outcome.status === 'created' ? 201 : 501).json({ ...outcome, branch: preview.branch, effects: preview.effects });
+  });
+
+  /**
+   * Avatar assets. The image itself is served from Git through the runtime, so
+   * the browser never holds a base64 blob and no third party learns which
+   * agents exist.
+   */
+  proxyGet('/avatar/icons', agentReadPermission, '/management/avatar/icons');
+
+  router.get('/agents/:id/avatar', async (request, response) => {
+    await requirePermission(request, agentReadPermission);
+    if (!runtime.configured) { response.status(404).end(); return; }
+    const image = await runtime.getBinary(`/management/agents/${encodeURIComponent(request.params.id)}/avatar`);
+    // 404 rather than an error page: an agent without an avatar is normal, and
+    // the console falls back to initials on a failed image load
+    if (image === undefined) { response.status(404).end(); return; }
+    response.setHeader('content-type', image.contentType);
+    response.setHeader('cache-control', 'private, max-age=300');
+    response.send(image.bytes);
+  });
+
+  /** Validate an upload without committing it, using the runtime's own checks. */
+  router.post('/avatar/validate', async (request, response) => {
+    await requirePermission(request, agentAccessEditPermission);
+    if (!runtime.configured) {
+      response.status(501).json({ status: 'not-configured', reason: 'sreAgent.managementApi.baseUrl is not set' });
+      return;
+    }
+    const result = await runtime.post('/management/avatar/validate', request.body);
+    response.status(result.status).json(result.body);
   });
 
   /**

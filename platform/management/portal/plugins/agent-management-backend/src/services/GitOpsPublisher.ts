@@ -24,6 +24,15 @@ import { Octokit } from '@octokit/rest';
 export interface ChangedFile {
   path: string;
   contents: string;
+  /**
+   * `base64` when `contents` carries bytes rather than text.
+   *
+   * Without this the encode below treats an image as UTF-8 and commits a
+   * corrupted file that still looks like a successful pull request. An avatar
+   * is the first binary file this platform writes, so the encoding travels with
+   * the file rather than being guessed from its extension.
+   */
+  encoding?: 'base64';
 }
 
 export interface PullRequestInput {
@@ -104,7 +113,7 @@ export class GitHubGitOpsPublisher implements GitOpsPublisher {
         repo,
         path: file.path,
         message: `${input.title} (${file.path})`,
-        content: Buffer.from(file.contents, 'utf8').toString('base64'),
+        content: file.encoding === 'base64' ? file.contents : Buffer.from(file.contents, 'utf8').toString('base64'),
         branch: input.branch,
         ...(sha ? { sha } : {}),
       });

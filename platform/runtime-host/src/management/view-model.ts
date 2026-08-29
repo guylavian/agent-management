@@ -59,6 +59,8 @@ export interface AgentSummaryView {
   toolCount: number;
   workloadClientId: string;
   readOnly: boolean;
+  /** presentation only; absent means the console falls back to initials */
+  avatar?: { asset: string; fit: "cover" | "contain" };
 }
 
 export interface AgentDetailView extends AgentSummaryView {
@@ -174,6 +176,7 @@ export function agentSummary(agent: SpecialistAgentConfig): AgentSummaryView {
     toolCount: agent.spec.access.reduce((total, entry) => total + entry.tools.length, 0),
     workloadClientId: agent.spec.identity.clientId,
     readOnly: agent.spec.security.readOnly,
+    ...(agent.avatar === undefined ? {} : { avatar: agent.avatar }),
   };
 }
 

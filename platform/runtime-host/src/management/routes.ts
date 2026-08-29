@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Router, type Request, type Response } from "express";
 import type { AgentRegistry, AppConfig } from "@sre/config";
 import type { ModelClient } from "@sre/llm";
@@ -5,7 +7,11 @@ import {
   agentDetail,
   agentSummary,
   AgentDraftError,
+  AvatarError,
+  BUILT_IN_ICONS,
+  CONTENT_TYPE,
   draftSystemPrompt,
+  isManagedAvatarPath,
   managerDetail,
   mcpServerViews,
   permissionMatrix,
@@ -14,6 +20,7 @@ import {
   proposePromptChange,
   PromptAssistError,
   safeContext,
+  validateAvatar,
   type AgentDraft,
   type ManagerDraft,
   type RunStore,
@@ -147,6 +154,64 @@ export function managementRouter(deps: ManagementDeps): Router {
     } catch (error) {
       respondDraftError(response, error);
     }
+  });
+
+  /**
+   * Serve an avatar asset from the repository.
+   *
+   * The path is taken from the AGENT DOCUMENT, never from the request: the
+   * caller names an agent and the runtime looks up what that agent references,
+   * so no path arrives from outside. The schema already constrains that value
+   * to the two managed directories, and `isManagedAvatarPath` re-checks it here
+   * rather than trusting a document loaded earlier.
+   */
+  router.get("/agents/:id/avatar", (request: Request, response: Response) => {
+    const agent = deps.registry.getSpecialist(request.params.id as string);
+    const avatar = agent?.avatar ?? (request.params.id === "manager" ? deps.registry.manager.avatar : undefined);
+    if (avatar === undefined) { notFound(response, "avatar"); return; }
+    if (!isManagedAvatarPath(avatar.asset) && !/^assets\/icons\/[a-z][a-z0-9-]*\.(png|jpg|webp)$/u.test(avatar.asset)) {
+      notFound(response, "avatar");
+      return;
+    }
+    try {
+      // the same base the loader resolves prompt files against, so an asset
+      // path in a document means the same thing to both
+      const bytes = readFileSync(join(process.cwd(), avatar.asset));
+      const asset = validateAvatar(bytes);
+      response
+        .setHeader("content-type", CONTENT_TYPE[asset.format])
+        // immutable for a while: the path changes when the image does, because
+        // the extension is derived from the sniffed format
+        .setHeader("cache-control", "public, max-age=300")
+        .send(bytes);
+    } catch {
+      notFound(response, "avatar");
+    }
+  });
+
+  /**
+   * Validate an upload WITHOUT committing anything.
+   *
+   * The console needs to know a file is acceptable before the operator reaches
+   * the review step, and the answer has to come from the same code that will
+   * later gate the change-set — a second implementation in the browser would be
+   * a second opinion, and the browser's would not be the one that counts.
+   */
+  router.post("/avatar/validate", (request: Request, response: Response) => {
+    try {
+      const upload = (request.body as { upload?: unknown })?.upload;
+      if (typeof upload !== "string") throw new AvatarError("no image was supplied");
+      const asset = validateAvatar(Buffer.from(upload, "base64"));
+      response.json({ format: asset.format, width: asset.width, height: asset.height, bytes: asset.bytes.length });
+    } catch (error) {
+      if (error instanceof AvatarError) { response.status(400).json({ code: "AVATAR_INVALID", message: error.reason }); return; }
+      response.status(400).json({ code: "AVATAR_INVALID", message: "the image could not be read" });
+    }
+  });
+
+  /** The curated built-in catalog, so the console does not hard-code a list. */
+  router.get("/avatar/icons", (_request: Request, response: Response) => {
+    response.json({ icons: BUILT_IN_ICONS });
   });
 
   /**

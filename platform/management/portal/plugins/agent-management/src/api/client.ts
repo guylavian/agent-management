@@ -134,6 +134,19 @@ export function useAgentActions() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(context),
       }),
+    /** The curated built-in catalog, served by the runtime so it is not duplicated here. */
+    avatarIcons: () => request<{ icons: Array<{ id: string; label: string; asset: string; fit: 'cover' | 'contain' }> }>('/avatar/icons'),
+    /**
+     * Check an upload before the operator reaches the review step, using the
+     * SAME validation that will gate the change-set. A check in the browser
+     * would be a second opinion, and not the one that counts.
+     */
+    validateAvatar: (upload: string) =>
+      request<{ format: string; width: number; height: number; bytes: number }>('/avatar/validate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ upload }),
+      }),
     /** Propose a prompt edit. Touches one file; the Agent document is untouched. */
     proposePrompt: (id: string, prompt: string) =>
       request<{ url?: string; status: string; reason?: string; effects: string[]; branch: string }>(

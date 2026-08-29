@@ -53,7 +53,25 @@ modelEnv: {}
 #          SRE_OIDC_*, SRE_POSTGRES_URL
 integrationsSecret: sre-agent-integrations
 
+# Client wiring. Production is fail-closed and these defaults ARE that posture;
+# loadAppConfig independently rejects any mock when SRE_ENV is production/real-poc,
+# so a non-production overlay (deploy/argocd/applicationsets/runtime-local.yaml)
+# can point a local cluster at mocks without weakening the production contract.
+clients:
+  oidc: real
+  llm: real
+  toolhive: real
+  postgres: real
+  agent: real
+  delegation: real
+
+# Non-credential environment variables an overlay needs to add (endpoints, model
+# ids). Anything credential-shaped belongs in integrationsSecret, never here.
+extraEnv: {}
+
 telemetry:
+  # otlp | console — console keeps a cluster without a collector from exporting
+  exporter: otlp
   otlpEndpoint: http://otel-collector.sre-observability.svc.cluster.local:4318
 
 # manager only: projected ServiceAccount token presented to specialist services

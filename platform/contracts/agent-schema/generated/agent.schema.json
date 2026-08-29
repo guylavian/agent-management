@@ -29,6 +29,28 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 500
+        },
+        "avatar": {
+          "type": "object",
+          "properties": {
+            "asset": {
+              "type": "string",
+              "pattern": "^assets\\/(agents|icons)\\/[a-z][a-z0-9-]*\\.(png|jpg|webp)$"
+            },
+            "fit": {
+              "default": "contain",
+              "type": "string",
+              "enum": [
+                "cover",
+                "contain"
+              ]
+            }
+          },
+          "required": [
+            "asset",
+            "fit"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [

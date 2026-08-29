@@ -210,6 +210,26 @@ export const agentDocumentSchema = z
         displayName: z.string().min(1).optional(),
         // shown to the Manager model as a routing descriptor and to the portal
         description: z.string().min(1).max(500).optional(),
+        /**
+         * PRESENTATION ONLY. The console renders it; the runtime reads nothing
+         * from it, and an Agent without one is complete — the console falls
+         * back to initials, which is why this is optional and stays optional.
+         *
+         * `asset` is a path INSIDE this repository, constrained by the pattern
+         * to the two directories the platform manages. A URL cannot be written
+         * here: rendering the console must not depend on a third party, and
+         * which agents exist must not leak to whoever would host the image.
+         */
+        avatar: z
+          .object({
+            asset: z
+              .string()
+              .regex(/^assets\/(agents|icons)\/[a-z][a-z0-9-]*\.(png|jpg|webp)$/u, "must be a managed asset path under assets/agents or assets/icons"),
+            // contain for a product logo, cover for an avatar-style image
+            fit: z.enum(["cover", "contain"]).default("contain"),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
     spec: z.discriminatedUnion("type", [managerSpecSchema, specialistSpecSchema]),
@@ -232,17 +252,25 @@ export type AgentDocument = z.infer<typeof agentDocumentSchema>;
 export type SpecialistSpec = Extract<AgentDocument["spec"], { type: "specialist" }>;
 export type ManagerSpec = Extract<AgentDocument["spec"], { type: "manager" }>;
 
+/** Presentation metadata, carried through so the console can render it. */
+export interface AgentAvatar {
+  asset: string;
+  fit: "cover" | "contain";
+}
+
 export interface SpecialistAgentConfig {
   name: string;
   owner: string;
   displayName?: string;
   description?: string;
+  avatar?: AgentAvatar;
   spec: SpecialistSpec;
   systemPrompt: string;
 }
 
 export interface ManagerAgentConfig {
   name: string;
+  avatar?: AgentAvatar;
   owner: string;
   displayName?: string;
   description?: string;

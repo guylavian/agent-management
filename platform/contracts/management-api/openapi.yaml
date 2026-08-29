@@ -361,6 +361,19 @@ components:
         toolCount: { type: integer }
         workloadClientId: { type: string, description: "Derived, never author-supplied." }
         readOnly: { type: boolean }
+        avatar: { $ref: "#/components/schemas/AgentAvatar" }
+
+    AgentAvatar:
+      type: object
+      additionalProperties: false
+      description: >-
+        Presentation only. `asset` is a path inside the configuration
+        repository, never a URL, and the image is served by the runtime from
+        Git. An Agent without one renders as initials.
+      required: [asset, fit]
+      properties:
+        asset: { type: string, pattern: "^assets/(agents|icons)/[a-z][a-z0-9-]*\\.(png|jpg|webp)$" }
+        fit: { type: string, enum: [cover, contain] }
 
     AgentIdentityView:
       type: object
@@ -398,6 +411,7 @@ components:
         toolCount: { type: integer }
         workloadClientId: { type: string }
         readOnly: { type: boolean }
+        avatar: { $ref: "#/components/schemas/AgentAvatar" }
         promptFile: { type: string }
         prompt: { type: string, description: The system prompt body the runtime loaded, so the console shows what the running Agent is using. }
         requiredRoles:
@@ -690,6 +704,18 @@ components:
         limits:
           type: object
           additionalProperties: { type: number }
+        avatar:
+          nullable: true
+          description: >-
+            Omitted leaves the current avatar alone, null removes it, an object
+            sets it — either to an asset already in the repository or to a new
+            upload whose bytes join the same change-set.
+          type: object
+          additionalProperties: false
+          properties:
+            asset: { type: string }
+            upload: { type: string, description: base64 image bytes, validated by the runtime. }
+            fit: { type: string, enum: [cover, contain] }
 
     ChangedFile:
       type: object
@@ -698,6 +724,7 @@ components:
       properties:
         path: { type: string }
         contents: { type: string }
+        encoding: { type: string, enum: [base64], description: Present when contents carries bytes rather than text. }
 
     ChangePreview:
       type: object

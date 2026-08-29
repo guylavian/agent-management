@@ -26,6 +26,7 @@ import {
   selectStyle,
 } from './common';
 import type { AgentDraft, ChangePreview } from '../api/types';
+import { AgentVisual } from './AgentVisual';
 
 const DEFAULT_LIMITS = {
   maxModelTurns: 6,
@@ -259,6 +260,16 @@ export function CreateAgentPage(props: { agentId?: string }) {
             <input style={inputStyle} value={draft.description ?? ''} onChange={event => patch({ description: event.target.value })} />
           </Field>
         </FieldGrid>
+
+        <div style={{ marginTop: S.xl, paddingTop: S.lg, borderTop: `1px solid ${C.rule}` }}>
+          <AgentVisual
+            name={draft.name}
+            owner={draft.owner}
+            avatar={draft.avatar}
+            existing={existing.value?.avatar}
+            onChange={next => patch({ avatar: next })}
+          />
+        </div>
       </Section>
 
       <Section icon="routing" title="Routing" description="Vocabulary the Manager matches against a request to decide whether this agent should handle it. Comma separated.">

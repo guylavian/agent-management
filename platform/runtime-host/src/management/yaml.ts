@@ -1,5 +1,6 @@
 import { agentDocumentSchema, assertNoSecretMaterial, toolHiveAudience, workloadClientId, type AgentDocument, type AgentLifecycle } from "@sre/agent-schema";
 import type { SpecialistAgentConfig } from "@sre/config";
+import { avatarAssetPath, isManagedAvatarPath, validateAvatar, AvatarError, type AvatarFit } from "./avatar.ts";
 
 /**
  * Agent draft → canonical YAML for the GitOps change (TDD §29/§30).
@@ -27,7 +28,23 @@ export interface AgentDraft {
   requiredRoles: string[];
   crossDomainAllowed?: string[];
   access: Array<{ mcp: string; tools: string[] }>;
+  /**
+   * Presentation only, and three-valued on purpose:
+   *   omitted  — leave whatever the Agent already has
+   *   null     — remove it, falling back to initials
+   *   object   — set it, either to an existing repo asset or to a new upload
+   */
+  avatar?: AgentDraftAvatar | null;
   limits?: Partial<Record<"maxToolCalls" | "maxModelTurns" | "timeoutMs" | "maxEvidenceBytes" | "maxContextTokens" | "maxEvidenceItems" | "maxRawExcerptBytes", number>>;
+}
+
+/** Either a path to an asset already in the repository, or bytes to add to it. */
+export interface AgentDraftAvatar {
+  /** an asset that already exists — a built-in icon, or the agent's current one */
+  asset?: string;
+  /** base64 bytes of a NEW upload; the change-set writes the file */
+  upload?: string;
+  fit?: AvatarFit;
 }
 
 const DEFAULT_LIMITS = {
@@ -46,6 +63,15 @@ const DEFAULT_ENVIRONMENTS = ["prod", "dr", "lab"] as const;
 export interface GeneratedFile {
   path: string;
   contents: string;
+  /**
+   * `base64` when `contents` carries bytes rather than text.
+   *
+   * The publisher base64-encodes UTF-8 text on the way to the Git API, which
+   * silently mangles anything that is not text. An avatar is the first binary
+   * file this platform commits, so the encoding travels with the file instead
+   * of being inferred from its extension.
+   */
+  encoding?: "base64";
 }
 
 export interface GeneratedChange {
@@ -81,6 +107,7 @@ export function draftToDocument(draft: AgentDraft): AgentDocument {
       owner: draft.owner,
       ...(draft.displayName ? { displayName: draft.displayName } : {}),
       ...(draft.description ? { description: draft.description } : {}),
+      ...(avatarMetadata(draft) === undefined ? {} : { avatar: avatarMetadata(draft) }),
     },
     spec: {
       type: "specialist",
@@ -107,7 +134,46 @@ export function draftToDocument(draft: AgentDraft): AgentDocument {
   const result = agentDocumentSchema.safeParse(candidate);
   if (!result.success) throw new AgentDraftError(result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`));
   assertNoSecretMaterial(result.data.spec);
+  // metadata was outside the scan, which was survivable while it held only a
+  // name and a sentence; it now takes a caller-supplied path, so it is scanned
+  assertNoSecretMaterial(result.data.metadata);
   return result.data;
+}
+
+/**
+ * The `metadata.avatar` block, or nothing.
+ *
+ * `null` means remove, which is why this returns undefined for it — the field
+ * is then simply absent from the regenerated document and the console falls
+ * back to initials. An upload resolves to the path the bytes will be written
+ * to, so the document and the asset can never disagree about the filename.
+ */
+function avatarMetadata(draft: AgentDraft): { asset: string; fit: AvatarFit } | undefined {
+  if (draft.avatar === undefined || draft.avatar === null) return undefined;
+  const fit: AvatarFit = draft.avatar.fit ?? "contain";
+
+  if (draft.avatar.upload !== undefined) {
+    const asset = validateAvatar(decodeUpload(draft.avatar.upload));
+    return { asset: avatarAssetPath(draft.name, asset.format), fit };
+  }
+  if (draft.avatar.asset !== undefined) {
+    // a path the caller supplied: it must be one this platform manages, so a
+    // draft cannot point the console at an arbitrary file in the repository
+    if (!isManagedAvatarPath(draft.avatar.asset) && !/^assets\/icons\/[a-z][a-z0-9-]*\.(png|jpg|webp)$/u.test(draft.avatar.asset)) {
+      throw new AgentDraftError(["avatar: must reference an asset under assets/agents or assets/icons"]);
+    }
+    return { asset: draft.avatar.asset, fit };
+  }
+  return undefined;
+}
+
+/** Strict base64. A data: URL or whitespace-padded blob is a malformed upload. */
+function decodeUpload(upload: string): Buffer {
+  const cleaned = upload.trim();
+  if (!/^[A-Za-z0-9+/]+={0,2}$/u.test(cleaned)) throw new AvatarError("the upload is not base64-encoded image data");
+  const bytes = Buffer.from(cleaned, "base64");
+  if (bytes.length === 0) throw new AvatarError("the upload is empty");
+  return bytes;
 }
 
 /** Environments an Agent is enabled in on creation. Deployment is opt-in per environment. */
@@ -120,6 +186,10 @@ export function generateAgentChange(draft: AgentDraft, targetEnvironment: string
   if (spec.type !== "specialist") throw new Error("only specialist agents are generated by the portal");
   const yaml = renderAgentYaml(document);
   const path = `config/agents/${name}.yaml`;
+  const uploadFile: GeneratedFile | undefined =
+    draft.avatar?.upload === undefined || document.metadata.avatar === undefined
+      ? undefined
+      : { path: document.metadata.avatar.asset, contents: Buffer.from(decodeUpload(draft.avatar.upload)).toString("base64"), encoding: "base64" };
   return {
     path,
     yaml,
@@ -128,6 +198,10 @@ export function generateAgentChange(draft: AgentDraft, targetEnvironment: string
       { path, contents: yaml },
       { path: spec.prompt.systemFile, contents: renderPrompt(draft, document) },
       { path: `deploy/environments/${targetEnvironment}/agents/${name}.yaml`, contents: renderDeploymentOverlay(name, spec.lifecycle === "active") },
+      // an uploaded avatar rides in the SAME change-set as the document that
+      // references it, so a merged pull request can never leave the console
+      // pointing at a file that is not there
+      ...(uploadFile === undefined ? [] : [uploadFile]),
     ],
   };
 }
@@ -182,6 +256,9 @@ export function renderAgentYaml(document: AgentDocument): string {
   ];
   if (document.metadata.description) lines.push(`  description: ${quote(document.metadata.description)}`);
   if (document.metadata.displayName) lines.push(`  displayName: ${document.metadata.displayName}`);
+  if (document.metadata.avatar) {
+    lines.push("  avatar:", `    asset: ${document.metadata.avatar.asset}`, `    fit: ${document.metadata.avatar.fit}`);
+  }
   lines.push(
     "spec:",
     "  type: specialist",

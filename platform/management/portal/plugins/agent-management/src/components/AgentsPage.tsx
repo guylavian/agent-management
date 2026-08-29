@@ -128,6 +128,7 @@ export function AgentsPage() {
                 mcpCount={agent.mcpCount}
                 toolCount={agent.toolCount}
                 readOnly={agent.readOnly}
+                {...(agent.avatar === undefined ? {} : { avatar: agent.avatar })}
                 onOpen={() => go(`/agents/${agent.id}`)}
               />
             ))}

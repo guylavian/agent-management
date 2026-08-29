@@ -28,18 +28,25 @@ spec:
             - { name: AGENT_ID, value: {{ .Values.agent.name | quote }} }
             - { name: SRE_ENV, value: {{ .Values.environment | quote }} }
             - { name: SRE_DEFAULT_ENVIRONMENT, value: {{ .Values.defaultEnvironment | quote }} }
-            - { name: SRE_OTEL_EXPORTER, value: otlp }
+            - { name: SRE_OTEL_EXPORTER, value: {{ .Values.telemetry.exporter | quote }} }
             - { name: SRE_OTEL_ENDPOINT, value: {{ .Values.telemetry.otlpEndpoint | quote }} }
             - { name: SRE_OTEL_SERVICE_NAME, value: {{ include "sre-agent.fullname" . | quote }} }
-            # production is fail-closed: every client must be explicitly real.
+            # production is fail-closed: every client must be explicitly real, and
+            # `clients` defaults to exactly that. A non-production overlay may
+            # downgrade a client here, but loadAppConfig still rejects any mock in
+            # SRE_ENV=production/real-poc, so the values file cannot widen what the
+            # runtime accepts — it can only narrow what a local cluster wires up.
             # The manager process constructs only oidc/llm/agent/delegation/postgres;
             # its ToolHive path additionally stays blocked by NetworkPolicy.
-            - { name: SRE_CLIENT_OIDC, value: real }
-            - { name: SRE_CLIENT_LLM, value: real }
-            - { name: SRE_CLIENT_TOOLHIVE, value: real }
-            - { name: SRE_CLIENT_POSTGRES, value: real }
-            - { name: SRE_CLIENT_AGENT, value: real }
-            - { name: SRE_CLIENT_DELEGATION, value: real }
+            - { name: SRE_CLIENT_OIDC, value: {{ .Values.clients.oidc | quote }} }
+            - { name: SRE_CLIENT_LLM, value: {{ .Values.clients.llm | quote }} }
+            - { name: SRE_CLIENT_TOOLHIVE, value: {{ .Values.clients.toolhive | quote }} }
+            - { name: SRE_CLIENT_POSTGRES, value: {{ .Values.clients.postgres | quote }} }
+            - { name: SRE_CLIENT_AGENT, value: {{ .Values.clients.agent | quote }} }
+            - { name: SRE_CLIENT_DELEGATION, value: {{ .Values.clients.delegation | quote }} }
+            {{- range $name, $value := .Values.extraEnv }}
+            - { name: {{ $name }}, value: {{ $value | quote }} }
+            {{- end }}
             {{- if eq .Values.agent.mode "manager" }}
             # the Manager derives its effective catalog from config/agents intersected
             # with this environment's deployment state; there is no registry file

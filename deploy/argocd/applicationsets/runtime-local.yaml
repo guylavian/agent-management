@@ -1,0 +1,83 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: sre-agent-runtime-local
+  namespace: argocd
+spec:
+  # The local twin of runtime.yaml. SAME generator, SAME chart, SAME one-image
+  # rule — it differs only in which environment's rendered agents it discovers
+  # and in the client wiring a laptop cluster can actually satisfy.
+  #
+  # Onboarding an agent locally is still just a commit under
+  # deploy/environments/local/rendered/agents/; nothing here changes. Removing or
+  # disabling one deletes its Application (prune) and its Deployment with it.
+  goTemplate: true
+  goTemplateOptions: [missingkey=error]
+  generators:
+    - git:
+        repoURL: https://github.com/guylavian/agent-management.git
+        revision: main
+        files:
+          - path: deploy/environments/local/rendered/agents/*.yaml
+  template:
+    metadata:
+      name: sre-agent-{{ .agent.name }}
+      labels:
+        sre.ai/agent: "{{ .agent.name }}"
+        sre.ai/mode: "{{ .agent.mode }}"
+    spec:
+      project: sre-agent-platform
+      sources:
+        # Two refs to the SAME repo: the chart, and the rendered values it is fed.
+        # `$values` needs a ref-only source, which is why this is a multi-source
+        # Application rather than a single `source:`.
+        - repoURL: https://github.com/guylavian/agent-management.git
+          targetRevision: main
+          ref: values
+        - repoURL: https://github.com/guylavian/agent-management.git
+          targetRevision: main
+          path: deploy/runtime/helm
+          helm:
+            valueFiles:
+              - $values/deploy/environments/local/rendered/agents/{{ .agent.name }}.yaml
+            # Local-cluster wiring. These are the SAME knobs production sets to
+            # `real`; SRE_ENV=local is what permits mocks, and loadAppConfig still
+            # rejects every one of them under production/real-poc.
+            parameters:
+              # image built by deploy/argocd/build-runtime-image.sh and loaded into
+              # the node — never pulled, so the cluster needs no registry at all
+              - { name: image.repository, value: sre-agent-runtime }
+              - { name: image.tag, value: local }
+              - { name: image.pullPolicy, value: Never }
+              - { name: replicaCount, value: "1" }
+              # no OTel collector on a laptop
+              - { name: telemetry.exporter, value: console }
+              # no IdP, no ToolHive, no PostgreSQL in this cluster
+              - { name: clients.oidc, value: mock }
+              - { name: clients.toolhive, value: mock }
+              - { name: clients.postgres, value: mock }
+              - { name: clients.delegation, value: mock }
+              # The Manager fans out over HTTP to the specialist Services using
+              # environment.yaml's endpointTemplate, which is already cluster DNS.
+              # A specialist accepts that call but never dials another agent.
+              - name: clients.agent
+                value: {{ if eq .agent.mode "manager" }}http-local{{ else }}mock{{ end }}
+              # Ollama on the developer's Mac, reached through the Docker Desktop
+              # host gateway. Config validation needs the URL set, not reachable,
+              # so a stopped Ollama degrades queries rather than the deployment.
+              - { name: clients.llm, value: real }
+              - { name: extraEnv.SRE_LLM_TIER_S_URL, value: "http://host.docker.internal:11434" }
+              - { name: extraEnv.SRE_LLM_TIER_L_URL, value: "http://host.docker.internal:11434" }
+              - { name: extraEnv.SRE_LLM_MODEL, value: "qwen3:8b" }
+              # thinking-mode + strict json_schema trips an Ollama 500; documented
+              # small-model trade-off, same value the compose overlay uses
+              - { name: extraEnv.SRE_LLM_SYSTEM_SUFFIX, value: "/no_think" }
+              - { name: extraEnv.SRE_REQUEST_DEADLINE_MS, value: "300000" }
+      destination:
+        server: https://kubernetes.default.svc
+        # must equal deploy/environments/local/environment.yaml `namespace` —
+        # the Manager resolves specialist endpoints by that convention
+        namespace: sre-assistant
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [CreateNamespace=true]

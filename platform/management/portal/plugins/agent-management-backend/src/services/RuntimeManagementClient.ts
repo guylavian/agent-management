@@ -12,6 +12,8 @@ import { createServiceFactory, createServiceRef, coreServices, type RootConfigSe
 export interface RuntimeManagementClient {
   readonly configured: boolean;
   get<T>(path: string): Promise<T>;
+  /** bytes, for assets that must not go through JSON */
+  getBinary(path: string): Promise<{ status: number; contentType: string; bytes: Buffer } | undefined>;
   post<T>(path: string, body: unknown): Promise<{ status: number; body: T }>;
 }
 
@@ -67,6 +69,21 @@ export class HttpRuntimeManagementClient implements RuntimeManagementClient {
     const response = await this.#call(path);
     if (!response.ok) throw new Error(`runtime management GET ${path} failed with ${response.status}`);
     return (await response.json()) as T;
+  }
+
+  /**
+   * Fetch bytes rather than JSON — an avatar is an image, and putting it
+   * through `response.json()` would corrupt it while still looking like a
+   * successful request.
+   */
+  async getBinary(path: string): Promise<{ status: number; contentType: string; bytes: Buffer } | undefined> {
+    const response = await this.#call(path);
+    if (!response.ok) return undefined;
+    return {
+      status: response.status,
+      contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+      bytes: Buffer.from(await response.arrayBuffer()),
+    };
   }
 
   async post<T>(path: string, body: unknown): Promise<{ status: number; body: T }> {

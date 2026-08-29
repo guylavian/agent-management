@@ -26,6 +26,7 @@ interface Schema {
   description?: string;
   $ref?: string;
   oneOf?: Schema[];
+  nullable?: boolean;
 }
 
 const document = parseYaml(readFileSync("contracts/management-api/openapi.yaml", "utf8")) as {
@@ -38,6 +39,10 @@ function refName(ref: string): string {
 }
 
 function typeOf(schema: Schema, indent: string): string {
+  // `nullable: true` was being dropped, so a field the contract says may be
+  // null arrived in TypeScript as if it could not be — and the one place that
+  // sends null had to cast around its own API description
+  if (schema.nullable === true) return `${typeOf({ ...schema, nullable: false }, indent)} | null`;
   if (schema.$ref) return refName(schema.$ref);
   if (schema.oneOf) return schema.oneOf.map((item) => typeOf(item, indent)).join(" | ");
   if (schema.enum) return schema.enum.map((value) => JSON.stringify(value)).join(" | ");

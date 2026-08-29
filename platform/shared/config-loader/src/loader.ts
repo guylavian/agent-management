@@ -58,12 +58,12 @@ export function loadAgentInstance(opts: LoadAgentInstanceOptions): ManagerAgentC
     throw new ConfigValidationError(`prompt file ${doc.spec.prompt.systemFile} referenced by ${opts.configFile} does not exist`);
   }
   if (systemPrompt.trim().length === 0) throw new ConfigValidationError(`prompt file ${doc.spec.prompt.systemFile} is empty`);
-  if (doc.spec.type === "manager") return { name: doc.metadata.name, owner: doc.metadata.owner, ...(doc.metadata.displayName ? { displayName: doc.metadata.displayName } : {}), ...(doc.metadata.description ? { description: doc.metadata.description } : {}), spec: doc.spec, systemPrompt };
+  if (doc.spec.type === "manager") return { name: doc.metadata.name, owner: doc.metadata.owner, ...(doc.metadata.displayName ? { displayName: doc.metadata.displayName } : {}), ...(doc.metadata.description ? { description: doc.metadata.description } : {}), ...(doc.metadata.avatar ? { avatar: doc.metadata.avatar } : {}), spec: doc.spec, systemPrompt };
 
   if (opts.mcpServersDir === undefined) throw new ConfigValidationError("specialist runtime requires an approved tool catalog");
   const catalog = loadApprovedCatalog(join(base, opts.mcpServersDir));
   validateSingleSpecialist(doc, catalog, opts.configFile);
-  return { name: doc.metadata.name, owner: doc.metadata.owner, ...(doc.metadata.displayName ? { displayName: doc.metadata.displayName } : {}), ...(doc.metadata.description ? { description: doc.metadata.description } : {}), spec: doc.spec, systemPrompt };
+  return { name: doc.metadata.name, owner: doc.metadata.owner, ...(doc.metadata.displayName ? { displayName: doc.metadata.displayName } : {}), ...(doc.metadata.description ? { description: doc.metadata.description } : {}), ...(doc.metadata.avatar ? { avatar: doc.metadata.avatar } : {}), spec: doc.spec, systemPrompt };
 }
 
 /**

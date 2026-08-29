@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { NotConfiguredError, useAgent, useAgentActions, useAgentHealth, useAgentMetrics, useRuns } from '../api/client';
 import {
+  AgentTile,
   Allowed,
   AsyncState,
   Body,
@@ -44,6 +45,7 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
         {value && (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+              <AgentTile id={value.id} owner={value.owner} size={48} {...(value.avatar ? { avatar: value.avatar } : {})} />
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.2px' }}>{value.displayName}</div>

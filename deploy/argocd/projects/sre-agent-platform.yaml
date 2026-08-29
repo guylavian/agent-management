@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: sre-agent-platform
+  namespace: argocd
+spec:
+  description: >-
+    SRE Agent Platform runtime. Every Application in this project is one logical
+    agent (manager or specialist) rendered from Git; nothing else may live here.
+  # The Git host is deliberately the ONLY place a provider name appears. Moving
+  # from GitHub to Bitbucket is an edit to this list and to the ApplicationSet
+  # repoURL — no manifest, chart or rendered value references a provider API.
+  sourceRepos:
+    - https://git.internal/sre/sre-agent-platform.git
+    - https://github.com/guylavian/agent-management.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: sre-assistant
+  # Agents are namespaced workloads. The project grants no cluster-scoped
+  # resource at all, so a compromised or mis-rendered Application cannot create
+  # ClusterRoles, CRDs or namespaces.
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - { group: "", kind: Service }
+    - { group: "", kind: ServiceAccount }
+    - { group: apps, kind: Deployment }
+    - { group: autoscaling, kind: HorizontalPodAutoscaler }
+    - { group: policy, kind: PodDisruptionBudget }
+    - { group: networking.k8s.io, kind: NetworkPolicy }

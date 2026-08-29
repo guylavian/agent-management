@@ -48,6 +48,16 @@ export interface AgentSummary {
   /** Derived, never author-supplied. */
   workloadClientId: string;
   readOnly: boolean;
+  avatar?: AgentAvatar;
+}
+
+/**
+ * Presentation only. `asset` is a path inside the configuration repository, never a URL, and the image is served by the runtime from Git. An Agent without one renders as initials.
+ */
+
+export interface AgentAvatar {
+  asset: string;
+  fit: "cover" | "contain";
 }
 
 export interface AgentIdentityView {
@@ -76,6 +86,7 @@ export interface AgentDetail {
   toolCount: number;
   workloadClientId: string;
   readOnly: boolean;
+  avatar?: AgentAvatar;
   promptFile: string;
   /** The system prompt body the runtime loaded */
   prompt: string;
@@ -275,11 +286,20 @@ export interface AgentDraft {
   crossDomainAllowed?: Array<string>;
   access: Array<AgentDraftAccess>;
   limits?: Record<string, number>;
+  /** Omitted leaves the current avatar alone, null removes it, an object sets it — either to an asset already in the repository or to a new upload whose bytes join the same change-set. */
+  avatar?: {
+    asset?: string;
+    /** base64 image bytes */
+    upload?: string;
+    fit?: "cover" | "contain";
+  } | null;
 }
 
 export interface ChangedFile {
   path: string;
   contents: string;
+  /** Present when contents carries bytes rather than text. */
+  encoding?: "base64";
 }
 
 export interface ChangePreview {
