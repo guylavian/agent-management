@@ -120,7 +120,19 @@ export const MONO = 'ui-monospace,Menlo,monospace';
 
 export function Page(props: { children: ReactNode }) {
   return (
-    <div style={{ padding: '28px 32px 40px 32px', maxWidth: 1320, fontFamily: FONT, color: C.text, fontSize: 13.5 }}>
+    <div
+      style={{
+        // fluid: the workspace is whatever the rail leaves, not a fixed column
+        // parked inside it. `clamp` keeps the gutter proportional without a
+        // stack of breakpoints, and border-box stops it adding to the width.
+        width: '100%',
+        boxSizing: 'border-box',
+        padding: 'clamp(20px, 2.2vw, 40px) clamp(20px, 2.4vw, 40px) 48px',
+        fontFamily: FONT,
+        color: C.text,
+        fontSize: 13.5,
+      }}
+    >
       {props.children}
     </div>
   );
@@ -319,7 +331,9 @@ function AgentGlyph({ id, owner }: { id: string; owner: string }) {
   });
   return (
     <div style={{ height: 108, borderRadius: 8, background: tone.bg, overflow: 'hidden', marginBottom: 14, flex: 'none' }}>
-      <svg width="100%" height="108" viewBox="0 0 190 108" fill="none" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      {/* `meet`, not `slice`: the card is now fluid, and slicing cropped the
+          figure the moment a card grew wider than the viewbox's ratio */}
+      <svg width="100%" height="108" viewBox="0 0 190 108" fill="none" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
         {nodes.slice(0, -1).map((node, index) => {
           const next = nodes[index + 1] as { x: number; y: number };
           return <line key={index} x1={node.x} y1={node.y} x2={next.x} y2={next.y} stroke={tone.fg} strokeWidth="1.1" strokeOpacity=".38" />;
@@ -516,10 +530,25 @@ export function Section(props: { title: string; description?: string; icon?: key
   );
 }
 
+/**
+ * The agent grid.
+ *
+ * `auto-fit` rather than `auto-fill`: when there are fewer agents than the row
+ * could hold, auto-fill leaves the surplus tracks standing and the cards sit
+ * narrow against dead space, while auto-fit collapses them so the cards grow
+ * into the width. That single word is the difference between a fluid workspace
+ * and a fixed grid centred in a large screen.
+ */
+export const AGENT_GRID: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+  gap: 16,
+};
+
 /** Two-column field grid: the default arrangement inside a Section. */
 export function FieldGrid(props: { columns?: number; children: ReactNode }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${props.columns ?? 2},minmax(0,1fr))`, gap: `${S.lg}px ${S.xl}px`, maxWidth: 860 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${props.columns === 3 ? 220 : 280}px), 1fr))`, gap: `${S.lg}px ${S.xl}px`, maxWidth: 1040 }}>
       {props.children}
     </div>
   );
@@ -763,8 +792,9 @@ export function AsyncState(props: { loading: boolean; error?: Error; children: R
   return <>{props.children}</>;
 }
 
+/** Compact by design: nothing to show should not occupy the room of something. */
 export function EmptyState(props: { children: ReactNode }) {
-  return <div style={{ padding: `${S.xl}px ${S.lg}px`, color: C.muted, fontSize: 13, textAlign: 'center' }}>{props.children}</div>;
+  return <div style={{ padding: `${S.md}px ${S.sm}px`, color: C.muted, fontSize: 13 }}>{props.children}</div>;
 }
 
 /** Run status → tone. Named because it is used on four screens and read at a glance. */

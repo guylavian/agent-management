@@ -1,5 +1,6 @@
 import { useAgents, useMcpServers, useRuns } from '../api/client';
 import {
+  AGENT_GRID,
   AgentGridCard,
   AgentTile,
   AsyncState,
@@ -54,7 +55,7 @@ export function OverviewPage() {
       <AsyncState loading={agents.loading} error={agents.error}>
         <Panel>
           <GroupHeader title="Your agents" action={<Button variant="link" onClick={() => go('/agents')}>View all agents</Button>} />
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(268px,1fr))', gap: S.md }}>
+          <div style={AGENT_GRID}>
             {list.map(agent => (
               <AgentGridCard
                 key={agent.id}
@@ -93,7 +94,7 @@ export function OverviewPage() {
             <GroupHeader title="Recent activity" action={<Button variant="link" onClick={() => go('/runs')}>View all activity</Button>} />
             <AsyncState loading={runs.loading} error={runs.error}>
               {(runs.value ?? []).length === 0 ? (
-                <div style={{ padding: '26px 12px', color: C.muted, fontSize: 13, textAlign: 'center' }}>
+                <div style={{ padding: '4px 0 2px 0', color: C.muted, fontSize: 13 }}>
                   No runs have been recorded by this runtime process yet.
                 </div>
               ) : (

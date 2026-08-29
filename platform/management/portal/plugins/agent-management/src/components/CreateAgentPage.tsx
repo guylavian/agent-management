@@ -187,14 +187,14 @@ export function CreateAgentPage(props: { agentId?: string }) {
 
   if (editing && (existing.loading || existing.error)) {
     return (
-      <div style={{ padding: `${S.xl}px`, maxWidth: 1100, margin: '0 auto', fontFamily: "'Figtree',Helvetica,Arial,sans-serif", color: C.text, fontSize: 13 }}>
+      <div style={{ width: '100%', boxSizing: 'border-box', padding: 'clamp(20px, 2.2vw, 40px)', maxWidth: 1280, fontFamily: "'Figtree',Helvetica,Arial,sans-serif", color: C.text, fontSize: 13.5 }}>
         <AsyncState loading={existing.loading} error={existing.error}>{null}</AsyncState>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: `${S.xl}px ${S.xl}px ${S.xxl}px ${S.xl}px`, maxWidth: 1100, margin: '0 auto', fontFamily: "'Figtree',Helvetica,Arial,sans-serif", color: C.text, fontSize: 13 }}>
+    <div style={{ width: '100%', boxSizing: 'border-box', padding: 'clamp(20px, 2.2vw, 40px) clamp(20px, 2.4vw, 40px) 48px', maxWidth: 1280, fontFamily: "'Figtree',Helvetica,Arial,sans-serif", color: C.text, fontSize: 13.5 }}>
       <Breadcrumb
         items={editing
           ? [{ label: 'Agents', onClick: () => { window.location.href = '/agents'; } }, { label: draft.displayName || draft.name, onClick: () => { window.location.href = `/agents/${props.agentId ?? ''}`; } }, { label: 'Edit' }]

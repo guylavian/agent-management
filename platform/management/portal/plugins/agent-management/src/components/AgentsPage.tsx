@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useAgents, useMcpServers, useRuns } from '../api/client';
 import {
+  AGENT_GRID,
   AgentGridCard,
   AgentTile,
   AsyncState,
@@ -115,7 +116,7 @@ export function AgentsPage() {
       <AsyncState loading={loading} error={error}>
         {view === 'cards' ? (
           <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(268px,1fr))', gap: S.md }}>
+          <div style={AGENT_GRID}>
             {filtered.map(agent => (
               <AgentGridCard
                 key={agent.id}
@@ -183,7 +184,7 @@ function Activity({ runs, loading, error }: { runs?: RunSummary[]; loading: bool
       <GroupHeader title="Activity" action={<Button variant="link" onClick={() => { window.location.href = '/runs'; }}>View all activity</Button>} />
         <AsyncState loading={loading} error={error}>
           {recent.length === 0 ? (
-            <div style={{ padding: '26px 12px', color: C.muted, fontSize: 13, textAlign: 'center' }}>No runs have been recorded by this runtime process yet.</div>
+            <div style={{ padding: '4px 0 2px 0', color: C.muted, fontSize: 13 }}>No runs have been recorded by this runtime process yet.</div>
           ) : (
             <DataTable columns={ACTIVITY_COLUMNS} head={['Agent', 'Event', 'Details', 'Triggered by', 'When']}>
               {recent.map(run => (
