@@ -54,7 +54,7 @@ const ICONS = {
 
 function NavIcon({ name }: { name: keyof typeof ICONS }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none' }}>
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none' }}>
       {ICONS[name]}
     </svg>
   );
@@ -72,11 +72,11 @@ function NavLink({ entry, active }: { entry: (typeof NAV)[number]; active: boole
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
-        padding: '7px 10px',
-        borderRadius: 6,
-        fontSize: 13.5,
-        fontWeight: active ? 600 : 400,
+        gap: 12,
+        padding: '10px 12px',
+        borderRadius: 8,
+        fontSize: 14.5,
+        fontWeight: active ? 600 : 450,
         color: active ? C.accent : C.body,
         background: active ? C.accentSoft : 'transparent',
         textDecoration: 'none',
@@ -102,7 +102,7 @@ function SidebarContentComponent() {
         top: 0,
         left: 0,
         zIndex: 1000,
-        width: 236,
+        width: 240,
         background: C.rail,
         borderRight: `1px solid ${C.border}`,
         display: 'flex',
@@ -110,20 +110,25 @@ function SidebarContentComponent() {
         height: '100vh',
         fontFamily: "'Figtree',Helvetica,Arial,sans-serif",
         color: C.text,
-        fontSize: 14,
+        fontSize: 14.5,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', padding: '18px 16px 14px 18px' }}>
-        <div style={{ fontSize: 14, fontWeight: 600, letterSpacing: '-0.1px' }}>SRE Assistant</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '22px 20px 18px 20px' }}>
+        <div style={{ width: 26, height: 26, borderRadius: 8, background: C.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="8" cy="5.2" r="2.3" /><path d="M3 13.4c.5-2.4 2.4-3.8 5-3.8s4.5 1.4 5 3.8" />
+          </svg>
+        </div>
+        <div style={{ fontSize: 15.5, fontWeight: 600, letterSpacing: '-0.2px' }}>SRE Assistant</div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 10px', flex: 1, overflowY: 'auto' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '0 12px', flex: 1, overflowY: 'auto' }}>
         {NAV.filter(entry => entry.group === 'work').map(entry => (
           <NavLink key={entry.label} entry={entry} active={isActive(pathname, entry.to)} />
         ))}
 
         {/* the split is between what you operate and what bounds it */}
-        <div style={{ height: 1, background: C.rule, margin: '10px 10px' }} />
+        <div style={{ height: 1, background: C.rule, margin: '16px 12px' }} />
 
         {NAV.filter(entry => entry.group === 'platform').map(entry => (
           <NavLink key={entry.label} entry={entry} active={isActive(pathname, entry.to)} />
@@ -135,12 +140,12 @@ function SidebarContentComponent() {
         * a name, a photograph or an email — the runtime hashes the subject
         * before it leaves — so an identity block would have to be invented.
         */}
-      <div style={{ padding: '8px 10px 12px 10px', borderTop: `1px solid ${C.rule}` }}>
+      <div style={{ padding: '12px 12px 16px 12px', borderTop: `1px solid ${C.rule}` }}>
         <Link
           to="/settings"
           style={{
-            display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 6,
-            fontSize: 13.5, fontWeight: isActive(pathname, '/settings') ? 600 : 400,
+            display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 8,
+            fontSize: 14.5, fontWeight: isActive(pathname, '/settings') ? 600 : 450,
             color: isActive(pathname, '/settings') ? C.accent : C.muted,
             background: isActive(pathname, '/settings') ? C.accentSoft : 'transparent',
             textDecoration: 'none',

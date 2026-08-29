@@ -44,7 +44,7 @@ export function clickable(onClick: () => void) {
 export const S = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 
 /** Containers are softened; controls stay tighter so forms still read as forms. */
-export const R = { control: 6, container: 10, small: 4 } as const;
+export const R = { control: 8, container: 12, small: 6 } as const;
 
 export const C = {
   accent: '#1f5fb5',
@@ -115,7 +115,7 @@ export const MONO = 'ui-monospace,Menlo,monospace';
 
 export function Page(props: { children: ReactNode }) {
   return (
-    <div style={{ padding: `${S.xl}px ${S.xl}px ${S.xxl}px ${S.xl}px`, maxWidth: 1320, margin: '0 auto', fontFamily: FONT, color: C.text, fontSize: 13 }}>
+    <div style={{ padding: `${S.xxl}px 36px 56px 36px`, maxWidth: 1360, margin: '0 auto', fontFamily: FONT, color: C.text, fontSize: 14 }}>
       {props.children}
     </div>
   );
@@ -123,10 +123,10 @@ export function Page(props: { children: ReactNode }) {
 
 export function PageHeader(props: { title: string; subtitle?: string; action?: ReactNode; tight?: boolean }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: S.lg, marginBottom: props.tight ? S.lg : S.xl }}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: S.lg, marginBottom: props.tight ? S.xl : 28 }}>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 28, fontWeight: 600, letterSpacing: '-0.5px', lineHeight: 1.2 }}>{props.title}</div>
-        {props.subtitle && <div style={{ fontSize: 14, color: C.muted, marginTop: S.sm }}>{props.subtitle}</div>}
+        <div style={{ fontSize: 30, fontWeight: 600, letterSpacing: '-0.6px', lineHeight: 1.15 }}>{props.title}</div>
+        {props.subtitle && <div style={{ fontSize: 14.5, color: C.muted, marginTop: 10 }}>{props.subtitle}</div>}
       </div>
       {props.action}
     </div>
@@ -154,9 +154,9 @@ export function Button(props: { onClick?: () => void; variant?: 'primary' | 'sec
   const variant = props.variant ?? 'primary';
   const base: CSSProperties = { borderRadius: R.control, fontWeight: 500, fontFamily: FONT, cursor: props.disabled ? 'not-allowed' : 'pointer', opacity: props.disabled ? 0.5 : 1 };
   const styles: Record<string, CSSProperties> = {
-    primary: { ...base, background: C.accent, color: C.surface, border: `1px solid ${C.accent}`, padding: '6px 14px', fontSize: 13 },
-    secondary: { ...base, background: C.surface, border: `1px solid ${C.borderInput}`, color: C.body, padding: '6px 14px', fontSize: 13 },
-    link: { ...base, background: 'none', border: 'none', color: C.accent, fontSize: 13, padding: `${S.xs}px 0` },
+    primary: { ...base, background: C.accent, color: C.surface, border: `1px solid ${C.accent}`, padding: '9px 18px', fontSize: 14 },
+    secondary: { ...base, background: C.surface, border: `1px solid ${C.borderInput}`, color: C.body, padding: '9px 18px', fontSize: 14 },
+    link: { ...base, background: 'none', border: 'none', color: C.accent, fontSize: 14, padding: `${S.xs}px 0` },
   };
   return (
     <button type="button" onClick={props.onClick} disabled={props.disabled} style={styles[variant]}>
@@ -236,7 +236,7 @@ export function Card(props: { onClick?: () => void; padded?: boolean; children: 
         background: C.surface,
         border: `1px solid ${lifted ? C.borderStrong : C.border}`,
         borderRadius: R.container,
-        padding: props.padded === false ? undefined : S.lg,
+        padding: props.padded === false ? undefined : 20,
         cursor: props.onClick ? 'pointer' : 'default',
         height: '100%',
         boxShadow: lifted ? '0 1px 3px rgba(31,36,48,.08)' : 'none',
@@ -274,9 +274,9 @@ export function AgentTile(props: { id: string; owner: string; size?: number }) {
 /** Section heading with an optional icon, for a page built from Cards. */
 export function GroupHeader(props: { title: string; icon?: keyof typeof ICON_PATHS; action?: ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: S.sm, marginBottom: S.md, marginTop: S.xl }}>
-      {props.icon && <span style={{ color: C.muted, display: 'flex' }}><Icon name={props.icon} /></span>}
-      <div style={{ fontSize: 15, fontWeight: 600, flex: 1 }}>{props.title}</div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: S.md, marginBottom: S.lg, marginTop: 36 }}>
+      {props.icon && <span style={{ color: C.muted, display: 'flex' }}><Icon name={props.icon} size={18} /></span>}
+      <div style={{ fontSize: 17, fontWeight: 600, flex: 1, letterSpacing: '-0.2px' }}>{props.title}</div>
       {props.action}
     </div>
   );
@@ -413,7 +413,7 @@ export function FieldGrid(props: { columns?: number; children: ReactNode }) {
 export function DataTable(props: { columns: string; head: ReactNode[]; children: ReactNode }) {
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: props.columns, gap: S.md, padding: `${S.sm}px ${S.lg}px`, fontSize: 11, fontWeight: 500, letterSpacing: '.4px', textTransform: 'uppercase', color: C.faint, borderBottom: `1px solid ${C.rule}` }}>
+      <div style={{ display: 'grid', gridTemplateColumns: props.columns, gap: S.md, padding: `${S.md}px 20px`, fontSize: 11.5, fontWeight: 500, letterSpacing: '.4px', textTransform: 'uppercase', color: C.faint, borderBottom: `1px solid ${C.rule}` }}>
         {props.head.map((label, index) => (
           <div key={index}>{label}</div>
         ))}
@@ -431,7 +431,7 @@ export function DataRow(props: { columns: string; onClick?: () => void; children
         gridTemplateColumns: props.columns,
         gap: S.md,
         alignItems: 'center',
-        padding: `${S.sm}px ${S.lg}px`,
+        padding: `${S.md}px 20px`,
         borderBottom: `1px solid ${C.ruleSoft}`,
         cursor: props.onClick ? 'pointer' : 'default',
       }}
@@ -443,11 +443,11 @@ export function DataRow(props: { columns: string; onClick?: () => void; children
 }
 
 export function Muted(props: { size?: number; mono?: boolean; children: ReactNode }) {
-  return <div style={{ color: C.muted, fontSize: props.size ?? 12.5, ...(props.mono ? { fontFamily: MONO, fontSize: props.size ?? 12 } : {}) }}>{props.children}</div>;
+  return <div style={{ color: C.muted, fontSize: props.size ?? 13.5, ...(props.mono ? { fontFamily: MONO, fontSize: props.size ?? 13 } : {}) }}>{props.children}</div>;
 }
 
 export function Body(props: { mono?: boolean; children: ReactNode }) {
-  return <div style={{ color: C.bodySoft, fontSize: props.mono ? 12 : 12.5, ...(props.mono ? { fontFamily: MONO } : {}) }}>{props.children}</div>;
+  return <div style={{ color: C.bodySoft, fontSize: props.mono ? 13 : 13.5, ...(props.mono ? { fontFamily: MONO } : {}) }}>{props.children}</div>;
 }
 
 export type Tone = 'ok' | 'warn' | 'danger' | 'neutral' | 'info';
@@ -469,7 +469,7 @@ const TONES: Record<Tone, { fg: string; dot: string; soft: string }> = {
 export function StatusPill(props: { tone: Tone; dot?: boolean; children: ReactNode }) {
   const tone = TONES[props.tone];
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: S.sm, fontSize: 12.5, color: props.tone === 'neutral' ? C.bodySoft : tone.fg, whiteSpace: 'nowrap' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: S.sm, fontSize: 13.5, color: props.tone === 'neutral' ? C.bodySoft : tone.fg, whiteSpace: 'nowrap' }}>
       {props.dot !== false && <span style={{ width: 7, height: 7, borderRadius: 99, background: tone.dot, flex: 'none' }} />}
       {props.children}
     </span>
@@ -572,7 +572,7 @@ export function Tabs(props: { tabs: readonly string[]; active: string; onChange:
 }
 
 export const inputStyle: CSSProperties = {
-  padding: '5px 8px',
+  padding: '9px 12px',
   border: `1px solid ${C.borderInput}`,
   borderRadius: R.control,
   fontSize: 13,
@@ -582,7 +582,7 @@ export const inputStyle: CSSProperties = {
   fontFamily: FONT,
 };
 
-export const selectStyle: CSSProperties = { ...inputStyle, padding: '5px 6px', color: C.bodySoft };
+export const selectStyle: CSSProperties = { ...inputStyle, padding: '9px 10px', color: C.bodySoft };
 
 export function Field(props: { label: string; hint?: string; children: ReactNode }) {
   return (
