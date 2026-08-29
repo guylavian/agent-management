@@ -313,6 +313,7 @@ components:
       properties:
         id: { type: string }
         displayName: { type: string }
+        description: { type: string, description: "From the Agent document. Optional: an Agent need not carry one." }
         owner: { type: string }
         lifecycle: { $ref: "#/components/schemas/AgentLifecycle" }
         enabled: { type: boolean }

@@ -1,17 +1,16 @@
 import { useMemo, useState } from 'react';
 import { useAgents, useMcpServers, useRuns } from '../api/client';
 import {
+  AgentGridCard,
   AgentTile,
   AsyncState,
   Body,
   Button,
   C,
-  Card,
   DataRow,
   DataTable,
   EmptyState,
   GroupHeader,
-  Icon,
   LifecycleBadge,
   MONO,
   Muted,
@@ -25,7 +24,7 @@ import {
   runStatusTone,
   selectStyle,
 } from './common';
-import type { AgentSummary, RunSummary } from '../api/types';
+import type { RunSummary } from '../api/types';
 
 const TABLE_COLUMNS = '2.2fr .8fr 1fr 1fr .4fr .5fr .6fr 1.3fr';
 const ACTIVITY_COLUMNS = '1.4fr .8fr 1.4fr 1.1fr .7fr';
@@ -75,7 +74,8 @@ export function AgentsPage() {
         action={<Button onClick={() => go('/create-agent')}>+ Create agent</Button>}
       />
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: S.sm, flexWrap: 'wrap' }}>
+      <Panel>
+      <div style={{ display: 'flex', alignItems: 'center', gap: S.md, flexWrap: 'wrap' }}>
         <input placeholder="Search agents…" value={query} onChange={event => setQuery(event.target.value)} style={{ ...inputStyle, width: 220 }} aria-label="Search agents" />
         <select value={status} onChange={event => setStatus(event.target.value)} style={selectStyle} aria-label="Status filter">
           <option value="all">Status: All</option>
@@ -93,8 +93,12 @@ export function AgentsPage() {
           <option value="all">MCP: All</option>
           {(servers.value ?? []).map(server => <option key={server.id} value={server.id}>{server.id}</option>)}
         </select>
+        <div style={{ flex: 1 }} />
+        <Button variant="link" onClick={() => { setQuery(''); setStatus('all'); setTeam('all'); setModel('all'); setMcp('all'); }}>Clear</Button>
       </div>
+      </Panel>
 
+      <div style={{ marginTop: 20 }}><Panel>
       <GroupHeader
         title="Specialist agents"
         icon="agents"
@@ -110,14 +114,27 @@ export function AgentsPage() {
 
       <AsyncState loading={loading} error={error}>
         {view === 'cards' ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: S.md }}>
-            {filtered.map(agent => <AgentCard key={agent.id} agent={agent} onOpen={() => go(`/agents/${agent.id}`)} />)}
-            {filtered.length === 0 && (
-              <Card><Muted>No agents match these filters.</Muted></Card>
-            )}
+          <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))', gap: S.md }}>
+            {filtered.map(agent => (
+              <AgentGridCard
+                key={agent.id}
+                id={agent.id}
+                displayName={agent.displayName}
+                {...(agent.description === undefined ? {} : { description: agent.description })}
+                owner={agent.owner}
+                lifecycle={agent.lifecycle}
+                mcpCount={agent.mcpCount}
+                toolCount={agent.toolCount}
+                readOnly={agent.readOnly}
+                onOpen={() => go(`/agents/${agent.id}`)}
+              />
+            ))}
           </div>
+          {filtered.length === 0 && <EmptyState>No agents match these filters.</EmptyState>}
+          </>
         ) : (
-          <Panel padded={false}>
+          <div style={{ margin: '0 -20px -20px -20px' }}>
             <DataTable columns={TABLE_COLUMNS} head={['Agent', 'Status', 'Owner', 'Model', 'MCPs', 'Tools', 'Access', 'Workload identity']}>
               {filtered.map(agent => (
                 <DataRow key={agent.id} columns={TABLE_COLUMNS} onClick={() => go(`/agents/${agent.id}`)}>
@@ -136,63 +153,15 @@ export function AgentsPage() {
               ))}
               {filtered.length === 0 && <EmptyState>No agents match these filters.</EmptyState>}
             </DataTable>
-          </Panel>
+          </div>
         )}
       </AsyncState>
+      </Panel></div>
 
-      <Activity runs={runs.value} loading={runs.loading} error={runs.error} />
+      <div style={{ marginTop: 20 }}>
+        <Activity runs={runs.value} loading={runs.loading} error={runs.error} />
+      </div>
     </Page>
-  );
-}
-
-/**
- * One agent, compact.
- *
- * There is no description here because `AgentSummary` does not carry one — the
- * list endpoint returns eleven fields and a description is not among them.
- * Showing the model profile and the read-only posture instead is real; inventing
- * a sentence, or fetching every agent's detail to find one, is not.
- */
-function AgentCard({ agent, onOpen }: { agent: AgentSummary; onOpen: () => void }) {
-  return (
-    <Card onClick={onOpen}>
-      {/* a column so the footer sits on the baseline of every card in the row,
-          however many lines the agent's name took */}
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/*
-        * The name and the id both WRAP rather than ellipsis. They are how an
-        * agent is identified and how it is grepped for; a card that renders
-        * "network-observabil…" has failed at the one job the card has.
-        */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: S.md }}>
-        <AgentTile id={agent.id} owner={agent.owner} />
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.35 }}>{agent.displayName}</div>
-          <div style={{ fontSize: 12, fontFamily: MONO, color: C.faint, wordBreak: 'break-word', marginTop: 2 }}>{agent.id}</div>
-        </div>
-        <LifecycleBadge lifecycle={agent.lifecycle} />
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: S.md, flexWrap: 'wrap', color: C.muted, fontSize: 12.5, marginTop: S.md, marginBottom: S.md }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Icon name="mcp" size={14} /> {agent.mcpCount} MCP{agent.mcpCount === 1 ? '' : 's'}
-        </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Icon name="tool" size={14} /> {agent.toolCount} tool{agent.toolCount === 1 ? '' : 's'}
-        </span>
-        {agent.readOnly && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Icon name="security" size={14} /> read-only
-          </span>
-        )}
-      </div>
-
-      <div style={{ marginTop: 'auto', paddingTop: S.md, borderTop: `1px solid ${C.ruleSoft}`, display: 'flex', gap: S.sm, alignItems: 'center', justifyContent: 'space-between' }}>
-        <Muted size={12}>{agent.owner}</Muted>
-        <Muted size={12} mono>{agent.modelProfile}</Muted>
-      </div>
-      </div>
-    </Card>
   );
 }
 
@@ -210,12 +179,11 @@ function AgentCard({ agent, onOpen }: { agent: AgentSummary; onOpen: () => void 
 function Activity({ runs, loading, error }: { runs?: RunSummary[]; loading: boolean; error?: Error }) {
   const recent = (runs ?? []).slice(0, 8);
   return (
-    <>
-      <GroupHeader title="Activity" icon="activity" />
-      <Panel padded={false}>
+    <Panel>
+      <GroupHeader title="Activity" action={<Button variant="link" onClick={() => { window.location.href = '/runs'; }}>View all activity</Button>} />
         <AsyncState loading={loading} error={error}>
           {recent.length === 0 ? (
-            <EmptyState>No runs have been recorded by this runtime process yet.</EmptyState>
+            <div style={{ padding: '26px 12px', color: C.muted, fontSize: 13, textAlign: 'center' }}>No runs have been recorded by this runtime process yet.</div>
           ) : (
             <DataTable columns={ACTIVITY_COLUMNS} head={['Agent', 'Event', 'Details', 'Triggered by', 'When']}>
               {recent.map(run => (
@@ -233,7 +201,6 @@ function Activity({ runs, loading, error }: { runs?: RunSummary[]; loading: bool
             </DataTable>
           )}
         </AsyncState>
-      </Panel>
-    </>
+    </Panel>
   );
 }

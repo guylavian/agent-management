@@ -35,6 +35,8 @@ export interface McpAccessView {
 export interface AgentSummary {
   id: string;
   displayName: string;
+  /** From the Agent document. Optional: an Agent need not carry one. */
+  description?: string;
   owner: string;
   lifecycle: AgentLifecycle;
   enabled: boolean;

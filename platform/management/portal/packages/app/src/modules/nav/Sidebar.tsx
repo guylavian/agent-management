@@ -1,4 +1,5 @@
 import { NavContentBlueprint } from '@backstage/plugin-app-react';
+import type React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 /**
@@ -14,13 +15,13 @@ import { Link, useLocation } from 'react-router-dom';
 
 const C = {
   accent: '#1f5fb5',
-  accentSoft: '#e9f0fa',
-  rail: '#f3f1ec',
-  border: '#e4e1db',
-  rule: '#ece9e3',
-  text: '#1f2430',
-  body: '#3b4150',
-  muted: '#666c7a',
+  accentSoft: '#eaf1fa',
+  surface: '#ffffff',
+  border: '#e4e7ec',
+  rule: '#eceef2',
+  text: '#1c2128',
+  body: '#4c545f',
+  faint: '#7a828c',
 };
 
 /**
@@ -54,7 +55,7 @@ const ICONS = {
 
 function NavIcon({ name }: { name: keyof typeof ICONS }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none' }}>
+    <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none' }}>
       {ICONS[name]}
     </svg>
   );
@@ -72,11 +73,11 @@ function NavLink({ entry, active }: { entry: (typeof NAV)[number]; active: boole
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 12,
-        padding: '10px 12px',
+        gap: 10,
+        padding: '9px 10px',
         borderRadius: 8,
-        fontSize: 14.5,
-        fontWeight: active ? 600 : 450,
+        fontSize: 13.5,
+        fontWeight: active ? 600 : 500,
         color: active ? C.accent : C.body,
         background: active ? C.accentSoft : 'transparent',
         textDecoration: 'none',
@@ -102,59 +103,61 @@ function SidebarContentComponent() {
         top: 0,
         left: 0,
         zIndex: 1000,
-        width: 240,
-        background: C.rail,
+        width: 244,
+        background: C.surface,
         borderRight: `1px solid ${C.border}`,
         display: 'flex',
         flexDirection: 'column',
         height: '100vh',
+        padding: '20px 12px 16px 12px',
+        boxSizing: 'border-box',
         fontFamily: "'Figtree',Helvetica,Arial,sans-serif",
         color: C.text,
-        fontSize: 14.5,
+        fontSize: 13.5,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '22px 20px 18px 20px' }}>
-        <div style={{ width: 26, height: 26, borderRadius: 8, background: C.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <circle cx="8" cy="5.2" r="2.3" /><path d="M3 13.4c.5-2.4 2.4-3.8 5-3.8s4.5 1.4 5 3.8" />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 10px', marginBottom: 26 }}>
+        <div style={{ width: 34, height: 34, borderRadius: 9, background: C.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+          <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="5.4" width="10" height="7.2" rx="2.2" /><path d="M8 5.4V3.2M6.2 8.6v1.4M9.8 8.6v1.4M1.6 8.6v1.6M14.4 8.6v1.6" /><circle cx="8" cy="2.6" r="1" />
           </svg>
         </div>
-        <div style={{ fontSize: 15.5, fontWeight: 600, letterSpacing: '-0.2px' }}>SRE Assistant</div>
+        <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.2px' }}>SRE Assistant</div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '0 12px', flex: 1, overflowY: 'auto' }}>
-        {NAV.filter(entry => entry.group === 'work').map(entry => (
-          <NavLink key={entry.label} entry={entry} active={isActive(pathname, entry.to)} />
-        ))}
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflowY: 'auto' }}>
+        <GroupLabel>Agent management</GroupLabel>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {NAV.filter(entry => entry.group === 'work').map(entry => (
+            <NavLink key={entry.label} entry={entry} active={isActive(pathname, entry.to)} />
+          ))}
+        </div>
 
-        {/* the split is between what you operate and what bounds it */}
-        <div style={{ height: 1, background: C.rule, margin: '16px 12px' }} />
+        <GroupLabel>Platform</GroupLabel>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {NAV.filter(entry => entry.group === 'platform').map(entry => (
+            <NavLink key={entry.label} entry={entry} active={isActive(pathname, entry.to)} />
+          ))}
+        </div>
 
-        {NAV.filter(entry => entry.group === 'platform').map(entry => (
-          <NavLink key={entry.label} entry={entry} active={isActive(pathname, entry.to)} />
-        ))}
+        <GroupLabel>Settings</GroupLabel>
+        <NavLink entry={{ label: 'Settings', to: '/settings', icon: 'settings', group: 'platform' }} active={isActive(pathname, '/settings')} />
       </div>
 
       {/*
-        * Settings only. There is no user card here: the console never receives
-        * a name, a photograph or an email — the runtime hashes the subject
-        * before it leaves — so an identity block would have to be invented.
+        * The reference has a user card here. This console never receives a
+        * name, a team or a photograph — the runtime hashes the subject before
+        * it leaves the process — so the card would have to be invented, and
+        * the rail ends without one.
         */}
-      <div style={{ padding: '12px 12px 16px 12px', borderTop: `1px solid ${C.rule}` }}>
-        <Link
-          to="/settings"
-          style={{
-            display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 8,
-            fontSize: 14.5, fontWeight: isActive(pathname, '/settings') ? 600 : 450,
-            color: isActive(pathname, '/settings') ? C.accent : C.muted,
-            background: isActive(pathname, '/settings') ? C.accentSoft : 'transparent',
-            textDecoration: 'none',
-          }}
-        >
-          <NavIcon name="settings" />
-          <span>Settings</span>
-        </Link>
-      </div>
+    </div>
+  );
+}
+
+function GroupLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase', color: C.faint, padding: '0 10px', margin: '20px 0 8px 0' }}>
+      {children}
     </div>
   );
 }

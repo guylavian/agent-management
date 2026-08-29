@@ -49,36 +49,41 @@ export const R = { control: 8, container: 12, small: 6 } as const;
 export const C = {
   accent: '#1f5fb5',
   accentHover: '#1a5099',
-  accentSoft: '#e9f0fa',
-  /** warm near-white, not sterile: the canvas the surfaces sit on */
-  canvas: '#f8f7f4',
+  accentSoft: '#eaf1fa',
+  /**
+   * Cool near-white. An earlier pass warmed this to a beige and the result read
+   * as a dirty grey rather than as warmth: the surfaces sitting on it are pure
+   * white, and the two fought. Warmth here comes from roundness, space and
+   * illustration, not from tinting the paper.
+   */
+  canvas: '#f7f8fa',
   surface: '#ffffff',
-  /** the nav rail, one step warmer than the canvas so the two read as layers */
-  rail: '#f3f1ec',
-  hover: '#faf9f7',
-  border: '#e4e1db',
-  borderInput: '#d3cfc7',
-  borderStrong: '#b0aba1',
-  rule: '#ece9e3',
-  ruleSoft: '#f2efea',
-  chip: '#f3f1ec',
-  text: '#1f2430',
-  body: '#3b4150',
-  bodySoft: '#4e5464',
-  muted: '#666c7a',
+  /** the rail is WHITE and separated by a rule, as the reference has it */
+  rail: '#ffffff',
+  hover: '#f6f7f9',
+  border: '#e4e7ec',
+  borderInput: '#d5d9e0',
+  borderStrong: '#c9ced8',
+  rule: '#eceef2',
+  ruleSoft: '#f2f4f7',
+  chip: '#f0f2f5',
+  text: '#1c2128',
+  body: '#39404a',
+  bodySoft: '#4c545f',
+  muted: '#656d78',
   // 4.5:1 on white: faint carries real metadata (agent ids, breadcrumbs),
   // so it has to be readable, not just present
-  faint: '#6c7280',
-  dim: '#7b8290',
+  faint: '#6b727c',
+  dim: '#7a828c',
   green: '#1a7f45',
   greenBright: '#1f9d55',
-  greenSoft: '#e6f2ea',
+  greenSoft: '#e7f3ec',
   amber: '#8a5a00',
   amberBright: '#c58600',
-  amberSoft: '#fbf0dc',
+  amberSoft: '#fdf2dd',
   red: '#a8202f',
   redBright: '#c8394a',
-  redSoft: '#fae9eb',
+  redSoft: '#fbeaec',
 };
 
 /**
@@ -90,12 +95,12 @@ export const C = {
  * Muted on purpose — the tile is the only place any of this appears.
  */
 const TILE_TONES = [
-  { bg: '#e8eefb', fg: '#2c4f8f' },
-  { bg: '#e6f2ea', fg: '#1f6b45' },
-  { bg: '#fbf0dc', fg: '#8a5a00' },
-  { bg: '#efeafa', fg: '#54408c' },
-  { bg: '#fae9eb', fg: '#8f2a38' },
-  { bg: '#e5f1f3', fg: '#1d5f6b' },
+  { bg: '#e8effb', fg: '#2c4f8f' },
+  { bg: '#fdf1dc', fg: '#8a5a00' },
+  { bg: '#eae9fb', fg: '#4b3f96' },
+  { bg: '#e6f3ec', fg: '#1f6b45' },
+  { bg: '#fbeaec', fg: '#8f2a38' },
+  { bg: '#e4f1f4', fg: '#1d5f6b' },
 ] as const;
 
 export function tileTone(owner: string): { bg: string; fg: string } {
@@ -115,7 +120,7 @@ export const MONO = 'ui-monospace,Menlo,monospace';
 
 export function Page(props: { children: ReactNode }) {
   return (
-    <div style={{ padding: `${S.xxl}px 36px 56px 36px`, maxWidth: 1360, margin: '0 auto', fontFamily: FONT, color: C.text, fontSize: 14 }}>
+    <div style={{ padding: '28px 32px 40px 32px', maxWidth: 1320, fontFamily: FONT, color: C.text, fontSize: 13.5 }}>
       {props.children}
     </div>
   );
@@ -123,10 +128,10 @@ export function Page(props: { children: ReactNode }) {
 
 export function PageHeader(props: { title: string; subtitle?: string; action?: ReactNode; tight?: boolean }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: S.lg, marginBottom: props.tight ? S.xl : 28 }}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: S.lg, marginBottom: 24 }}>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 30, fontWeight: 600, letterSpacing: '-0.6px', lineHeight: 1.15 }}>{props.title}</div>
-        {props.subtitle && <div style={{ fontSize: 14.5, color: C.muted, marginTop: 10 }}>{props.subtitle}</div>}
+        <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.4px', lineHeight: 1.2 }}>{props.title}</div>
+        {props.subtitle && <div style={{ fontSize: 13.5, color: C.muted, marginTop: 6 }}>{props.subtitle}</div>}
       </div>
       {props.action}
     </div>
@@ -236,10 +241,10 @@ export function Card(props: { onClick?: () => void; padded?: boolean; children: 
         background: C.surface,
         border: `1px solid ${lifted ? C.borderStrong : C.border}`,
         borderRadius: R.container,
+        boxShadow: lifted ? '0 2px 8px rgba(28,33,40,.06)' : '0 1px 3px rgba(28,33,40,.05)',
         padding: props.padded === false ? undefined : 20,
         cursor: props.onClick ? 'pointer' : 'default',
         height: '100%',
-        boxShadow: lifted ? '0 1px 3px rgba(31,36,48,.08)' : 'none',
         transition: 'border-color .12s, box-shadow .12s',
       }}
       {...(props.onClick ? clickable(props.onClick) : {})}
@@ -261,9 +266,9 @@ export function AgentTile(props: { id: string; owner: string; size?: number }) {
     <div
       title={`owner: ${props.owner}`}
       style={{
-        width: size, height: size, borderRadius: R.control, background: tone.bg, color: tone.fg,
+        width: size, height: size, borderRadius: size >= 36 ? 10 : 6, background: tone.bg, color: tone.fg,
         display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
-        fontSize: size > 40 ? 15 : 12.5, fontWeight: 600, letterSpacing: '.2px',
+        fontSize: size >= 40 ? 13 : size >= 28 ? 11 : 9.5, fontWeight: 700, letterSpacing: '.2px',
       }}
     >
       {initials(props.id)}
@@ -274,10 +279,81 @@ export function AgentTile(props: { id: string; owner: string; size?: number }) {
 /** Section heading with an optional icon, for a page built from Cards. */
 export function GroupHeader(props: { title: string; icon?: keyof typeof ICON_PATHS; action?: ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: S.md, marginBottom: S.lg, marginTop: 36 }}>
-      {props.icon && <span style={{ color: C.muted, display: 'flex' }}><Icon name={props.icon} size={18} /></span>}
-      <div style={{ fontSize: 17, fontWeight: 600, flex: 1, letterSpacing: '-0.2px' }}>{props.title}</div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: S.sm, marginBottom: S.md }}>
+      {props.icon && <span style={{ color: C.muted, display: 'flex' }}><Icon name={props.icon} /></span>}
+      <div style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{props.title}</div>
       {props.action}
+    </div>
+  );
+}
+
+/**
+ * A blue-tinted chip for a single standing fact — read-only, granted. Small,
+ * and only ever one per surface: it is the exception, not a row of labels.
+ */
+export function SoftChip(props: { children: ReactNode }) {
+  return (
+    <span style={{ fontSize: 10.5, fontWeight: 600, color: C.accent, background: C.accentSoft, borderRadius: 5, padding: '2px 7px', whiteSpace: 'nowrap' }}>
+      {props.children}
+    </span>
+  );
+}
+
+/**
+ * The card an agent gets in a grid: a tinted initials tile, the name, its
+ * status, the description from its own document, and what it can reach.
+ *
+ * The reference this follows puts an illustration and a person's face on each
+ * card. There is no illustration in the Agent document and no person anywhere
+ * in this system — the runtime hashes the subject before it leaves — so the
+ * tile is initials on a tone chosen by owning team, and the byline is the team.
+ */
+export function AgentGridCard(props: {
+  id: string; displayName: string; description?: string; owner: string;
+  lifecycle: AgentLifecycle; mcpCount: number; toolCount: number; readOnly: boolean;
+  onOpen: () => void;
+}) {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      {...clickable(props.onOpen)}
+      style={{
+        border: `1px solid ${hover ? C.borderStrong : C.rule}`,
+        borderRadius: 10,
+        padding: 16,
+        cursor: 'pointer',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        boxShadow: hover ? '0 2px 8px rgba(28,33,40,.06)' : 'none',
+        transition: 'border-color .12s, box-shadow .12s',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <AgentTile id={props.id} owner={props.owner} size={40} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>{props.displayName}</div>
+          <div style={{ marginTop: 3 }}><StatusPill tone={lifecycleTone(props.lifecycle)}>{props.lifecycle}</StatusPill></div>
+        </div>
+      </div>
+
+      {props.description !== undefined && (
+        <div style={{ fontSize: 12.5, color: C.bodySoft, lineHeight: 1.45, flex: 1 }}>{props.description}</div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: S.sm, fontSize: 12, color: C.muted }}>
+        <Icon name="identity" size={13} />
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{props.owner}</span>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: C.muted }}>
+        <span>{props.mcpCount} MCPs</span>
+        <span style={{ color: C.borderInput }}>·</span>
+        <span>{props.toolCount} tools</span>
+        {props.readOnly && <span style={{ marginLeft: 'auto' }}><SoftChip>Read-only</SoftChip></span>}
+      </div>
     </div>
   );
 }
@@ -367,7 +443,7 @@ export function StatGrid(props: { columns?: number; children: ReactNode }) {
 /** Flat surface with an optional titled header rule. */
 export function Panel(props: { title?: string; action?: ReactNode; padded?: boolean; children: ReactNode }) {
   return (
-    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: R.container, overflow: 'hidden' }}>
+    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: R.container, boxShadow: '0 1px 3px rgba(28,33,40,.05)', overflow: 'hidden' }}>
       {(props.title || props.action) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: S.sm, padding: `${S.md}px ${S.lg}px`, borderBottom: `1px solid ${C.rule}` }}>
           <div style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{props.title}</div>
@@ -386,7 +462,7 @@ export function Panel(props: { title?: string; action?: ReactNode; padded?: bool
  */
 export function Section(props: { title: string; description?: string; icon?: keyof typeof ICON_PATHS; children: ReactNode }) {
   return (
-    <section style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: R.container, padding: S.xl, marginTop: S.lg }}>
+    <section style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: R.container, boxShadow: '0 1px 3px rgba(28,33,40,.05)', padding: 20, marginTop: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: S.sm, marginBottom: props.description ? S.xs : S.lg }}>
         {props.icon && <span style={{ color: C.muted, display: 'flex' }}><Icon name={props.icon} /></span>}
         <div style={{ fontSize: 15, fontWeight: 600 }}>{props.title}</div>
@@ -469,8 +545,8 @@ const TONES: Record<Tone, { fg: string; dot: string; soft: string }> = {
 export function StatusPill(props: { tone: Tone; dot?: boolean; children: ReactNode }) {
   const tone = TONES[props.tone];
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: S.sm, fontSize: 13.5, color: props.tone === 'neutral' ? C.bodySoft : tone.fg, whiteSpace: 'nowrap' }}>
-      {props.dot !== false && <span style={{ width: 7, height: 7, borderRadius: 99, background: tone.dot, flex: 'none' }} />}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: props.tone === 'neutral' ? C.bodySoft : tone.fg, whiteSpace: 'nowrap' }}>
+      {props.dot !== false && <span style={{ width: 6, height: 6, borderRadius: 99, background: tone.dot, flex: 'none' }} />}
       {props.children}
     </span>
   );

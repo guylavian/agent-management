@@ -43,6 +43,13 @@ export interface ToolView {
 export interface AgentSummaryView {
   id: string;
   displayName: string;
+  /**
+   * The description already written in the Agent document. It was reachable
+   * only from the detail endpoint, so the directory had nothing to say about
+   * what an agent is FOR — and a card with no sentence on it is a card that
+   * has to be opened to be understood.
+   */
+  description?: string;
   owner: string;
   lifecycle: AgentLifecycle;
   enabled: boolean;
@@ -76,7 +83,6 @@ export interface AgentDetailView extends AgentSummaryView {
    * capabilities are the dangerous ones — a reviewer would likely approve a diff
    * that quietly dropped them. `tests/create-agent.test.ts` proves the round trip.
    */
-  description?: string;
   environments: string[];
   routing: { exactTerms: string[]; entityPatterns: string[]; ambiguousTerms: string[]; capabilities: string[]; exclusions: string[] };
 }
@@ -158,6 +164,7 @@ export function agentSummary(agent: SpecialistAgentConfig): AgentSummaryView {
   return {
     id: agent.name,
     displayName: agent.displayName ?? titleCase(agent.name),
+    ...(agent.description === undefined ? {} : { description: agent.description }),
     owner: agent.owner,
     lifecycle: agent.spec.lifecycle,
     enabled: isAgentEnabled(agent.spec),
