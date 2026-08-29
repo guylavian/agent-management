@@ -44,9 +44,10 @@ export function useAgents() {
   return useAsync(async () => (await request<{ agents: AgentSummary[] }>('/agents')).agents, []);
 }
 
+/** No id means nothing to fetch — the create wizard shares a component with the edit wizard. */
 export function useAgent(id: string) {
   const request = useFetch();
-  return useAsync(async () => request<AgentDetail>(`/agents/${encodeURIComponent(id)}`), [id]);
+  return useAsync(async () => (id === '' ? undefined : request<AgentDetail>(`/agents/${encodeURIComponent(id)}`)), [id]);
 }
 
 export function useAgentHealth(id: string) {

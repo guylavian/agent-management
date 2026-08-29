@@ -231,6 +231,19 @@ describe("Agent detail round-trips through a draft without losing anything", () 
      * That grant is already dead at runtime — `authorizeTool` denies it — so the
      * fix is to notice it here rather than to let the portal quietly delete it.
      */
+    /**
+     * The wizard sends the same draft whether it is creating or editing; the
+     * runtime decides which by looking the Agent up. A change that says "Add"
+     * while editing would open a pull request whose title contradicts its diff.
+     */
+    it(`proposes ${agent.name} as an update, not an addition`, () => {
+      const detail = agentDetail(agent, registry.catalog);
+      const { change } = proposeAgentChange({ draft: draftFromDetail(detail, detail.prompt), requestedBy: "tester", update: true });
+      expect(change.branch).toBe(`agent/update-${agent.name}`);
+      expect(change.title).toMatch(/^Update/u);
+      expect(change.effects.every(effect => !effect.startsWith("create "))).toBe(true);
+    });
+
     it(`grants ${agent.name} only tools the approved catalog knows`, () => {
       const known = new Set(registry.catalog.tools.map(tool => `${tool.serverId}/${tool.toolName}`));
       const unknown = agent.spec.access.flatMap(entry => entry.tools.filter(tool => !known.has(`${entry.mcp}/${tool}`)).map(tool => `${entry.mcp}/${tool}`));

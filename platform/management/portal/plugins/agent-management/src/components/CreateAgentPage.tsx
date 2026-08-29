@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useAgentActions, useMcpServers } from '../api/client';
+import { useEffect, useState } from 'react';
+import { useAgent, useAgentActions, useMcpServers } from '../api/client';
 import {
   AsyncState,
   Breadcrumb,
@@ -34,10 +34,18 @@ const DEFAULT_LIMITS = {
 
 const TOOL_COLUMNS = '40px 2fr .7fr';
 
-/** Create Agent wizard (TDD §24–§30). */
-export function CreateAgentPage() {
+/**
+ * Create Agent wizard (TDD §24–§30), and — given `agentId` — the edit wizard.
+ *
+ * Editing is the same wizard prefilled from the Agent's detail view, because a
+ * second "edit" form would be a second definition of what an Agent is, free to
+ * drift from this one. The backend already treats a draft naming an existing
+ * Agent as an update, so nothing here decides that.
+ */
+export function CreateAgentPage(props: { agentId?: string }) {
   const servers = useMcpServers();
   const actions = useAgentActions();
+  const existing = useAgent(props.agentId ?? '');
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<AgentDraft>({
     name: '',
@@ -51,11 +59,41 @@ export function CreateAgentPage() {
   });
   const [prompt, setPrompt] = useState('');
   const [limits, setLimits] = useState(DEFAULT_LIMITS);
+  const [loaded, setLoaded] = useState(false);
+
   const [advanced, setAdvanced] = useState(false);
   const [preview, setPreview] = useState<ChangePreview | undefined>();
   const [issues, setIssues] = useState<string[]>([]);
   const [pr, setPr] = useState<{ url: string; status: string; reason?: string } | undefined>();
   const [busy, setBusy] = useState(false);
+
+  /**
+   * Prefill once the Agent arrives. Every field the wizard can edit is filled
+   * from the detail view — a field left at its blank default here is a field
+   * the generated document would silently clear.
+   */
+  useEffect(() => {
+    if (props.agentId === undefined || existing.value === undefined || loaded) return;
+    const agent = existing.value;
+    setDraft({
+      name: agent.id,
+      owner: agent.owner,
+      displayName: agent.displayName,
+      ...(agent.description === undefined ? {} : { description: agent.description }),
+      lifecycle: agent.lifecycle,
+      modelTier: agent.modelTier as AgentDraft['modelTier'],
+      modelProfile: agent.modelProfile,
+      promptFile: agent.promptFile,
+      environments: agent.environments,
+      routing: agent.routing,
+      requiredRoles: agent.requiredRoles,
+      crossDomainAllowed: agent.crossDomainAllowed,
+      access: agent.access.filter(entry => entry.allowed).map(entry => ({ mcp: entry.mcp, tools: entry.allowedTools.map(tool => tool.name) })),
+    });
+    setPrompt(agent.prompt);
+    setLimits({ ...DEFAULT_LIMITS, ...agent.limits });
+    setLoaded(true);
+  }, [props.agentId, existing.value, loaded]);
 
   const patch = (next: Partial<AgentDraft>) => setDraft(current => ({ ...current, ...next }));
   // the workload client id is derived, never typed: it must match what the runtime expects
@@ -104,10 +142,27 @@ export function CreateAgentPage() {
     }
   };
 
+  const editing = props.agentId !== undefined;
+  // an edit must not be previewed against a half-loaded draft: that draft is a
+  // DIFFERENT agent, and every field still blank is a field the change clears
+  const waiting = editing && !loaded;
+
+  if (editing && (existing.loading || existing.error)) {
+    return (
+      <div style={{ padding: '26px 32px 40px 32px', maxWidth: 1060, margin: '0 auto', fontFamily: "'Figtree',Helvetica,Arial,sans-serif", color: C.text, fontSize: 14 }}>
+        <AsyncState loading={existing.loading} error={existing.error}>{null}</AsyncState>
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: '26px 32px 40px 32px', maxWidth: 1060, margin: '0 auto', fontFamily: "'Figtree',Helvetica,Arial,sans-serif", color: C.text, fontSize: 14 }}>
-      <Breadcrumb items={[{ label: 'Agents', onClick: () => { window.location.href = '/agents'; } }, { label: 'Create agent' }]} />
-      <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.3px', marginBottom: 20 }}>Create Agent</div>
+      <Breadcrumb
+        items={editing
+          ? [{ label: 'Agents', onClick: () => { window.location.href = '/agents'; } }, { label: draft.displayName || draft.name, onClick: () => { window.location.href = `/agents/${props.agentId ?? ''}`; } }, { label: 'Edit' }]
+          : [{ label: 'Agents', onClick: () => { window.location.href = '/agents'; } }, { label: 'Create agent' }]}
+      />
+      <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.3px', marginBottom: 20 }}>{editing ? `Edit ${draft.displayName || draft.name}` : 'Create Agent'}</div>
 
       <Stepper step={step} onSelect={setStep} />
 
@@ -116,8 +171,11 @@ export function CreateAgentPage() {
           <>
             <StepHeading title="Basics & Routing" subtitle="Identity and ownership of the new specialist." />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 18px', maxWidth: 760 }}>
-              <Field label="Agent name" hint="Machine name · lowercase, hyphens. The workload client id is derived from it.">
-                <input style={{ ...inputStyle, fontFamily: MONO, padding: '9px 12px', fontSize: 13.5 }} value={draft.name} onChange={event => patch({ name: event.target.value })} placeholder="check-point" />
+              {/* the name is the Agent's identity and the root of its workload
+                  client id, so editing it would not rename this Agent — it would
+                  propose a second one and leave the first behind */}
+              <Field label="Agent name" hint={editing ? 'Fixed. The workload client id derives from it, so renaming would create a second Agent.' : 'Machine name · lowercase, hyphens. The workload client id is derived from it.'}>
+                <input readOnly={editing} style={{ ...inputStyle, fontFamily: MONO, padding: '9px 12px', fontSize: 13.5, ...(editing ? { background: '#f4f5fa', color: C.body } : {}) }} value={draft.name} onChange={event => patch({ name: event.target.value })} placeholder="check-point" />
               </Field>
               <Field label="Display name">
                 <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5 }} value={draft.displayName} onChange={event => patch({ displayName: event.target.value })} placeholder="Check Point Agent" />
@@ -254,12 +312,12 @@ export function CreateAgentPage() {
 
         {step === 4 && (
           <>
-            <StepHeading title="Review & Create Change" subtitle="Creating an agent opens a pull request. Nothing reaches production until it is merged." />
+            <StepHeading title="Review & Create Change" subtitle={`${editing ? 'Editing' : 'Creating'} an agent opens a pull request. Nothing reaches production until it is merged.`} />
             <DefinitionList
               items={[
                 ['Agent', draft.displayName || draft.name || '—'],
                 ['Owner', draft.owner || '—'],
-                ['Lifecycle', <Mono key="l">draft</Mono>],
+                ['Lifecycle', <Mono key="l">{draft.lifecycle ?? 'draft'}</Mono>],
                 ['Model profile', <Mono key="m">{draft.modelProfile}</Mono>],
                 ['Workload identity', <Mono key="w">{clientId}</Mono>],
                 ['Human roles', draft.requiredRoles.join(', ')],
@@ -269,9 +327,9 @@ export function CreateAgentPage() {
             />
 
             <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
-              <Button onClick={runPreview} disabled={busy}>Preview YAML</Button>
+              <Button onClick={runPreview} disabled={busy || waiting}>Preview YAML</Button>
               {/* deliberately no Deploy button: production changes only through a merged PR */}
-              <Button variant="secondary" onClick={createPr} disabled={busy || !preview}>Create Pull Request</Button>
+              <Button variant="secondary" onClick={createPr} disabled={busy || waiting || !preview}>Create Pull Request</Button>
             </div>
 
             {issues.length > 0 && (

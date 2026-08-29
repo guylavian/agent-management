@@ -55,15 +55,18 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                 </div>
                 <div style={{ fontSize: 13, color: C.muted, marginTop: 3 }}>Owner: {value.owner} · workload {value.identity.clientId}</div>
               </div>
-              {/* reflects lifecycle; changing it is a pull request, not a click */}
-              <Toggle on={value.enabled} label={value.enabled ? 'Enabled' : 'Disabled'} />
+              {/* what Git DECLARES, not what is running: changing it is a pull
+                  request, not a click, and it says nothing about reachability */}
+              <Toggle on={value.enabled} label={value.enabled ? 'Enabled in Git' : 'Disabled in Git'} />
               {/*
-                * "Edit" used to jump to the blank Create Agent wizard, which
-                * starts a NEW agent rather than editing this one. The prompt is
-                * the only part of an Agent the console can safely change today,
-                * so the button says so and goes there instead of implying more.
+                * "Edit" used to jump to the BLANK Create Agent wizard, which
+                * starts a new Agent rather than editing this one. It now opens
+                * the same wizard prefilled from this Agent; the prompt keeps its
+                * own button because a prompt edit touches one file and needs no
+                * regeneration of the Agent document.
                 */}
               <Button variant="secondary" onClick={() => setTab('Prompt')}>Edit prompt</Button>
+              <Button onClick={() => { window.location.href = `/agents/${encodeURIComponent(agentId)}/edit`; }}>Edit agent</Button>
             </div>
 
             <Tabs tabs={TABS} active={tab} onChange={setTab} />
@@ -91,15 +94,28 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
   const health = useAgentHealth(agent.id);
   const metrics = useAgentMetrics(agent.id);
   const notConfigured = (metrics.value as { status?: string } | undefined)?.status === 'not-configured';
+  // three DIFFERENT facts, and the console had been blurring them into one
+  // "status": what the Agent is declared to be, whether the Manager will route
+  // to it, and whether anything has actually reached it. Only the first two are
+  // known here; the third is `unknown` until a health probe exists, and saying
+  // "healthy" without having asked would be fabricated telemetry.
+  const routable = (health.value as { routable?: boolean } | undefined)?.routable;
+  const reachability = (health.value as { reachability?: string } | undefined)?.reachability;
+  const reachabilityReason = (health.value as { reason?: string } | undefined)?.reason;
   const requestCount = (metrics.value as { requestCount?: number } | undefined)?.requestCount;
   const successRate = (metrics.value as { successRate?: number } | undefined)?.successRate;
   const p95 = (metrics.value as { p95LatencyMs?: number } | undefined)?.p95LatencyMs;
 
   return (
     <>
-      <StatGrid columns={4}>
-        <StatCard label="Lifecycle" value={agent.lifecycle} sub={agent.enabled ? 'routable and can obtain tokens' : 'no workload token issued'} />
-        <StatCard label="Reachability" value={String((health.value as { reachability?: string } | undefined)?.reachability ?? '—')} sub="no health probe configured" />
+      <StatGrid columns={5}>
+        <StatCard label="Lifecycle" value={agent.lifecycle} sub={agent.enabled ? 'declared enabled in Git' : 'declared disabled in Git'} />
+        <StatCard
+          label="Routable"
+          value={routable === undefined ? '—' : routable ? 'yes' : 'no'}
+          sub={routable === undefined ? 'asking the runtime' : routable ? "in the Manager's allowed list" : "not in the Manager's allowed list"}
+        />
+        <StatCard label="Reachability" value={String(reachability ?? '—')} sub={reachabilityReason ?? 'asking the runtime'} />
         <StatCard label="Requests" value={notConfigured ? 'n/a' : String(requestCount ?? '—')} sub={notConfigured ? 'no runs recorded' : 'this runtime process'} />
         <StatCard
           label="Success rate"

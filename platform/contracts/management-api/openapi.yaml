@@ -301,12 +301,22 @@ components:
     AgentDetail:
       type: object
       additionalProperties: false
-      required: [id, displayName, owner, lifecycle, enabled, modelProfile, modelTier, mcpCount, toolCount, workloadClientId, readOnly, promptFile, prompt, requiredRoles, crossDomainAllowed, limits, access, identity]
+      description: >-
+        Everything the console shows about one Agent. It is also everything the
+        portal needs to REBUILD the Agent's document, because editing an Agent
+        regenerates that document from this view — so a field missing here is a
+        field an edit deletes. A round-trip test asserts the equality.
+      required: [id, displayName, owner, lifecycle, enabled, modelProfile, modelTier, mcpCount, toolCount, workloadClientId, readOnly, promptFile, prompt, environments, routing, requiredRoles, crossDomainAllowed, limits, access, identity]
       properties:
         id: { type: string }
         displayName: { type: string }
+        description: { type: string }
         owner: { type: string }
         lifecycle: { $ref: "#/components/schemas/AgentLifecycle" }
+        environments:
+          type: array
+          items: { type: string }
+        routing: { $ref: "#/components/schemas/AgentDraftRouting" }
         enabled: { type: boolean }
         modelProfile: { type: string }
         modelTier: { type: string }

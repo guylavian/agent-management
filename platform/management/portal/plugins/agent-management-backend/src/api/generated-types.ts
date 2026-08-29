@@ -55,11 +55,18 @@ export interface AgentIdentityView {
   tokenPolicy: string;
 }
 
+/**
+ * Everything the console shows about one Agent. It is also everything the portal needs to REBUILD the Agent's document, because editing an Agent regenerates that document from this view — so a field missing here is a field an edit deletes. A round-trip test asserts the equality.
+ */
+
 export interface AgentDetail {
   id: string;
   displayName: string;
+  description?: string;
   owner: string;
   lifecycle: AgentLifecycle;
+  environments: Array<string>;
+  routing: AgentDraftRouting;
   enabled: boolean;
   modelProfile: string;
   modelTier: string;
