@@ -18,10 +18,7 @@ export type ManagerDecision = z.infer<typeof managerDecisionSchema>;
 
 export type RequestIntent = "factual" | "diagnostic";
 
-export interface Stage1RoutingResult {
-  resolved: boolean;
-  decision?: { agents: string[]; reasonCode: string };
-  candidates?: string[];
-  entities: Record<string, string>;
-  intent: RequestIntent;
-}
+// `Stage1RoutingResult` stood here: a pre-model routing verdict with `resolved`,
+// `candidates` and a `reasonCode`, from when code decided who ran and the model
+// was consulted only if code could not. There is no stage 1 any more — the
+// Manager decides once, and the runtime's job is to refuse a bad answer.

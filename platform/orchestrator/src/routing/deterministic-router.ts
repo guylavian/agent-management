@@ -1,16 +1,16 @@
-import type { Stage1RoutingResult, RequestIntent } from "./schemas.ts";
+import type { RequestIntent } from "./schemas.ts";
 
 /**
- * Generic, config-driven routing rule for one agent. The agent-specific
- * vocabulary lives in the Agent Service Registry, not in this file — onboarding
- * a new specialist is a config change, never a code change.
+ * What is left of routing once the Manager decides it.
+ *
+ * A `RoutingRule` used to live here — exact phrases, regexes and overloaded
+ * words that code matched against the question to pick an agent. Nothing read
+ * it any more once routing became semantic, and a struct describing how to
+ * keyword-match agents is an invitation to start keyword-matching agents again.
+ *
+ * Neither function below chooses anyone. They describe the QUESTION, and the
+ * Manager describes the ANSWER.
  */
-export interface RoutingRule {
-  agentId: string;
-  exactTerms: string[];
-  entityPatterns: string[];
-  ambiguousTerms: string[];
-}
 
 // intent language is linguistic, not agent-specific, so it stays in code
 const DIAGNOSTIC = /\b(?:why|slow|slowness|root cause|intermittent|diagnos(?:e|is|tic)|failure|failing|unhealthy|timeout|latency)\b/iu;

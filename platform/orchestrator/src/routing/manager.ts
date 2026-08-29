@@ -43,19 +43,25 @@ export class ManagerRouter {
   }
 
   async selectAgents(question: string, authorizedAgentIds: string[], entities: Record<string, string>, signal?: AbortSignal): Promise<ManagerDecision> {
-    const allowed = new Set(authorizedAgentIds);
+    const authorized = new Set(authorizedAgentIds);
     // descriptors are supplied dynamically from the registry (config), never hardcoded in the prompt
-    const descriptors = this.#registry.listEnabled().filter((agent) => allowed.has(agent.agentId)).map((agent) => ({
+    const descriptors = this.#registry.listEnabled().filter((agent) => authorized.has(agent.agentId)).map((agent) => ({
       id: agent.agentId,
       description: agent.description,
       ...(agent.routing.capabilities.length > 0 ? { capabilities: agent.routing.capabilities } : {}),
       ...(agent.routing.exclusions.length > 0 ? { exclusions: agent.routing.exclusions } : {}),
     }));
+    // The model may only choose from what it was actually shown. Validating
+    // against `authorized` instead would admit an agent that is authorized but
+    // DISABLED: withheld from the catalog, yet waved through here the moment the
+    // model named it from conversation context or its own prior. The offered set
+    // is enabled ∩ authorized, so it is the only honest thing to check against.
+    const offered = new Set(descriptors.map((agent) => agent.id));
     const response = await this.#model.chat({ model: this.#manager.spec.model.profile, messages: [{ role: "system", content: this.#manager.systemPrompt }, { role: "user", content: JSON.stringify({ question, trustedEntities: entities, authorizedSpecialists: descriptors }) }], guidedJsonSchema: jsonSchema, signal });
     const decision = managerDecisionSchema.parse(JSON.parse(response.content ?? ""));
     const agents = decision.routes.map((route) => route.agent);
     const alternates = decision.alternates ?? [];
-    if ([...agents, ...alternates].some((id) => !allowed.has(id))) throw Object.assign(new Error("Manager selected an unavailable agent"), { code: "ROUTE_INVALID" });
+    if ([...agents, ...alternates].some((id) => !offered.has(id))) throw Object.assign(new Error("Manager selected an unavailable agent"), { code: "ROUTE_INVALID" });
     if (new Set(agents).size !== agents.length || new Set(alternates).size !== alternates.length || agents.length > this.#manager.spec.execution.maxAgentsPerRequest || alternates.length > this.#manager.spec.execution.maxAgentsPerRequest) throw Object.assign(new Error("Manager selection violates bounds"), { code: "ROUTE_INVALID" });
     return decision;
   }

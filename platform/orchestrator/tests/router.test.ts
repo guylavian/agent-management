@@ -99,4 +99,37 @@ describe("Manager", () => {
     model.enqueue({ content: JSON.stringify({ routes: [{ agent: "unknown", task: "x" }], confidence: 1, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
     await expect(new ManagerRouter(model, registry, manager).selectAgents("unknown", ids, {})).rejects.toMatchObject({ code: "ROUTE_INVALID" });
   });
+
+  /**
+   * Withholding an agent from the catalog is not the same as refusing it.
+   *
+   * A disabled agent is authorized — the human may invoke it, the environment
+   * simply is not running it. Checking the selection against the authorized set
+   * would therefore wave it through the moment the model named it from context
+   * or its own prior, and the request would be dispatched to a specialist that
+   * is not deployed. The offered set is the only honest thing to check.
+   */
+  it("rejects an agent that is authorized but disabled in this environment", async () => {
+    const localRegistry = loadEffectiveAgentCatalog({ ...CONFIG_PATHS, deploymentEnvironmentDir: deployEnvironmentDir("local") });
+    expect(localRegistry.listEnabled().map(agent => agent.agentId)).not.toContain("keycloak");
+
+    const model = new MockModelClient();
+    model.enqueue({ content: JSON.stringify({ routes: [{ agent: "keycloak", task: "Check the realm." }], confidence: 1, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
+    await expect(
+      new ManagerRouter(model, localRegistry, manager).selectAgents("realm question", [...ids, "keycloak"], {}),
+    ).rejects.toMatchObject({ code: "ROUTE_INVALID" });
+  });
+
+  it("does not offer a disabled agent in the first place", async () => {
+    const localRegistry = loadEffectiveAgentCatalog({ ...CONFIG_PATHS, deploymentEnvironmentDir: deployEnvironmentDir("local") });
+    class InspectingModel implements ModelClient {
+      readonly mode = "mock" as const;
+      request?: ChatRequest;
+      async chat(request: ChatRequest): Promise<ChatResponse> { this.request = request; return { content: JSON.stringify({ routes: [], confidence: 0.2, abstain: true }), usage: { promptTokens: 1, completionTokens: 1 } }; }
+    }
+    const model = new InspectingModel();
+    await new ManagerRouter(model, localRegistry, manager).selectAgents("realm question", [...ids, "keycloak"], {});
+    const sent = JSON.parse((model.request?.messages.at(-1)?.content ?? "{}") as string) as { authorizedSpecialists: Array<{ id: string }> };
+    expect(sent.authorizedSpecialists.map(agent => agent.id)).not.toContain("keycloak");
+  });
 });
