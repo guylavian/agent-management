@@ -80,6 +80,47 @@ code path with weaker rules.
 That adapter is the reason this layer exists. Putting it next to the code that
 uses it would have been the natural place, and would have broken the boundary.
 
+## External protocols are adapters
+
+How the platform is SPOKEN TO is a boundary concern, not an execution concern.
+OpenAI Responses, A2A, MCP server exposure and enterprise messaging integrations
+are adapters at the execution boundary — initially in `runtime-host`, beside the
+HTTP app and the two transports:
+
+```
+   external caller
+        │
+        ▼
+   protocol adapter          runtime-host/src/http · one per protocol
+        │
+        ▼
+   orchestrator ──► SpecialistTransport ──► agent-engine
+```
+
+If operational requirements later justify a separate gateway or deployable, an
+adapter may be extracted without changing Agent or orchestration semantics —
+because it never had any to change.
+
+**Adding, replacing or removing an adapter must not change** Agent execution,
+orchestration, evidence, authorization or tool-execution semantics. That holds
+only if the protocol never reaches the components that decide them, so
+`check-boundaries` fails the build when `agent-engine` or `orchestrator`:
+
+- declares an HTTP/websocket server or an external protocol SDK
+  (`express`, `fastify`, `koa`, `ws`, `socket.io`, `openai`, A2A), or
+- imports a protocol's SERVER entrypoint.
+
+The distinction that matters is **consume vs expose**. `agent-engine` speaks MCP
+as a *client*, because calling a tool through ToolHive is what a specialist
+does — that is consumption, and it is legitimate. *Serving* MCP, becoming a
+server other systems call, is exposure and belongs in the adapter layer. The
+rule is therefore written against `@modelcontextprotocol/sdk/server`, not
+against the package.
+
+An external protocol must never become the internal one by default. Internal
+Orchestrator→Specialist communication stays behind
+`contracts/agent-protocol::SpecialistTransport`, whatever is bolted to the edge.
+
 ## One image, one chart, two roles
 
 `agent-engine`, `orchestrator` and `runtime-host` are separate source components

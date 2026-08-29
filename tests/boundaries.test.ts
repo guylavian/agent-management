@@ -38,6 +38,17 @@ function internalImports(dir: string): Array<{ file: string; name: string }> {
   return found;
 }
 
+/** Every bare import specifier under a directory, internal or external. */
+function internalOrExternalImports(dir: string): string[] {
+  const found: string[] = [];
+  for (const file of sourceFiles(dir)) {
+    for (const match of readFileSync(file, "utf8").matchAll(/from\s+["']([^"'.][^"']*)["']/gu)) {
+      found.push(match[1] as string);
+    }
+  }
+  return found;
+}
+
 function packageNames(zone: string): Set<string> {
   const names = new Set<string>();
   for (const entry of readdirSync(zone)) {
@@ -109,6 +120,37 @@ describe("architectural boundaries", () => {
     // only the in-process adapter may touch the engine, and only from here
     expect(inProcess).toContain("@sre/agent-engine");
     expect(http).not.toContain("@sre/agent-engine");
+  });
+
+  /**
+   * External protocol exposure — OpenAI Responses, A2A, MCP server exposure,
+   * enterprise messaging — is an ADAPTER concern that belongs at the execution
+   * boundary in runtime-host. Adding or removing one must not change Agent,
+   * orchestration, evidence, authorization or tool-execution semantics, and it
+   * cannot if the protocol never reaches the components that decide them.
+   */
+  it("keeps external protocol surfaces out of the engines", () => {
+    const servers = ["express", "fastify", "koa", "@hapi/hapi", "ws", "socket.io", "openai", "a2a-js"];
+    for (const zone of ["agent-engine", "orchestrator"]) {
+      const declared = Object.keys((JSON.parse(readFileSync(`${zone}/package.json`, "utf8")) as { dependencies?: Record<string, string> }).dependencies ?? {});
+      expect(declared.filter((name) => servers.includes(name)), zone).toEqual([]);
+    }
+    // ...and runtime-host is where the one we do speak actually lives
+    const host = Object.keys((JSON.parse(readFileSync("runtime-host/package.json", "utf8")) as { dependencies?: Record<string, string> }).dependencies ?? {});
+    expect(host).toContain("express");
+  });
+
+  /**
+   * CONSUME vs EXPOSE. A specialist calling a tool through ToolHive speaks MCP
+   * as a client, which is its job. Serving MCP — becoming a server other
+   * systems call — is exposure, and belongs in the adapter layer.
+   */
+  it("lets the engine consume MCP but never serve it", () => {
+    const engineImports = internalOrExternalImports("agent-engine");
+    expect(engineImports.some((specifier) => specifier.startsWith("@modelcontextprotocol/sdk/client"))).toBe(true);
+    for (const zone of ["agent-engine", "orchestrator"]) {
+      expect(internalOrExternalImports(zone).filter((specifier) => specifier.startsWith("@modelcontextprotocol/sdk/server")), zone).toEqual([]);
+    }
   });
 
   it("check-boundaries agrees", () => {

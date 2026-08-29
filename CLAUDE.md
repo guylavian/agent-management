@@ -7,3 +7,4 @@
 - Errors use the TDD section 24 taxonomy. Security errors never disclose policy internals.
 - Emit the TDD section 25 OpenTelemetry spans and attributes with a console/OTLP switch and the section 26 metrics. Metrics contain no user-identifying labels; traces use only `user.subject_hash`.
 - Use conventional commits, one coherent step per commit, and tag completed phases `poc-t0` through `poc-t6`.
+- External protocols are adapters at the execution boundary and must not leak into agent-engine or orchestrator; internal Orchestrator→Specialist communication remains behind SpecialistTransport.

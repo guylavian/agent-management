@@ -69,6 +69,28 @@ function imports(file: string): Array<{ name: string; line: number }> {
   return found;
 }
 
+/** Every bare import specifier in a file (not just `@sre/*`), with its line number. */
+function allImports(file: string): Array<{ specifier: string; line: number }> {
+  const found: Array<{ specifier: string; line: number }> = [];
+  const lines = readFileSync(file, "utf8").split("\n");
+  for (const [index, text] of lines.entries()) {
+    for (const match of text.matchAll(/from\s+["']([^"'.][^"']*)["']/gu)) {
+      found.push({ specifier: match[1] as string, line: index + 1 });
+    }
+  }
+  return found;
+}
+
+/** Non-`@sre/*` dependencies a workspace declares. */
+function declaredDependencies(manifest: string): string[] {
+  try {
+    const parsed = JSON.parse(readFileSync(manifest, "utf8")) as { dependencies?: Record<string, string> };
+    return Object.keys(parsed.dependencies ?? {}).filter((name) => !name.startsWith("@sre/"));
+  } catch {
+    return [];
+  }
+}
+
 function check(dir: string, rule: (name: string, file: string) => string | undefined): void {
   for (const file of sourceFiles(dir)) {
     for (const { name, line } of imports(file)) {
@@ -128,6 +150,60 @@ check("orchestrator", (name: string) =>
     : `orchestrator imports "@sre/${name}" — the orchestrator may depend only on contracts and shared${name === AGENT_ENGINE ? "; reach specialists through SpecialistTransport instead" : ""}`,
 );
 
+/**
+ * EXTERNAL PROTOCOL EXPOSURE IS AN ADAPTER CONCERN.
+ *
+ * OpenAI Responses, A2A, MCP server exposure and enterprise messaging are ways
+ * the platform is SPOKEN TO. They belong at the execution boundary, in
+ * runtime-host, next to the HTTP app and the transports. Adding, replacing or
+ * removing one must not change Agent execution, orchestration, evidence,
+ * authorization or tool-execution semantics — and it cannot, if the protocol
+ * never reaches the components that decide them.
+ *
+ * The distinction that matters is CONSUME vs EXPOSE. agent-engine speaks MCP as
+ * a CLIENT, because calling a tool through ToolHive is what a specialist does;
+ * that is consumption and it is legitimate. Serving MCP — becoming an MCP
+ * server other systems call — is exposure, and belongs in the adapter layer.
+ * So the rule is written against the SDK's server entrypoints, not the package.
+ *
+ * The internal Orchestrator→Specialist protocol stays
+ * `contracts/agent-protocol::SpecialistTransport`. An external protocol must
+ * never become the internal one by default.
+ */
+const PROTOCOL_SERVER_PACKAGES = new Set([
+  // HTTP/websocket servers — the surface an external caller connects to
+  "express", "fastify", "koa", "@hapi/hapi", "ws", "socket.io",
+  // external agent/model protocol SDKs
+  "openai", "@a2aproject/a2a-js", "a2a-js", "@google-a2a/a2a-js",
+]);
+
+/** Specifiers that expose a protocol rather than consume one. */
+const PROTOCOL_SERVER_SPECIFIERS = ["@modelcontextprotocol/sdk/server"];
+
+for (const zone of [AGENT_ENGINE, ORCHESTRATOR]) {
+  for (const dependency of declaredDependencies(join(zone, "package.json"))) {
+    if (PROTOCOL_SERVER_PACKAGES.has(dependency)) {
+      violations.push({
+        file: join(zone, "package.json"),
+        line: 1,
+        detail: `${zone} declares "${dependency}" — external protocol exposure is an adapter concern and belongs in runtime-host`,
+      });
+    }
+  }
+  for (const file of sourceFiles(zone)) {
+    for (const { specifier, line } of allImports(file)) {
+      const exposure = PROTOCOL_SERVER_SPECIFIERS.find((prefix) => specifier.startsWith(prefix));
+      if (exposure !== undefined) {
+        violations.push({
+          file,
+          line,
+          detail: `${zone} imports "${specifier}" — consuming a protocol is fine here, SERVING one is an adapter concern for runtime-host`,
+        });
+      }
+    }
+  }
+}
+
 if (violations.length > 0) {
   console.error("boundary violations:\n");
   for (const violation of violations) console.error(`  ${violation.file}:${violation.line}\n    ${violation.detail}`);
@@ -135,5 +211,5 @@ if (violations.length > 0) {
 }
 
 console.log(
-  `boundaries ok — ${CONTRACT_PACKAGES.size} contract, ${SHARED_PACKAGES.size} shared, 3 code components`,
+  `boundaries ok — ${CONTRACT_PACKAGES.size} contract, ${SHARED_PACKAGES.size} shared, 3 code components, external protocols confined to the adapter layer`,
 );
