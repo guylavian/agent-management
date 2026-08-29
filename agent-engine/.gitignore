@@ -1,0 +1,7 @@
+# The engine is its own npm project, so it needs its own ignore rules: the
+# platform's .gitignore governs platform/ only, and this directory is a sibling.
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
