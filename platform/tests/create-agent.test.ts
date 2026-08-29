@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agentDocumentSchema } from "@sre/agent-schema";
 import { agentDeploymentOverlaySchema, buildAgentCatalog, CONFIG_PATHS, DEPLOY_ROOT, deployEnvironmentDir, loadAgentRegistry, loadDeploymentEnvironment } from "@sre/config";
-import { generateAgentChange, proposeAgentChange, proposePromptChange, type AgentDraft } from "@sre/runtime-host";
+import { agentDetail, generateAgentChange, proposeAgentChange, proposePromptChange, type AgentDraft } from "@sre/runtime-host";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 
@@ -172,4 +172,69 @@ describe("Propose a prompt change", () => {
   it("refuses an empty prompt rather than generating a file the runtime would reject", () => {
     expect(() => proposePromptChange({ agent, prompt: "   ", requestedBy: "alice" })).toThrow(/prompt/u);
   });
+});
+
+/**
+ * THE ROUND TRIP that makes editing an Agent safe.
+ *
+ * Editing re-renders the WHOLE Agent document from an AgentDraft, so any field
+ * the console cannot see is a field an edit would silently delete — and a diff
+ * that quietly drops routing is one a reviewer would probably approve. This
+ * asserts that a draft rebuilt from what the portal actually holds regenerates
+ * the document it started from, for every agent in the real catalog.
+ */
+describe("Agent detail round-trips through a draft without losing anything", () => {
+  const registry = loadAgentRegistry(CONFIG_PATHS);
+
+  /** Exactly what a prefilled Create Agent wizard can know, and nothing more. */
+  const draftFromDetail = (detail: ReturnType<typeof agentDetail>, prompt: string): AgentDraft => ({
+    name: detail.id,
+    owner: detail.owner,
+    displayName: detail.displayName,
+    ...(detail.description === undefined ? {} : { description: detail.description }),
+    lifecycle: detail.lifecycle,
+    modelTier: detail.modelTier as "small" | "large",
+    modelProfile: detail.modelProfile,
+    promptFile: detail.promptFile,
+    prompt,
+    environments: detail.environments,
+    routing: detail.routing,
+    requiredRoles: detail.requiredRoles,
+    crossDomainAllowed: detail.crossDomainAllowed,
+    access: detail.access.filter(entry => entry.allowed).map(entry => ({ mcp: entry.mcp, tools: entry.allowedTools.map(tool => tool.name) })),
+    limits: detail.limits,
+  });
+
+  for (const agent of registry.listSpecialists()) {
+    it(`regenerates ${agent.name} identically`, () => {
+      const detail = agentDetail(agent, registry.catalog);
+      const regenerated = parseYaml(generateAgentChange(draftFromDetail(detail, detail.prompt)).yaml) as { spec: Record<string, unknown> };
+
+      // routing and capabilities are the fields a lossy view would drop
+      expect(regenerated.spec.routing).toEqual(agent.spec.routing);
+      expect(regenerated.spec.environments).toEqual(agent.spec.environments);
+      expect(regenerated.spec.access).toEqual(agent.spec.access);
+      expect(regenerated.spec.execution).toEqual(agent.spec.execution);
+      expect(regenerated.spec.authorization).toEqual(agent.spec.authorization);
+      expect(regenerated.spec.identity).toEqual(agent.spec.identity);
+      expect(regenerated.spec.lifecycle).toEqual(agent.spec.lifecycle);
+      expect(regenerated.spec.model).toEqual(agent.spec.model);
+      expect(regenerated.spec.prompt).toEqual(agent.spec.prompt);
+    });
+
+    /**
+     * The one loss the round-trip test above cannot catch by construction: the
+     * detail view is built by intersecting the Agent's grants with the approved
+     * catalog, so a granted tool absent from the catalog appears in NEITHER
+     * `allowedTools` nor `blockedTools` and would be silently dropped by an edit.
+     *
+     * That grant is already dead at runtime — `authorizeTool` denies it — so the
+     * fix is to notice it here rather than to let the portal quietly delete it.
+     */
+    it(`grants ${agent.name} only tools the approved catalog knows`, () => {
+      const known = new Set(registry.catalog.tools.map(tool => `${tool.serverId}/${tool.toolName}`));
+      const unknown = agent.spec.access.flatMap(entry => entry.tools.filter(tool => !known.has(`${entry.mcp}/${tool}`)).map(tool => `${entry.mcp}/${tool}`));
+      expect(unknown).toEqual([]);
+    });
+  }
 });

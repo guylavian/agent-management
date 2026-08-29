@@ -67,6 +67,17 @@ export interface AgentDetailView extends AgentSummaryView {
   limits: Record<string, number>;
   access: McpAccessView[];
   identity: { provider: string; clientId: string; authentication: string; tokenPolicy: string };
+  /**
+   * Everything below exists so the console can rebuild a COMPLETE AgentDraft.
+   *
+   * Editing an Agent re-renders the whole document from a draft, so any field
+   * the console cannot see is a field an edit would silently delete. Routing and
+   * capabilities are the dangerous ones — a reviewer would likely approve a diff
+   * that quietly dropped them. `tests/create-agent.test.ts` proves the round trip.
+   */
+  description?: string;
+  environments: string[];
+  routing: { exactTerms: string[]; entityPatterns: string[]; ambiguousTerms: string[]; capabilities: string[]; exclusions: string[] };
 }
 
 export interface McpServerView {
@@ -116,6 +127,15 @@ export function agentDetail(agent: SpecialistAgentConfig, catalog: ApprovedCatal
     crossDomainAllowed: agent.spec.discovery?.allowedNeedsDomains ?? [],
     limits: { ...agent.spec.execution },
     access: mcpAccessViews(agent, catalog),
+    ...(agent.description === undefined ? {} : { description: agent.description }),
+    environments: agent.spec.environments,
+    routing: {
+      exactTerms: agent.spec.routing.exactTerms,
+      entityPatterns: agent.spec.routing.entityPatterns,
+      ambiguousTerms: agent.spec.routing.ambiguousTerms,
+      capabilities: agent.spec.routing.capabilities,
+      exclusions: agent.spec.routing.exclusions,
+    },
     identity: {
       provider: agent.spec.identity.provider,
       clientId: agent.spec.identity.clientId,
@@ -132,11 +152,19 @@ export function agentDetail(agent: SpecialistAgentConfig, catalog: ApprovedCatal
  */
 export function mcpAccessViews(agent: SpecialistAgentConfig, catalog: ApprovedCatalog): McpAccessView[] {
   const granted = new Set(accessServers(agent.spec));
-  return allMcpIds(catalog).map((mcp) => {
+  const catalogIds = allMcpIds(catalog);
+  // The Agent's OWN declaration order comes first, then everything else it
+  // cannot reach. Editing an Agent in the portal rebuilds its document from
+  // this view, so any reordering here becomes a spurious diff in the pull
+  // request the edit opens — noise that hides the one line actually changed.
+  const ids = [...accessServers(agent.spec).filter((mcp) => catalogIds.includes(mcp)), ...catalogIds.filter((mcp) => !granted.has(mcp))];
+  return ids.map((mcp) => {
+    const declared = agent.spec.access.find((entry) => entry.mcp === mcp)?.tools ?? [];
     const toolsOnServer = catalog.tools.filter((tool) => tool.serverId === mcp).map((tool) => tool.toolName);
     const allowedTools: ToolView[] = [];
     const blockedTools: ToolView[] = [];
-    for (const name of toolsOnServer) {
+    // granted tools in the order the Agent declares them; the rest in catalog order
+    for (const name of [...declared.filter((name) => toolsOnServer.includes(name)), ...toolsOnServer.filter((name) => !declared.includes(name))]) {
       const view: ToolView = { name, classification: classifyTool(catalog, mcp, name) };
       if (granted.has(mcp) && isToolAllowed(agent.spec, mcp, name)) allowedTools.push({ ...view, role: toolRoleName(mcp, name) });
       else blockedTools.push(view);
