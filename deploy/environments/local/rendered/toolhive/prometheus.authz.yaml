@@ -11,7 +11,7 @@ version: "1.0"
 type: cedarv1
 cedar:
   policies:
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"query_ad_metrics") when { principal.claim_azp == "sre-agent-active-directory" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"query_prometheus") when { principal.claim_azp == "sre-agent-network-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"query_cluster_metrics") when { principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"query_ad_metrics") when { principal has claim_azp && principal.claim_azp == "sre-agent-active-directory" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"query_prometheus") when { principal has claim_azp && principal.claim_azp == "sre-agent-network-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"query_cluster_metrics") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
   entities_json: "[]"

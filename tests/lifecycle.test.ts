@@ -73,8 +73,8 @@ describe("agent lifecycle is consistent across every plane", () => {
   it("a non-active Agent is granted no MCP tool at the gateway", () => {
     const approved = new Set(["list_realms", "keycloak_health"]);
     const denied = renderAuthzConfig("keycloak", [], approved);
-    expect(denied).toContain("policies: []");
-    // Cedar is default-deny, so an empty policy set IS the denial
+    // an explicit blanket forbid, because ToolHive will not load an empty set
+    expect(denied).toContain("forbid(principal, action, resource);");
     expect(denied).not.toContain("permit(");
   });
 

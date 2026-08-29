@@ -52,6 +52,8 @@ describe("ToolHive access policy", () => {
     for (const environment of ENVIRONMENTS) {
       for (const file of readdirSync(`deploy/environments/${environment}/rendered/toolhive`)) {
         for (const policy of policiesFor(environment, file.replace(".authz.yaml", ""))) {
+          // the blanket forbid names no principal at all, which is the point of it
+          if (policy.startsWith("forbid(")) continue;
           expect(policy).toContain("principal.claim_azp ==");
           expect(policy).not.toContain("claim_sub");
         }
@@ -59,10 +61,31 @@ describe("ToolHive access policy", () => {
     }
   });
 
-  it("emits no permit for a server no Agent may reach here", () => {
+  /**
+   * ToolHive refuses to start a proxy whose policy set is empty ("no policies
+   * loaded"), so a server nobody may reach carries an explicit blanket forbid.
+   * An unloadable policy is not a denial, it is an outage.
+   */
+  it("explicitly forbids everything on a server no Agent may reach here", () => {
     // openshift is canonical but not deployed in the PoC environment
-    expect(policiesFor("poc", "openshift")).toEqual([]);
+    expect(policiesFor("poc", "openshift")).toEqual(["forbid(principal, action, resource);"]);
     expect(loadDeploymentEnvironment("deploy/environments/poc").overlays.get("openshift")?.enabled).toBe(false);
+  });
+
+  /**
+   * Cedar ERRORS rather than denying when a policy reads an attribute the
+   * principal lacks, so an unguarded `principal.claim_azp` turns a token without
+   * `azp` into an authorization error instead of a clean deny.
+   */
+  it("guards every claim read so a missing claim denies rather than errors", () => {
+    for (const environment of ENVIRONMENTS) {
+      for (const file of readdirSync(`deploy/environments/${environment}/rendered/toolhive`)) {
+        for (const policy of policiesFor(environment, file.replace(".authz.yaml", ""))) {
+          if (!policy.includes("claim_azp")) continue;
+          expect(policy, `${environment}/${file}`).toContain("principal has claim_azp &&");
+        }
+      }
+    }
   });
 
   it("drops an Agent that is not deployed in the environment", () => {

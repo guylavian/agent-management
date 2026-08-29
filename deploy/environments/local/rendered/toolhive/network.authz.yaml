@@ -9,8 +9,8 @@ version: "1.0"
 type: cedarv1
 cedar:
   policies:
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_bgp_status") when { principal.claim_azp == "sre-agent-network-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_interface_status") when { principal.claim_azp == "sre-agent-network-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_load_balancer_pool") when { principal.claim_azp == "sre-agent-network-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_path_health") when { principal.claim_azp == "sre-agent-network-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_bgp_status") when { principal has claim_azp && principal.claim_azp == "sre-agent-network-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_interface_status") when { principal has claim_azp && principal.claim_azp == "sre-agent-network-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_load_balancer_pool") when { principal has claim_azp && principal.claim_azp == "sre-agent-network-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_path_health") when { principal has claim_azp && principal.claim_azp == "sre-agent-network-observability" };'
   entities_json: "[]"

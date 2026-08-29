@@ -11,10 +11,10 @@ version: "1.0"
 type: cedarv1
 cedar:
   policies:
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal.claim_azp == "sre-agent-active-directory" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal.claim_azp == "sre-agent-active-directory" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal.claim_azp == "sre-agent-network-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal.claim_azp == "sre-agent-network-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal.claim_azp == "sre-agent-openshift" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal has claim_azp && principal.claim_azp == "sre-agent-active-directory" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal has claim_azp && principal.claim_azp == "sre-agent-active-directory" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal has claim_azp && principal.claim_azp == "sre-agent-network-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal has claim_azp && principal.claim_azp == "sre-agent-network-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
   entities_json: "[]"

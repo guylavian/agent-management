@@ -45,7 +45,8 @@
     "gen:management-api": "node --import tsx scripts/gen-management-api-types.ts",
     "render:toolhive": "node --import tsx scripts/render-toolhive-authz.ts",
     "reconcile:keycloak": "node --import tsx scripts/reconcile-keycloak.ts",
-    "verify:keycloak": "node --import tsx scripts/verify-keycloak-identities.ts"
+    "verify:keycloak": "node --import tsx scripts/verify-keycloak-identities.ts",
+    "verify:toolhive-policy": "./scripts/verify-toolhive-policy.sh"
   },
   "devDependencies": {
     "@types/express": "5.0.6",

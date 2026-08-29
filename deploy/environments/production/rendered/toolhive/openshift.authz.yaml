@@ -9,8 +9,8 @@ version: "1.0"
 type: cedarv1
 cedar:
   policies:
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_deployment_status") when { principal.claim_azp == "sre-agent-openshift" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_pod_status") when { principal.claim_azp == "sre-agent-openshift" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_route_status") when { principal.claim_azp == "sre-agent-openshift" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"list_namespace_events") when { principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_deployment_status") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_pod_status") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_route_status") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"list_namespace_events") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
   entities_json: "[]"

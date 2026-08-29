@@ -9,15 +9,15 @@ version: "1.0"
 type: cedarv1
 cedar:
   policies:
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"build_info") when { principal.claim_azp == "sre-agent-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"healthy") when { principal.claim_azp == "sre-agent-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"label_names") when { principal.claim_azp == "sre-agent-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"label_values") when { principal.claim_azp == "sre-agent-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"list_targets") when { principal.claim_azp == "sre-agent-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"metric_metadata") when { principal.claim_azp == "sre-agent-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"query") when { principal.claim_azp == "sre-agent-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"range_query") when { principal.claim_azp == "sre-agent-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"ready") when { principal.claim_azp == "sre-agent-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"runtime_info") when { principal.claim_azp == "sre-agent-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"series") when { principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"build_info") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"healthy") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"label_names") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"label_values") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"list_targets") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"metric_metadata") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"query") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"range_query") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"ready") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"runtime_info") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"series") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
   entities_json: "[]"

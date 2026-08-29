@@ -9,8 +9,8 @@ version: "1.0"
 type: cedarv1
 cedar:
   policies:
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_dc_health") when { principal.claim_azp == "sre-agent-active-directory" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_dns_health") when { principal.claim_azp == "sre-agent-active-directory" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_replication_status") when { principal.claim_azp == "sre-agent-active-directory" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"list_domain_controllers") when { principal.claim_azp == "sre-agent-active-directory" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_dc_health") when { principal has claim_azp && principal.claim_azp == "sre-agent-active-directory" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_dns_health") when { principal has claim_azp && principal.claim_azp == "sre-agent-active-directory" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_replication_status") when { principal has claim_azp && principal.claim_azp == "sre-agent-active-directory" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"list_domain_controllers") when { principal has claim_azp && principal.claim_azp == "sre-agent-active-directory" };'
   entities_json: "[]"

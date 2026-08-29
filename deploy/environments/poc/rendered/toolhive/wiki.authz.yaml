@@ -10,10 +10,10 @@ version: "1.0"
 type: cedarv1
 cedar:
   policies:
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal.claim_azp == "sre-agent-keycloak" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_route") when { principal.claim_azp == "sre-agent-keycloak" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal.claim_azp == "sre-agent-keycloak" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal.claim_azp == "sre-agent-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_route") when { principal.claim_azp == "sre-agent-observability" };'
-    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal has claim_azp && principal.claim_azp == "sre-agent-keycloak" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_route") when { principal has claim_azp && principal.claim_azp == "sre-agent-keycloak" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal has claim_azp && principal.claim_azp == "sre-agent-keycloak" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_route") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
   entities_json: "[]"

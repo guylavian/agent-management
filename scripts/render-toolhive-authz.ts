@@ -29,6 +29,9 @@ import { CONFIG_PATHS, isAgentEnabled, loadApprovedCatalog, loadDeploymentEnviro
  * access is a policy ON it, not a second copy of it.
  */
 
+/** Cedar is default-deny, but a policy SET must be non-empty to load at all. */
+const DENY_ALL = "forbid(principal, action, resource);";
+
 interface AgentGrant {
   workloadClientId: string;
   agentId: string;
@@ -77,8 +80,12 @@ export function renderAuthzConfig(serverId: string, grants: AgentGrant[], approv
       // the approved catalog is the outer bound; an Agent cannot be granted a
       // tool the platform never approved, even if its YAML asked for one
       if (!approvedTools.has(tool)) throw new Error(`${serverId}: agent ${grant.agentId} requests unapproved tool ${tool}`);
+      // `principal has claim_azp` is not optional: Cedar ERRORS rather than
+      // denying when a policy reads an attribute the principal lacks, so a token
+      // without `azp` would produce an authorization error instead of a clean
+      // deny. Verified against ToolHive's own Cedar engine.
       policies.push(
-        `permit(principal, action == Action::${cedarString("call_tool")}, resource == Tool::${cedarString(tool)}) when { principal.claim_azp == ${cedarString(grant.workloadClientId)} };`,
+        `permit(principal, action == Action::${cedarString("call_tool")}, resource == Tool::${cedarString(tool)}) when { principal has claim_azp && principal.claim_azp == ${cedarString(grant.workloadClientId)} };`,
       );
     }
   }
@@ -91,13 +98,16 @@ export function renderAuthzConfig(serverId: string, grants: AgentGrant[], approv
     "#",
     `# MCP server: ${serverId}`,
     ...(grants.length === 0
-      ? ["# No Agent is granted access to this server in this environment."]
+      ? ["# No Agent is granted access to this server in this environment: the", "# policy below forbids everything explicitly."]
       : grants.map((grant) => `#   ${grant.agentId} (${grant.workloadClientId}) -> ${grant.tools.length} tool(s), aud ${grant.audience}`)),
   ].join("\n");
 
-  const body = policies.length === 0
-    ? 'version: "1.0"\ntype: cedarv1\ncedar:\n  policies: []\n  entities_json: "[]"\n'
-    : `version: "1.0"\ntype: cedarv1\ncedar:\n  policies:\n${policies.map((policy) => `    - '${policy}'`).join("\n")}\n  entities_json: "[]"\n`;
+  // ToolHive refuses to start a proxy whose policy set is empty ("no policies
+  // loaded"), so a server nobody may reach gets an explicit blanket forbid
+  // rather than an empty list. An unloadable policy is not a denial; it is an
+  // outage. Verified against ToolHive's own Cedar engine.
+  const effective = policies.length === 0 ? [DENY_ALL] : policies;
+  const body = `version: "1.0"\ntype: cedarv1\ncedar:\n  policies:\n${effective.map((policy) => `    - '${policy}'`).join("\n")}\n  entities_json: "[]"\n`;
 
   return `${header}\n${body}`;
 }
