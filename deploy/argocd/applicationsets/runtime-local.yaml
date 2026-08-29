@@ -62,16 +62,15 @@ spec:
               # A specialist accepts that call but never dials another agent.
               - name: clients.agent
                 value: '{{ if eq .agent.mode "manager" }}http-local{{ else }}mock{{ end }}'
-              # Ollama on the developer's Mac, reached through the Docker Desktop
-              # host gateway. Config validation needs the URL set, not reachable,
-              # so a stopped Ollama degrades queries rather than the deployment.
+              # The endpoint, its credential and the served model id come from
+              # the runtime chart's integrations Secret, not from this manifest.
+              #
+              # They were hardcoded to an Ollama on the developer's Mac reached
+              # through the Docker Desktop host gateway, which meant this
+              # deployment only worked on a machine running one — and carried a
+              # "/no_think" suffix to dodge a 500 that thinking-mode plus strict
+              # json_schema triggered on that model. Neither belongs in Git.
               - { name: clients.llm, value: real }
-              - { name: extraEnv.SRE_LLM_TIER_S_URL, value: "http://host.docker.internal:11434" }
-              - { name: extraEnv.SRE_LLM_TIER_L_URL, value: "http://host.docker.internal:11434" }
-              - { name: extraEnv.SRE_LLM_MODEL, value: "qwen3:8b" }
-              # thinking-mode + strict json_schema trips an Ollama 500; documented
-              # small-model trade-off, same value the compose overlay uses
-              - { name: extraEnv.SRE_LLM_SYSTEM_SUFFIX, value: "/no_think" }
               - { name: extraEnv.SRE_REQUEST_DEADLINE_MS, value: "300000" }
       destination:
         server: https://kubernetes.default.svc

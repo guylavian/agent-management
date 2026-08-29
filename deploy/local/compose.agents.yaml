@@ -2,7 +2,8 @@
 # Manager + specialists each run as their own container from ONE runtime image.
 # Wiki is a shared MCP tool: each specialist reaches the REAL wikikb MCP (direct),
 # and falls back to the mock gateway for its domain backends (no local AD/OCP/net
-# MCP or ToolHive). qwen3:8b via Ollama. Identity is mock-but-shared (local dev).
+# MCP or ToolHive). The model endpoint comes from the environment. Identity is
+# mock-but-shared (local dev).
 #
 #   docker compose -f deploy/local/compose.agents.yaml up -d
 #   TOKEN=$(curl -s -X POST http://localhost:3000/dev/token/alice | sed -E 's/.*"token":"([^"]+)".*/\1/')
@@ -26,12 +27,12 @@ x-specialist-env: &specialist-env
   SRE_ENV: local
   SRE_CLIENT_OIDC: mock
   SRE_CLIENT_LLM: real
-  SRE_LLM_TIER_S_URL: http://host.docker.internal:11434
-  SRE_LLM_TIER_L_URL: http://host.docker.internal:11434
-  SRE_LLM_MODEL: qwen3:8b
-  # /no_think avoids the Ollama 500 that thinking-mode + strict json_schema hits;
-  # trade-off: qwen3:8b converges less reliably (documented small-model gate).
-  SRE_LLM_SYSTEM_SUFFIX: "/no_think"
+  # supplied by the environment, never hardcoded to one provider — this pointed
+  # at a local Ollama, which tied the compose stack to a model that needed a
+  # "/no_think" suffix to survive strict json_schema
+  SRE_LLM_BASE_URL: ${SRE_LLM_BASE_URL:?set SRE_LLM_BASE_URL}
+  SRE_LLM_API_KEY: ${SRE_LLM_API_KEY:-}
+  SRE_LLM_MODEL: ${SRE_LLM_MODEL:-openai/gpt-oss-20b}
   SRE_REQUEST_DEADLINE_MS: "300000"
   SRE_CLIENT_DELEGATION: mock
   SRE_DELEGATION_MOCK_SECRET: local-shared-delegation-secret-change-me-0001

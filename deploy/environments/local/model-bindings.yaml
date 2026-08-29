@@ -1,21 +1,27 @@
 apiVersion: sre.ai/v1alpha1
 kind: ModelBindings
 environment: local
-# Local Ollama through the OpenAI-compatible path. The endpoint is supplied by
-# the compose file, not rendered, so this file stays credential-free.
+# The local environment uses the SAME hosted OpenAI-compatible endpoint as the
+# PoC. It ran a local Ollama, which is why every profile below once said
+# qwen3:8b: an 8B model converged unreliably on strict json_schema and needed a
+# "/no_think" suffix to avoid a provider 500, so the environment was slower and
+# less predictable than the one it was meant to rehearse.
+#
+# Only logical model ids are recorded here. The endpoint and its credential come
+# from the environment, so this file stays credential-free.
 profiles:
   manager-router:
-    provider: ollama
-    model: qwen3:8b
+    provider: openai-compatible
+    model: openai/gpt-oss-20b
   tool-caller:
-    provider: ollama
-    model: qwen3:8b
+    provider: openai-compatible
+    model: openai/gpt-oss-20b
   tier-l-synthesis:
-    provider: ollama
-    model: qwen3:8b
+    provider: openai-compatible
+    model: openai/gpt-oss-20b
   # PLATFORM profile, not an Agent's. It backs console assistance such as
   # drafting a system prompt, and is bound here like any other profile so an
   # air-gapped deployment resolves it to the same internal endpoint as the rest.
   prompt-assist:
-    provider: ollama
-    model: qwen3:8b
+    provider: openai-compatible
+    model: openai/gpt-oss-20b

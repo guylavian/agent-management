@@ -16,5 +16,5 @@ resources:
   requests: { cpu: "500m", memory: "512Mi" }
   limits: { cpu: "1", memory: "1Gi" }
 modelEnv:
-  SRE_MODEL_TOOL_CALLER: "qwen3:8b"
+  SRE_MODEL_TOOL_CALLER: "openai/gpt-oss-20b"
 promptSha256: c17d1fa676f422117dd5e9d161dfba662a4a030f0455443d52fc39a687b639d8
