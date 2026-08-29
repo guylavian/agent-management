@@ -1,0 +1,3 @@
+# Per-developer Claude Code state. The checked-in context is CLAUDE.md and
+# STATUS.md; anything machine-local stays out.
+settings.local.json

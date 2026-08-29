@@ -1,0 +1,34 @@
+# Ignore rules live with the subtree they govern. `platform/` is the npm
+# workspace root, so everything build- and run-related is scoped here rather
+# than at the Git root, which holds directories only.
+
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# derived local state: engineering/eval writes results, and the real PoC keeps
+# its whole workspace (vendored sources, keycloak/prometheus data, pids, keys)
+# under .real-poc so it is reproducible rather than committed
+engineering/eval/results/
+.real-poc/
+
+# real credentials for the local PoC; only the .example templates are committed
+.env
+.env.real-poc
+
+# generated locally by scripts/gen-keycloak-cert.sh — a private key, never committed
+deploy/local/keycloak/certs/
+
+# Backstage build output and local install (its own Yarn workspace)
+management/portal/dist
+management/portal/dist-types
+management/portal/**/dist
+management/portal/**/dist-types
+management/portal/.yarn/cache
+management/portal/.yarn/install-state.gz
+management/portal/node_modules
+
+# source archives produced on demand
+sre-agent-platform-source.zip

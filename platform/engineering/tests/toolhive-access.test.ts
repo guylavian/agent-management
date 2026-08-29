@@ -1,0 +1,125 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { CONFIG_PATHS, loadApprovedCatalog, loadDeploymentEnvironment } from "@sre/config";
+import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
+import { grantsByServer, renderAuthzConfig } from "../tools/render-toolhive-authz.ts";
+
+/**
+ * Agent → MCP → tool access as ToolHive actually enforces it.
+ *
+ * The runtime already enforces its own allowlist. This is the SECOND, independent
+ * bound: even a specialist that somehow asked for a tool outside its policy is
+ * refused at the gateway, because Cedar is default-deny and the policy is derived
+ * from the same canonical Agent configuration.
+ *
+ * Defense in depth means neither layer may be removed because the other exists.
+ */
+
+const ENVIRONMENTS = readdirSync("deploy/environments").sort();
+const catalog = loadApprovedCatalog(CONFIG_PATHS.mcpServersDir);
+
+function policiesFor(environment: string, serverId: string): string[] {
+  const parsed = parseYaml(readFileSync(`deploy/environments/${environment}/rendered/toolhive/${serverId}.authz.yaml`, "utf8")) as {
+    type: string;
+    cedar: { policies: string[] };
+  };
+  expect(parsed.type).toBe("cedarv1");
+  return parsed.cedar.policies;
+}
+
+describe("ToolHive access policy", () => {
+  it.each(ENVIRONMENTS)("%s renders one policy file per approved MCP server", (environment) => {
+    const servers = [...new Set(catalog.tools.map((tool) => tool.serverId))].sort();
+    const rendered = readdirSync(`deploy/environments/${environment}/rendered/toolhive`).map((file) => file.replace(".authz.yaml", "")).sort();
+    expect(rendered).toEqual(servers);
+  });
+
+  it("grants each Agent exactly the tools its canonical policy allows", () => {
+    const policies = policiesFor("production", "keycloak");
+    const keycloakTools = ["find_user", "get_client", "keycloak_health", "keycloak_read", "list_clients", "list_realms", "resolve_client_uuid"];
+    for (const tool of keycloakTools) {
+      expect(policies.some((policy) => policy.includes(`Tool::"${tool}"`) && policy.includes(`claim_azp == "sre-agent-keycloak"`))).toBe(true);
+    }
+    expect(policies).toHaveLength(keycloakTools.length);
+  });
+
+  /**
+   * The identity in the policy is the AGENT WORKLOAD (`azp`), not the human
+   * (`sub`). Keying on the human would authorize a person to a tool, which is a
+   * different question from authorizing an Agent to a tool.
+   */
+  it("scopes on the Agent workload, never the human subject", () => {
+    for (const environment of ENVIRONMENTS) {
+      for (const file of readdirSync(`deploy/environments/${environment}/rendered/toolhive`)) {
+        for (const policy of policiesFor(environment, file.replace(".authz.yaml", ""))) {
+          // the blanket forbid names no principal at all, which is the point of it
+          if (policy.startsWith("forbid(")) continue;
+          expect(policy).toContain("principal.claim_azp ==");
+          expect(policy).not.toContain("claim_sub");
+        }
+      }
+    }
+  });
+
+  /**
+   * ToolHive refuses to start a proxy whose policy set is empty ("no policies
+   * loaded"), so a server nobody may reach carries an explicit blanket forbid.
+   * An unloadable policy is not a denial, it is an outage.
+   */
+  it("explicitly forbids everything on a server no Agent may reach here", () => {
+    // openshift is canonical but not deployed in the PoC environment
+    expect(policiesFor("poc", "openshift")).toEqual(["forbid(principal, action, resource);"]);
+    expect(loadDeploymentEnvironment("deploy/environments/poc").overlays.get("openshift")?.enabled).toBe(false);
+  });
+
+  /**
+   * Cedar ERRORS rather than denying when a policy reads an attribute the
+   * principal lacks, so an unguarded `principal.claim_azp` turns a token without
+   * `azp` into an authorization error instead of a clean deny.
+   */
+  it("guards every claim read so a missing claim denies rather than errors", () => {
+    for (const environment of ENVIRONMENTS) {
+      for (const file of readdirSync(`deploy/environments/${environment}/rendered/toolhive`)) {
+        for (const policy of policiesFor(environment, file.replace(".authz.yaml", ""))) {
+          if (!policy.includes("claim_azp")) continue;
+          expect(policy, `${environment}/${file}`).toContain("principal has claim_azp &&");
+        }
+      }
+    }
+  });
+
+  it("drops an Agent that is not deployed in the environment", () => {
+    const poc = grantsByServer("poc");
+    const wikiAgents = (poc.get("wiki") ?? []).map((grant) => grant.agentId).sort();
+    expect(wikiAgents).toEqual(["keycloak", "observability"]);
+    // the same Agents that the Manager's effective catalog will route to
+    expect((poc.get("network") ?? [])).toEqual([]);
+  });
+
+  it("refuses to render a grant for a tool the platform never approved", () => {
+    expect(() =>
+      renderAuthzConfig("keycloak", [{ workloadClientId: "sre-agent-keycloak", agentId: "keycloak", tools: ["delete_realm"], audience: "sre-toolhive:keycloak" }], new Set(["list_realms"])),
+    ).toThrow(/unapproved tool delete_realm/u);
+  });
+
+  it("refuses to render an identifier that could escape the policy string", () => {
+    expect(() =>
+      renderAuthzConfig("keycloak", [{ workloadClientId: 'sre-agent-x"; permit(principal, action, resource); //', agentId: "x", tools: ["list_realms"], audience: "a" }], new Set(["list_realms"])),
+    ).toThrow(/unexpected identifier/u);
+  });
+
+  it("is deterministic", () => {
+    const first = renderAuthzConfig("wiki", grantsByServer("production").get("wiki") ?? [], new Set(["wiki_search", "wiki_read_page", "wiki_route"]));
+    const second = renderAuthzConfig("wiki", grantsByServer("production").get("wiki") ?? [], new Set(["wiki_search", "wiki_read_page", "wiki_route"]));
+    expect(first).toBe(second);
+  });
+
+  it("keeps one proxy per MCP server — access is a policy on it, not a copy of it", () => {
+    const script = readFileSync("engineering/tools/start-real-poc.sh", "utf8");
+    const runs = [...script.matchAll(/^run_proxy .*$/gmu)].map((match) => match[0]);
+    const names = runs.map((line) => line.split(/\s+/u)[2]);
+    expect(new Set(names).size).toBe(names.length);
+    // every proxy is started with a rendered policy, not with tool filtering alone
+    expect(script).toContain("--authz-config");
+  });
+});
