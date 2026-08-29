@@ -1,0 +1,20 @@
+# BuildKit reads <dockerfile>.dockerignore in preference to a context-root
+# .dockerignore, which lets the exclusions live beside the Dockerfile instead of
+# as a file at the repository root.
+**/node_modules
+platform/.real-poc
+platform/.env*
+.git
+.claude
+.woodpecker
+docs
+platform/management/portal
+platform/tests
+platform/eval
+platform/tools
+deploy/local
+deploy/argocd
+deploy/portal
+deploy/supply-chain
+**/*.log
+**/.DS_Store

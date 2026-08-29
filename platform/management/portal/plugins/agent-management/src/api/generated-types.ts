@@ -2,7 +2,7 @@
 /**
  * GENERATED FILE — DO NOT EDIT.
  *
- * Produced by `npm run gen:management-api` from libs/contracts/management-api/openapi.yaml
+ * Produced by `npm run gen:management-api` from platform/contracts/management-api/openapi.yaml
  * (version 0.1.0). CI re-generates and fails on any diff, so an
  * edit here is lost rather than applied — change the OpenAPI document instead.
  */

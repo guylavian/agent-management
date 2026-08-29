@@ -1,0 +1,35 @@
+{
+  "name": "@sre/agent-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@sre/agent-schema": "file:../platform/contracts/agent-schema",
+    "@sre/auth": "file:../platform/shared/auth",
+    "@sre/config": "file:../platform/shared/config-loader",
+    "@sre/evidence": "file:../platform/contracts/evidence",
+    "@sre/llm": "file:../platform/shared/llm",
+    "@sre/redaction": "file:../platform/shared/redaction",
+    "@sre/telemetry": "file:../platform/shared/telemetry",
+    "ajv": "8.20.0",
+    "zod": "4.4.3"
+  },
+  "description": "Generic Specialist Agent engine. Domain-neutral: identity, prompt, tool allowlist and every budget arrive as configuration.",
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "oxlint": "1.80.0",
+    "tsx": "4.23.11",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src tests",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm run test"
+  }
+}

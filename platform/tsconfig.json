@@ -13,7 +13,7 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["libs", "core", "engineering"],
+  "include": ["contracts", "shared", "orchestrator", "runtime-host", "tools", "tests", "eval"],
   // management/portal is a self-contained Backstage yarn workspace with its own
   // React/JSX toolchain and tsconfig; it is checked by `npm run check:portal`
   "exclude": ["management/portal", "**/node_modules"]

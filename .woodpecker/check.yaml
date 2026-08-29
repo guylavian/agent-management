@@ -1,8 +1,11 @@
 when:
   - event: [push, pull_request]
 
-# The Git root is a repository shell holding directories only. The software is
-# one npm workspace rooted at platform/, so every step runs from there.
+# The Git root holds directories only, and three of them are first-class
+# concerns: agent-engine/ (the generic engine), platform/ (the SRE platform
+# built on it) and deploy/ (how they are packaged). agent-engine is its own npm
+# project, so `npm run check` in platform/ delegates into it rather than the two
+# being separate CI concerns.
 steps:
   check:
     image: node:24-alpine
@@ -10,9 +13,9 @@ steps:
     commands:
       - apk add --no-cache git helm
       - npm ci
-      # The one command that validates the repository: typecheck, lint, the
-      # architectural boundary check, tests, YAML validation, generated-artifact
-      # freshness and Helm lint/render.
+      - npm --prefix ../agent-engine ci
+      # typecheck, lint, boundaries, tests (platform + engine), YAML validation,
+      # generated-artifact freshness and Helm lint/render.
       #
       # Generated artifacts are committed AND verified: `check:generated` re-runs
       # every generator and fails on any diff, so a stale JSON Schema, a stale
