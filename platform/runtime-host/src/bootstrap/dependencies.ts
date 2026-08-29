@@ -61,6 +61,13 @@ export interface ManagerDependencies extends CommonDependencies {
   agent: ManagerAgentConfig;
   oidc: OidcClient;
   synthesisModel: ModelClient;
+  /**
+   * Backs console assistance on the platform `prompt-assist` profile. It is the
+   * SAME transport as every other model — only the logical profile differs, so
+   * an environment binds it wherever it binds the rest, including an internal
+   * OpenAI-compatible endpoint in an air-gapped deployment.
+   */
+  promptAssistModel: ModelClient;
   registry: AgentCatalog;
   agentClient: SpecialistTransport;
   identityIssuer: DelegatedIdentityIssuer;
@@ -149,6 +156,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       ...(managementRegistry ? { managementRegistry } : {}),
       identityIssuer,
       model,
+      promptAssistModel: buildPromptAssistModel(config, model),
       synthesisModel: config.clients.llm === "mock" ? model : config.llm.baseUrl ? model : new RealOpenAiCompatibleClient(config.llm.tierLUrl as string, { modelMap: buildModelMap(config, config.llm.tierLModel ?? config.llm.model), ...(config.llm.systemSuffix ? { systemSuffix: config.llm.systemSuffix } : {}) }),
       oidc: config.clients.oidc === "mock" ? new MockOidcClient(config.oidc) : new RealOidcClient(config.oidc),
       sessionStore: config.clients.postgres === "mock" ? new MockSessionStore() : config.clients.postgres === "disabled" ? new DisabledSessionStore() : new PostgresSessionStore(config.postgres.connectionString as string),
@@ -240,7 +248,26 @@ function assertModelProfilesResolve(config: AppConfig, agent: ManagerAgentConfig
 }
 
 /** Maps logical profiles to configured model ids; falls back to a single served model. */
-function buildModelMap(config: AppConfig, fallback?: string): Record<string, string> {
+/**
+ * The client behind console assistance.
+ *
+ * When the environment binds its own endpoint, drafting runs there and nowhere
+ * near the Agents' provider — which is the point of a platform profile: a dev
+ * box can leave the Agents on a local model and point drafting at a hosted one,
+ * and an air-gapped deployment points both at internal endpoints. With nothing
+ * bound it reuses the shared client, so the feature still works out of the box.
+ */
+function buildPromptAssistModel(config: AppConfig, shared: ModelClient): ModelClient {
+  const baseUrl = config.llm.promptAssistBaseUrl;
+  if (baseUrl === undefined || config.clients.llm === "mock") return shared;
+  const served = config.llm.promptAssistModel;
+  return new RealOpenAiCompatibleClient(baseUrl, {
+    ...(config.llm.promptAssistApiKey ? { apiKey: config.llm.promptAssistApiKey } : {}),
+    ...(served ? { modelMap: { "prompt-assist": served } } : {}),
+  });
+}
+
+export function buildModelMap(config: AppConfig, fallback?: string): Record<string, string> {
   const map: Record<string, string> = {};
   const manager = config.llm.managerModel ?? fallback;
   const tool = config.llm.toolCallerModel ?? fallback;
@@ -248,6 +275,18 @@ function buildModelMap(config: AppConfig, fallback?: string): Record<string, str
   if (manager) map["manager-router"] = manager;
   if (tool) map["tool-caller"] = tool;
   if (synthesis) map["tier-l-synthesis"] = synthesis;
+  /*
+   * Platform assistance, bound per environment like any other profile.
+   *
+   * The fallback degrades through the profiles that ARE configured rather than
+   * only through `llm.model`: a deployment that sets the three agent profiles
+   * and nothing else — which is what the PoC does — would otherwise leave
+   * `prompt-assist` out of the map entirely, and the literal string would travel
+   * to the provider as if it were a served model id. The profile stays distinct
+   * so an environment can still bind it somewhere else.
+   */
+  const promptAssist = config.llm.promptAssistModel ?? fallback ?? tool ?? manager;
+  if (promptAssist) map["prompt-assist"] = promptAssist;
   return map;
 }
 

@@ -136,6 +136,25 @@ export async function createRouter({
   });
 
   /**
+   * Draft a system prompt. The browser never reaches a model directly: the
+   * request goes portal → this backend → the runtime → the environment's bound
+   * `prompt-assist` profile, so an air-gapped deployment resolves it to an
+   * internal endpoint with nothing in the browser changing.
+   *
+   * Gated on the same permission as editing access, because drafting text that
+   * an operator will paste into a prompt is an authoring action.
+   */
+  router.post('/prompt-assist', async (request, response) => {
+    await requirePermission(request, agentAccessEditPermission);
+    if (!runtime.configured) {
+      response.status(501).json({ status: 'not-configured', reason: 'sreAgent.managementApi.baseUrl is not set' });
+      return;
+    }
+    const result = await runtime.post('/management/prompt-assist', request.body);
+    response.status(result.status).json(result.body);
+  });
+
+  /**
    * The Manager. Same split as every other change: the runtime RENDERS because
    * it owns the schema, the management plane PUBLISHES because it owns the Git
    * credential. Editing the routing table decides which specialists a request

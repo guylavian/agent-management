@@ -9,6 +9,7 @@ import type {
   ManagerDraft,
   McpServer,
   PermissionMatrix,
+  PromptAssistRequest,
   RunDetail,
   RunSummary,
 } from './types';
@@ -122,6 +123,16 @@ export function useAgentActions() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(draft),
+      }),
+    /**
+     * Draft a system prompt from the form as it stands. Returns text only —
+     * nothing is saved and no pull request is opened by this call.
+     */
+    draftPrompt: (context: PromptAssistRequest) =>
+      request<{ prompt: string }>('/prompt-assist', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(context),
       }),
     /** Propose a prompt edit. Touches one file; the Agent document is untouched. */
     proposePrompt: (id: string, prompt: string) =>

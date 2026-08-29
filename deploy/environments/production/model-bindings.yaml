@@ -15,3 +15,9 @@ profiles:
   tier-l-synthesis:
     provider: vllm
     model: qwen3-32b
+  # PLATFORM profile, not an Agent's. It backs console assistance such as
+  # drafting a system prompt, and is bound here like any other profile so an
+  # air-gapped deployment resolves it to the same internal endpoint as the rest.
+  prompt-assist:
+    provider: vllm
+    model: qwen3-8b

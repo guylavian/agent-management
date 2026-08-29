@@ -1,15 +1,19 @@
 import { Router, type Request, type Response } from "express";
 import type { AgentRegistry, AppConfig } from "@sre/config";
+import type { ModelClient } from "@sre/llm";
 import {
   agentDetail,
   agentSummary,
   AgentDraftError,
+  draftSystemPrompt,
   managerDetail,
   mcpServerViews,
   permissionMatrix,
   proposeAgentChange,
   proposeManagerChange,
   proposePromptChange,
+  PromptAssistError,
+  safeContext,
   type AgentDraft,
   type ManagerDraft,
   type RunStore,
@@ -28,6 +32,12 @@ export interface ManagementDeps {
   registry: AgentRegistry;
   config: AppConfig;
   runs: RunStore;
+  /**
+   * Backs console assistance only, on the platform `prompt-assist` profile.
+   * Optional: a deployment that does not want a drafting aid simply omits it,
+   * and the endpoint reports that rather than falling back to an Agent's model.
+   */
+  promptAssistModel?: ModelClient;
 }
 
 export function managementRouter(deps: ManagementDeps): Router {
@@ -147,6 +157,37 @@ export function managementRouter(deps: ManagementDeps): Router {
    */
   router.get("/manager", (_request: Request, response: Response) => {
     response.json(managerDetail(deps.registry));
+  });
+
+  /**
+   * Draft a system prompt from the form the operator currently has open.
+   *
+   * PURE with respect to this platform: it stores nothing, proposes nothing and
+   * opens no pull request. The text is returned for the operator to edit, and
+   * every guarantee the runtime makes is enforced against configuration rather
+   * than against whatever the draft says.
+   *
+   * The body is projected onto an allowlist before it leaves the process, so a
+   * field added to the portal's form later cannot start travelling to a model
+   * by accident.
+   */
+  router.post("/prompt-assist", async (request: Request, response: Response) => {
+    if (deps.promptAssistModel === undefined) {
+      response.status(501).json({ code: "NOT_CONFIGURED", message: "No prompt-assist model profile is configured for this environment" });
+      return;
+    }
+    try {
+      const context = safeContext(request.body);
+      const prompt = await draftSystemPrompt(deps.promptAssistModel, context);
+      response.json({ prompt });
+    } catch (error) {
+      if (error instanceof PromptAssistError) {
+        response.status(400).json({ code: "PROMPT_ASSIST_INVALID", message: error.reason });
+        return;
+      }
+      // never echo a provider error body: it can disclose endpoints or policy
+      response.status(502).json({ code: "PROMPT_ASSIST_UNAVAILABLE", message: "The prompt could not be drafted" });
+    }
   });
 
   /** Render the Manager change-set. PURE, exactly like /agents/preview. */

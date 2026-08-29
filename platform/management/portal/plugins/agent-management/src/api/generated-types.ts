@@ -87,6 +87,25 @@ export interface AgentDetail {
 }
 
 /**
+ * The unsaved form, as the operator currently has it. Only these fields are read; anything else in the body is discarded by the projection.
+ */
+
+export interface PromptAssistRequest {
+  name: string;
+  displayName?: string;
+  description?: string;
+  owner?: string;
+  routing?: AgentDraftRouting;
+  crossDomainAllowed?: Array<string>;
+  environments?: Array<string>;
+  requiredRoles?: Array<string>;
+  access?: Array<AgentDraftAccess>;
+  limits?: Record<string, number>;
+  /** The current prompt */
+  prompt?: string;
+}
+
+/**
  * The Manager. Deliberately NOT an AgentDetail: it has no workloadClientId, no access and no routing vocabulary, because it calls no tool. Like AgentDetail, it carries everything needed to rebuild a ManagerDraft, so editing cannot silently delete a field the console never displayed.
  */
 

@@ -99,6 +99,8 @@ export function CreateAgentPage(props: { agentId?: string }) {
   const [pr, setPr] = useState<{ url: string; status: string; reason?: string } | undefined>();
   const [busy, setBusy] = useState(false);
   const [editingMcp, setEditingMcp] = useState<string | undefined>();
+  const [drafting, setDrafting] = useState(false);
+  const [draftError, setDraftError] = useState<string | undefined>();
 
   /**
    * Prefill once the Agent arrives. Every field the form can edit is filled
@@ -165,6 +167,40 @@ export function CreateAgentPage(props: { agentId?: string }) {
       setIssues(body.issues ?? [body.message ?? 'Preview failed']);
     } finally {
       setBusy(false);
+    }
+  };
+
+  /**
+   * Ask the platform to draft a prompt from the form as it stands.
+   *
+   * The context sent is the UNSAVED form, which is the point — the draft
+   * describes the agent being built, not the one on disk. On failure the
+   * existing prompt is left exactly as it was: a drafting aid that can wipe
+   * someone's work when a model is unreachable is worse than no aid.
+   */
+  const runDraft = async () => {
+    setDrafting(true);
+    setDraftError(undefined);
+    try {
+      const result = await actions.draftPrompt({
+        name: draft.name,
+        ...(draft.displayName ? { displayName: draft.displayName } : {}),
+        ...(draft.description ? { description: draft.description } : {}),
+        ...(draft.owner ? { owner: draft.owner } : {}),
+        ...(draft.routing ? { routing: draft.routing } : {}),
+        ...(draft.crossDomainAllowed ? { crossDomainAllowed: draft.crossDomainAllowed } : {}),
+        ...(draft.environments ? { environments: draft.environments } : {}),
+        requiredRoles: draft.requiredRoles,
+        access: draft.access,
+        limits,
+        ...(prompt.trim() ? { prompt } : {}),
+      });
+      setPrompt(result.prompt);
+    } catch (error) {
+      const body = error as { message?: string };
+      setDraftError(body.message ?? 'The prompt could not be drafted. Your prompt has not been changed.');
+    } finally {
+      setDrafting(false);
     }
   };
 
@@ -260,9 +296,29 @@ export function CreateAgentPage(props: { agentId?: string }) {
             ]}
           />
         </div>
-        <Field label="System prompt" hint={`${prompt.trim() ? Math.ceil(prompt.length / 4) : 0} tokens (estimate), saved to config/prompts/${draft.name || '<name>'}.md`}>
-          <textarea style={{ ...inputStyle, width: '100%', minHeight: 240, fontFamily: MONO, fontSize: 12.5, lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box' }} value={prompt} onChange={event => setPrompt(event.target.value)} />
-        </Field>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: S.md, marginBottom: S.sm }}>
+          <div style={{ flex: 1, fontSize: 12.5, fontWeight: 500, color: C.body }}>System prompt</div>
+          {/* the draft fills the field the operator still owns: nothing is saved
+              and no pull request is opened by this button */}
+          <Button variant="secondary" onClick={runDraft} disabled={drafting || !draft.name}>
+            {drafting ? 'Drafting…' : prompt.trim() ? 'Improve with AI' : 'Generate with AI'}
+          </Button>
+          {prompt.trim() !== '' && !drafting && (
+            <Button variant="link" onClick={runDraft} disabled={!draft.name}>Regenerate</Button>
+          )}
+        </div>
+        <textarea
+          aria-label="System prompt"
+          style={{ ...inputStyle, width: '100%', minHeight: 240, fontFamily: MONO, fontSize: 12.5, lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box' }}
+          value={prompt}
+          onChange={event => setPrompt(event.target.value)}
+        />
+        <div style={{ fontSize: 11.5, color: C.dim, marginTop: S.xs }}>
+          {prompt.trim() ? Math.ceil(prompt.length / 4) : 0} tokens (estimate), saved to config/prompts/{draft.name || '<name>'}.md
+        </div>
+        {draftError !== undefined && (
+          <div style={{ marginTop: S.sm }}><StatusPill tone="danger">{draftError}</StatusPill></div>
+        )}
         {prompt.trim().length === 0 && (
           <div style={{ marginTop: S.sm }}><StatusPill tone="warn">A prompt file is required before the agent can start</StatusPill></div>
         )}

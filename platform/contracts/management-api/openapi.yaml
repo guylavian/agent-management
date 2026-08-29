@@ -40,6 +40,44 @@ paths:
                     items: { $ref: "#/components/schemas/AgentSummary" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
 
+  /prompt-assist:
+    post:
+      operationId: draftSystemPrompt
+      summary: Draft a system prompt from unsaved form context. Stores nothing.
+      description: >-
+        Returns prompt text for the operator to edit. It saves nothing, proposes
+        nothing and opens no pull request, and the generated text is guidance
+        only — authorization, tool allowlists and the read-only posture are
+        enforced by the runtime against configuration, never by a prompt.
+
+        The request body is projected onto a fixed allowlist of scalars and
+        string arrays before it leaves the process, so no credential, token or
+        audience can travel with it. The model is the platform `prompt-assist`
+        profile, bound per environment, and never the Agent's own profile.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptAssistRequest" }
+      responses:
+        "200":
+          description: The drafted prompt.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [prompt]
+                properties:
+                  prompt: { type: string }
+        "400": { $ref: "#/components/responses/DraftInvalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "501":
+          description: No prompt-assist profile is bound in this environment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotConfigured" }
+
   /manager:
     get:
       operationId: getManager
@@ -375,6 +413,29 @@ components:
           type: array
           items: { $ref: "#/components/schemas/McpAccessView" }
         identity: { $ref: "#/components/schemas/AgentIdentityView" }
+
+    PromptAssistRequest:
+      type: object
+      description: >-
+        The unsaved form, as the operator currently has it. Only these fields
+        are read; anything else in the body is discarded by the projection.
+      required: [name]
+      properties:
+        name: { type: string }
+        displayName: { type: string }
+        description: { type: string }
+        owner: { type: string }
+        routing: { $ref: "#/components/schemas/AgentDraftRouting" }
+        crossDomainAllowed: { type: array, items: { type: string } }
+        environments: { type: array, items: { type: string } }
+        requiredRoles: { type: array, items: { type: string } }
+        access:
+          type: array
+          items: { $ref: "#/components/schemas/AgentDraftAccess" }
+        limits:
+          type: object
+          additionalProperties: { type: number }
+        prompt: { type: string, description: The current prompt, when asking for an improvement rather than a first draft. }
 
     ManagerDetail:
       type: object

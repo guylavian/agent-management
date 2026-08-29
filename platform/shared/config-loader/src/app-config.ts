@@ -89,6 +89,21 @@ export const appConfigSchema = z
         // logical profile → served model id
         managerModel: z.string().optional(),
         toolCallerModel: z.string().optional(),
+        /**
+         * PLATFORM-level profile, not an Agent's. It backs console assistance
+         * such as drafting a system prompt, and is bound per environment — a
+         * hosted endpoint in dev, an internal OpenAI-compatible model in an
+         * air-gapped deployment. It is never the model an Agent runs on.
+         */
+        promptAssistModel: z.string().optional(),
+        /**
+         * Its own endpoint, when console assistance should not run where the
+         * Agents run. A dev box can leave the Agents on a local model and point
+         * drafting at a hosted one; an air-gapped deployment points both at
+         * internal endpoints. Falls back to the shared client when unset.
+         */
+        promptAssistBaseUrl: z.string().optional(),
+        promptAssistApiKey: z.string().optional(),
         synthesisModel: z.string().optional(),
         // legacy per-tier endpoints (Ollama) kept for back-compat
         tierSUrl: z.string().optional(),
@@ -189,6 +204,9 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
       managerModel: env.SRE_MODEL_MANAGER,
       toolCallerModel: env.SRE_MODEL_TOOL_CALLER,
       synthesisModel: env.SRE_MODEL_SYNTHESIS,
+      promptAssistModel: env.SRE_MODEL_PROMPT_ASSIST,
+      promptAssistBaseUrl: env.SRE_LLM_PROMPT_ASSIST_URL,
+      promptAssistApiKey: env.SRE_LLM_PROMPT_ASSIST_API_KEY,
       tierSUrl: env.SRE_LLM_TIER_S_URL,
       tierLUrl: env.SRE_LLM_TIER_L_URL,
       model: env.SRE_LLM_MODEL,

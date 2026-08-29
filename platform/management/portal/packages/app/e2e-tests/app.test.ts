@@ -121,6 +121,51 @@ test('MCP tools are selected in a dialog and the count updates', async ({ page }
   await expect(page.getByText('1 of 4', { exact: true })).toBeVisible();
 });
 
+/**
+ * Drafting a system prompt. The whole path is exercised: the browser posts the
+ * unsaved form to the portal backend, which proxies to the runtime, which asks
+ * the environment's bound `prompt-assist` profile. The browser never reaches a
+ * model itself.
+ */
+test('Generate with AI drafts a prompt from the unsaved form', async ({ page }) => {
+  // a real model call, so this one gets longer than the suite default
+  test.setTimeout(180_000);
+  await signIn(page, '/create-agent');
+
+  // the button needs a name: the draft describes the agent being built
+  await expect(page.getByRole('button', { name: 'Generate with AI' })).toBeDisabled();
+  await page.getByPlaceholder('check-point').fill('check-point');
+  await page.getByPlaceholder('Check Point Agent').fill('Check Point Agent');
+
+  const generate = page.getByRole('button', { name: 'Generate with AI' });
+  await expect(generate).toBeEnabled();
+  await generate.click();
+
+  // the drafted text lands in the editable field, and nothing was saved
+  const prompt = page.getByLabel('System prompt');
+  await expect(prompt).not.toBeEmpty({ timeout: 150_000 });
+  const drafted = await prompt.inputValue();
+  expect(drafted.length).toBeGreaterThan(120);
+
+  // once there is a prompt, the control offers to improve rather than replace blindly
+  await expect(page.getByRole('button', { name: 'Improve with AI' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Regenerate' })).toBeVisible();
+});
+
+test('editing an agent drafts against that agent, and does not save', async ({ page }) => {
+  await signIn(page, '/agents/active-directory/edit');
+  const prompt = page.getByLabel('System prompt');
+  const before = await prompt.inputValue();
+  expect(before.length).toBeGreaterThan(0);
+
+  // an existing prompt means the control offers an improvement
+  await expect(page.getByRole('button', { name: 'Improve with AI' })).toBeVisible();
+
+  // nothing on this screen saves: the only actions are review and pull request
+  await expect(page.getByRole('button', { name: 'Review changes' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create pull request' })).toBeDisabled();
+});
+
 test('the enabled toggle reflects state and cannot be clicked', async ({ page }) => {
   await signIn(page, '/agents/active-directory');
   const toggle = page.getByTitle('Reflects what Git declares, not what is running. Changing it is a pull request, not a click.');

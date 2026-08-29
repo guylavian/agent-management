@@ -37,6 +37,7 @@ export type {
   PermissionCell,
   PermissionMatrix,
   PermissionRow,
+  PromptAssistRequest,
   RunDetail,
   RunNode,
   RunSummary,
