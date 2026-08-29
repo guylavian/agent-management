@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agentDocumentSchema } from "@sre/agent-schema";
 import { agentDeploymentOverlaySchema, buildAgentCatalog, CONFIG_PATHS, DEPLOY_ROOT, deployEnvironmentDir, loadAgentRegistry, loadDeploymentEnvironment } from "@sre/config";
-import { generateAgentChange, proposeAgentChange, type AgentDraft } from "@sre/runtime-host";
+import { generateAgentChange, proposeAgentChange, proposePromptChange, type AgentDraft } from "@sre/runtime-host";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 
@@ -134,5 +134,42 @@ describe("Create Agent", () => {
   it("refuses a draft whose prompt is missing, rather than generating a broken Agent", () => {
     const { prompt: _prompt, ...withoutPrompt } = draft;
     expect(() => generateAgentChange(withoutPrompt)).toThrow(/system prompt is required/u);
+  });
+});
+
+/**
+ * Editing a prompt must NOT go through AgentDraft.
+ *
+ * AgentDetailView carries no routing and no capabilities, so rebuilding a draft
+ * from what the portal holds and re-rendering the Agent document would silently
+ * drop them. The prompt is its own file, so the change-set touches that file and
+ * nothing else — which is what these assertions pin.
+ */
+describe("Propose a prompt change", () => {
+  const agent = loadAgentRegistry(CONFIG_PATHS).getSpecialist("active-directory")!;
+
+  it("touches only the prompt file and leaves the Agent document alone", () => {
+    const change = proposePromptChange({ agent, prompt: "New investigative guidance.", requestedBy: "alice" });
+    expect(change.files).toHaveLength(1);
+    expect(change.files[0]?.path).toBe(agent.spec.prompt.systemFile);
+    expect(change.files[0]?.path).toMatch(/^config\/prompts\//u);
+    expect(change.files.some((file) => file.path.startsWith("config/agents/"))).toBe(false);
+    expect(change.files.some((file) => file.path.startsWith("deploy/"))).toBe(false);
+  });
+
+  it("writes the operator's text verbatim under a heading", () => {
+    const change = proposePromptChange({ agent, prompt: "  Check replication first.  ", requestedBy: "alice" });
+    expect(change.files[0]?.contents).toBe(`# ${agent.displayName ?? agent.name}\n\nCheck replication first.\n`);
+  });
+
+  it("records the requester and names the single changed file in the pull-request body", () => {
+    const change = proposePromptChange({ agent, prompt: "x", requestedBy: "carol" });
+    expect(change.body).toContain("carol");
+    expect(change.body).toContain(agent.spec.prompt.systemFile);
+    expect(change.effects).toEqual(expect.arrayContaining([`update ${agent.spec.prompt.systemFile}`]));
+  });
+
+  it("refuses an empty prompt rather than generating a file the runtime would reject", () => {
+    expect(() => proposePromptChange({ agent, prompt: "   ", requestedBy: "alice" })).toThrow(/prompt/u);
   });
 });

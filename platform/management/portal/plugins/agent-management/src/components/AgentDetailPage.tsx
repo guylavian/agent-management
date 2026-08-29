@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAgent, useAgentHealth, useAgentMetrics, useRuns } from '../api/client';
+import { NotConfiguredError, useAgent, useAgentActions, useAgentHealth, useAgentMetrics, useRuns } from '../api/client';
 import {
   Allowed,
   AsyncState,
@@ -159,16 +159,123 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
   );
 }
 
+const primaryButton = (disabled: boolean): React.CSSProperties => ({
+  padding: '7px 14px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700,
+  background: disabled ? '#c9cddb' : '#4f5be7', color: '#fff', cursor: disabled ? 'default' : 'pointer',
+});
+
+const secondaryButton: React.CSSProperties = {
+  padding: '7px 14px', borderRadius: 8, border: '1px solid #d7dae6', fontSize: 13,
+  fontWeight: 600, background: '#fff', color: '#4a5170', cursor: 'pointer',
+};
+
+/**
+ * The prompt the RUNTIME loaded, not a copy read from Git — so a merged but
+ * unsynced prompt is visibly different from a deployed one.
+ *
+ * Editing proposes a pull request rather than saving. The execution plane holds
+ * no Git credential and has no mutating endpoint, so a prompt cannot be changed
+ * from here without review; the button says so rather than implying a save.
+ */
 function PromptTab({ agent }: { agent: AgentDetail }) {
+  const { proposePrompt } = useAgentActions();
+  // The portal and the runtime are separate deployables, so a console newer
+  // than the runtime it points at is a normal state, not a bug. An older
+  // runtime serves no prompt body; say so rather than crashing the tab.
+  const served = typeof agent.prompt === 'string';
+  const promptBody = agent.prompt ?? '';
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(promptBody);
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<{ kind: 'ok' | 'error'; message: string; url?: string } | undefined>();
+
+  const unchanged = draft.trim() === promptBody.trim();
+
+  async function propose() {
+    setBusy(true);
+    setOutcome(undefined);
+    try {
+      const result = await proposePrompt(agent.id, draft);
+      setOutcome(
+        result.status === 'created'
+          ? { kind: 'ok', message: `Pull request opened on branch ${result.branch}.`, url: result.url }
+          : { kind: 'error', message: result.reason ?? 'The change could not be published.' },
+      );
+      if (result.status === 'created') setEditing(false);
+    } catch (error) {
+      setOutcome({
+        kind: 'error',
+        message: error instanceof NotConfiguredError ? error.reason : (error as Error).message,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Panel title="System prompt">
       <DefinitionList items={[['Source file', <Mono key="f">{agent.promptFile}</Mono>]]} />
+
+      <div style={{ marginTop: 14 }}>
+        {editing ? (
+          <textarea
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            spellCheck={false}
+            style={{
+              width: '100%', minHeight: 340, padding: 12, borderRadius: 8,
+              border: '1px solid #d7dae6', background: '#fff', color: '#1d2233',
+              font: "13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace", resize: 'vertical',
+            }}
+          />
+        ) : (
+          <pre
+            style={{
+              margin: 0, padding: 14, borderRadius: 8, background: '#f7f8fb',
+              border: '1px solid #eceef4', color: '#1d2233', whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word', font: "13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace",
+            }}
+          >
+            {served ? promptBody : 'This runtime does not serve the prompt body. Restart it on a build that includes the management-API prompt field.'}
+          </pre>
+        )}
+      </div>
+
+      <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        {editing ? (
+          <>
+            <button type="button" onClick={propose} disabled={busy || unchanged} style={primaryButton(busy || unchanged)}>
+              {busy ? 'Proposing…' : 'Propose change'}
+            </button>
+            <button type="button" onClick={() => { setEditing(false); setDraft(promptBody); setOutcome(undefined); }} style={secondaryButton}>
+              Cancel
+            </button>
+            {unchanged && <Muted>No changes yet.</Muted>}
+          </>
+        ) : (
+          <button type="button" onClick={() => { setDraft(promptBody); setEditing(true); }} style={secondaryButton} disabled={!served}>
+            Edit prompt
+          </button>
+        )}
+      </div>
+
+      {outcome && (
+        <div style={{ marginTop: 12, fontSize: 13, color: outcome.kind === 'ok' ? '#19a15e' : '#c2374f' }}>
+          {outcome.message}{' '}
+          {outcome.url && <a href={outcome.url} target="_blank" rel="noreferrer">View pull request</a>}
+        </div>
+      )}
+
       <div style={{ marginTop: 12 }}>
-        <Muted>The prompt is versioned in Git and changed through a pull request. Its contents are served by the runtime, not stored in the portal.</Muted>
+        <Muted>
+          The prompt is versioned in Git. Editing opens a pull request — nothing reaches a running Agent until it is
+          merged and synced. The body shown above is what the runtime currently has loaded.
+        </Muted>
       </div>
     </Panel>
   );
 }
+
 
 const TOOL_COLUMNS = '2fr .6fr 1.6fr';
 

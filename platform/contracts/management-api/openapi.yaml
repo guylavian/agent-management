@@ -177,6 +177,34 @@ paths:
               schema: { $ref: "#/components/schemas/ChangePreview" }
         "400": { $ref: "#/components/responses/DraftInvalid" }
 
+  /agents/{id}/prompt/preview:
+    post:
+      operationId: previewPromptChange
+      summary: Render the change-set for a prompt edit. Changes nothing.
+      description: >-
+        The prompt is its own file, so this touches exactly one file and never
+        re-renders the Agent document — which carries routing and capabilities
+        the portal does not hold and must not be able to drop.
+      parameters: [{ $ref: "#/components/parameters/AgentId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [prompt]
+              properties:
+                prompt: { type: string }
+      responses:
+        "200":
+          description: The change-set that would be proposed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangePreview" }
+        "400": { $ref: "#/components/responses/DraftInvalid" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # There is deliberately NO mutating endpoint on the runtime. The execution
   # plane renders a change-set and never writes one: the pull request is opened
   # by the management plane, so the process that enforces Agent policy cannot
@@ -273,7 +301,7 @@ components:
     AgentDetail:
       type: object
       additionalProperties: false
-      required: [id, displayName, owner, lifecycle, enabled, modelProfile, modelTier, mcpCount, toolCount, workloadClientId, readOnly, promptFile, requiredRoles, crossDomainAllowed, limits, access, identity]
+      required: [id, displayName, owner, lifecycle, enabled, modelProfile, modelTier, mcpCount, toolCount, workloadClientId, readOnly, promptFile, prompt, requiredRoles, crossDomainAllowed, limits, access, identity]
       properties:
         id: { type: string }
         displayName: { type: string }
@@ -287,6 +315,7 @@ components:
         workloadClientId: { type: string }
         readOnly: { type: boolean }
         promptFile: { type: string }
+        prompt: { type: string, description: The system prompt body the runtime loaded, so the console shows what the running Agent is using. }
         requiredRoles:
           type: array
           items: { type: string }

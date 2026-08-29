@@ -7,6 +7,7 @@ import {
   mcpServerViews,
   permissionMatrix,
   proposeAgentChange,
+  proposePromptChange,
   type AgentDraft,
   type RunStore,
 } from "./index.ts";
@@ -112,6 +113,24 @@ export function managementRouter(deps: ManagementDeps): Router {
     try {
       const { change, generated } = proposeAgentChange({ draft: request.body as AgentDraft, requestedBy: request.identity?.subject ?? "unknown", update: deps.registry.getSpecialist((request.body as AgentDraft)?.name ?? "") !== undefined });
       response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: generated.files });
+    } catch (error) {
+      respondDraftError(response, error);
+    }
+  });
+
+  /**
+   * Render a change-set for a prompt edit. PURE, exactly like /agents/preview:
+   * the execution plane owns the schema so it renders, and holds no Git
+   * credential so it cannot write. The management plane opens the pull request.
+   */
+  router.post("/agents/:id/prompt/preview", (request: Request, response: Response) => {
+    const agent = deps.registry.getSpecialist(request.params.id as string);
+    if (agent === undefined) { response.status(404).json({ code: "NOT_FOUND", message: "No such agent" }); return; }
+    try {
+      const prompt = (request.body as { prompt?: unknown })?.prompt;
+      if (typeof prompt !== "string") throw new AgentDraftError(["prompt: a system prompt string is required"]);
+      const change = proposePromptChange({ agent, prompt, requestedBy: request.identity?.subject ?? "unknown" });
+      response.json({ path: change.files[0]?.path, yaml: change.files[0]?.contents, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: change.files });
     } catch (error) {
       respondDraftError(response, error);
     }

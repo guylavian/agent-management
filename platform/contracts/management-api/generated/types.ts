@@ -68,6 +68,8 @@ export interface AgentDetail {
   workloadClientId: string;
   readOnly: boolean;
   promptFile: string;
+  /** The system prompt body the runtime loaded */
+  prompt: string;
   requiredRoles: Array<string>;
   crossDomainAllowed: Array<string>;
   limits: Record<string, number>;

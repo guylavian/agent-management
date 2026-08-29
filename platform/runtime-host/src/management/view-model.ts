@@ -55,6 +55,13 @@ export interface AgentSummaryView {
 
 export interface AgentDetailView extends AgentSummaryView {
   promptFile: string;
+  /**
+   * The prompt body the runtime actually loaded, not a copy the portal keeps.
+   * Serving it here rather than having the portal read Git is deliberate: the
+   * console then shows what the running Agent is USING, so a merged-but-unsynced
+   * prompt is visibly different from a deployed one.
+   */
+  prompt: string;
   requiredRoles: string[];
   crossDomainAllowed: string[];
   limits: Record<string, number>;
@@ -104,6 +111,7 @@ export function agentDetail(agent: SpecialistAgentConfig, catalog: ApprovedCatal
   return {
     ...agentSummary(agent),
     promptFile: agent.spec.prompt.systemFile,
+    prompt: agent.systemPrompt,
     requiredRoles: agent.spec.authorization.requiredRoles,
     crossDomainAllowed: agent.spec.discovery?.allowedNeedsDomains ?? [],
     limits: { ...agent.spec.execution },

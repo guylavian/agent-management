@@ -111,5 +111,26 @@ export async function createRouter({
     response.status(outcome.status === 'created' ? 201 : 501).json({ ...outcome, branch: preview.branch, effects: preview.effects });
   });
 
+  /**
+   * Propose a prompt edit. Same split as /agents/change: the runtime RENDERS
+   * the change-set because it owns the schema, the management plane PUBLISHES
+   * it because it owns the Git credential. Only the prompt file is touched.
+   */
+  router.post('/agents/:id/prompt/change', async (request, response) => {
+    await requirePermission(request, agentCreatePrPermission);
+    if (!runtime.configured) {
+      response.status(501).json({ status: 'not-configured', reason: 'sreAgent.managementApi.baseUrl is not set' });
+      return;
+    }
+    const rendered = await runtime.post<ChangePreview>(`/management/agents/${encodeURIComponent(request.params.id)}/prompt/preview`, request.body);
+    if (rendered.status !== 200) {
+      response.status(rendered.status).json(rendered.body);
+      return;
+    }
+    const preview = rendered.body;
+    const outcome = await gitops.createPullRequest({ branch: preview.branch, title: preview.title, body: preview.body, files: preview.files });
+    response.status(outcome.status === 'created' ? 201 : 501).json({ ...outcome, branch: preview.branch, effects: preview.effects });
+  });
+
   return router;
 }

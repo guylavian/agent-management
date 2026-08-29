@@ -1,4 +1,5 @@
 import { agentDocumentSchema, assertNoSecretMaterial, toolHiveAudience, workloadClientId, type AgentDocument, type AgentLifecycle } from "@sre/agent-schema";
+import type { SpecialistAgentConfig } from "@sre/config";
 
 /**
  * Agent draft → canonical YAML for the GitOps change (TDD §29/§30).
@@ -291,5 +292,42 @@ export function proposeAgentChange(options: ProposeOptions): { change: ProposedC
       files: generated.files,
       effects,
     },
+  };
+}
+
+/**
+ * A change-set that touches ONLY the prompt file.
+ *
+ * The prompt is its own file, so editing it needs no round-trip through
+ * AgentDraft — which matters: AgentDetailView carries no routing or
+ * capabilities, so rebuilding a draft from it and re-rendering the Agent
+ * document would silently drop them. One file in, one file out; the Agent
+ * document is not touched and therefore cannot be damaged.
+ */
+export function proposePromptChange(options: { agent: SpecialistAgentConfig; prompt: string; requestedBy: string }): ProposedChange {
+  const body = options.prompt.trim();
+  if (!body) throw new AgentDraftError(["prompt: a system prompt is required; an Agent cannot reference a missing or empty prompt file"]);
+  const name = options.agent.name;
+  const path = options.agent.spec.prompt.systemFile;
+  const title = options.agent.displayName ?? name;
+  return {
+    branch: `agent/${name}-prompt`,
+    title: `Update the ${name} agent system prompt`,
+    files: [{ path, contents: `# ${title}\n\n${body}\n` }],
+    effects: [`update ${path}`, "Runtime: specialist reloads the prompt on next deploy", "Argo CD: sync after merge"],
+    body: [
+      `Update the system prompt for the \`${name}\` SRE specialist agent.`,
+      "",
+      `Requested by: ${options.requestedBy}`,
+      `Owner: ${options.agent.owner}`,
+      "",
+      "Only the prompt file changes. The Agent document, its tool access, its",
+      "identity and its deployment overlay are untouched by this change.",
+      "",
+      "## Files in this change",
+      "",
+      `- \`${path}\``,
+      "",
+    ].join("\n"),
   };
 }

@@ -100,5 +100,11 @@ export function useAgentActions() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(draft),
       }),
+    /** Propose a prompt edit. Touches one file; the Agent document is untouched. */
+    proposePrompt: (id: string, prompt: string) =>
+      request<{ url?: string; status: string; reason?: string; effects: string[]; branch: string }>(
+        `/agents/${encodeURIComponent(id)}/prompt/change`,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt }) },
+      ),
   };
 }
