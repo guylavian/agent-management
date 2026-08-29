@@ -81,19 +81,20 @@ start_background prometheus-mcp env \
   --mcp.tools=label_values --mcp.tools=series --mcp.tools=list_targets --mcp.tools=healthy \
   --mcp.tools=ready --mcp.tools=runtime_info --mcp.tools=build_info
 
-# containers/kubernetes-mcp-server against whatever cluster the kubeconfig points
-# at. --read-only and --disable-destructive are belt and braces: the approved
-# catalog already cannot express a write, and ToolHive's Cedar policy permits
-# only the nine read tools, but the server itself should refuse too. Three
-# independent refusals, none of which relies on the model behaving.
-start_background kubernetes-mcp env \
-  KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}" \
-  "$bin/kubernetes-mcp" --read-only --disable-destructive \
-  --port 8203
+# The Kubernetes MCP (containers/kubernetes-mcp-server) is approved and its
+# ToolHive policy is rendered, but it is NOT started here. Its only consumer is
+# the openshift agent, which this environment does not enable — so its poc
+# policy is the default forbid and a proxy would deny every call. Enabling the
+# agent here would also pull in its openshift and splunk MCPs, which have no
+# local backend; an unmapped server has no endpoint to resolve and fails at
+# connect. Exercise it in `local`, where the openshift agent runs:
+#
+#   platform/.real-poc/bin/kubernetes-mcp --read-only --disable-destructive --port 8203
+#   thv run http://127.0.0.1:8203/mcp --name sre-poc-kubernetes --proxy-port 8304 \
+#     --authz-config deploy/environments/local/rendered/toolhive/kubernetes.authz.yaml ...
 
 wait_http http://127.0.0.1:8201/mcp "Keycloak MCP"
 wait_http http://127.0.0.1:8202/mcp "Prometheus MCP"
-wait_http http://127.0.0.1:8203/mcp "Kubernetes MCP"
 
 common_env=(
   SRE_ENV=real-poc SRE_CLIENT_OIDC=real SRE_CLIENT_LLM=real SRE_CLIENT_TOOLHIVE=real
@@ -171,7 +172,5 @@ run_proxy http://127.0.0.1:8201/mcp sre-poc-keycloak 8301 sre-toolhive:keycloak 
 run_proxy http://127.0.0.1:8202/mcp sre-poc-prometheus 8302 sre-toolhive:prometheus \
   query,range_query,metric_metadata,label_names,label_values,series,list_targets,healthy,ready,runtime_info,build_info prometheus
 run_proxy "$LLM_WIKI_MCP_ENDPOINT" sre-poc-wiki 8303 sre-toolhive:wiki wiki_search,wiki_read_page,wiki_route wiki
-run_proxy http://127.0.0.1:8203/mcp sre-poc-kubernetes 8304 sre-toolhive:kubernetes \
-  pods_list,pods_get,pods_log,pods_top,events_list,namespaces_list,nodes_top,resources_list,resources_get kubernetes
 
 echo "Real PoC started. Run: $root/tools/verify-real-poc.sh"

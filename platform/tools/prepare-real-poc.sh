@@ -10,7 +10,7 @@ mkdir -p "$src" "$bin"
 
 prometheus_mcp_version="${PROMETHEUS_MCP_VERSION:-v0.18.0}"
 toolhive_version="${TOOLHIVE_VERSION:-v0.46.0}"
-kubernetes_mcp_version="${KUBERNETES_MCP_VERSION:-v0.1.0}"
+kubernetes_mcp_version="${KUBERNETES_MCP_VERSION:-v0.0.66}"
 
 clone_pinned() {
   local url="$1" version="$2" target="$3"
