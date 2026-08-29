@@ -1,0 +1,22 @@
+# containers/kubernetes-mcp-server, local PoC.
+#
+# cluster_auth_mode defaults to "passthrough": when an Authorization header is
+# present the server forwards that bearer token to the Kubernetes API server
+# instead of using its kubeconfig. ToolHive presents our delegated platform
+# credential on every call, so the default made the MCP hand a
+# `sre-toolhive:kubernetes` JWT to the API server, which rejected it —
+# "the server has asked for the client to provide credentials".
+#
+# That default is also the wrong shape for this platform. Backend credentials
+# stay BEHIND the MCP (docs/architecture/identity-and-authorization.md): the
+# platform JWT authorizes the agent→ToolHive→MCP hops, and the MCP holds the
+# backend's own credential. Passthrough would instead make every agent's
+# platform token double as a cluster credential, which is precisely the
+# conflation the architecture separates.
+cluster_auth_mode = "kubeconfig"
+
+# Read-only is enforced in three independent places — the approved catalog
+# cannot express a mutating tool, ToolHive's Cedar policy permits only the nine
+# approved reads, and these two settings make the server refuse as well.
+read_only = true
+disable_destructive = true

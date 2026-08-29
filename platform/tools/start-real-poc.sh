@@ -82,13 +82,13 @@ start_background prometheus-mcp env \
   --mcp.tools=ready --mcp.tools=runtime_info --mcp.tools=build_info
 
 # containers/kubernetes-mcp-server against whatever cluster the kubeconfig names.
-# --read-only and --disable-destructive are belt and braces: the approved catalog
-# cannot express a write, ToolHive's Cedar policy permits only the nine read
-# tools, and the server refuses too. Three independent refusals, none of which
-# relies on the model behaving.
+# read_only and disable_destructive live in the config file beside
+# cluster_auth_mode, which is the setting that has no CLI flag and whose
+# default (passthrough) hands the caller Authorization header to the API
+# server instead of using the kubeconfig.
 start_background kubernetes-mcp env \
   KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}" \
-  "$bin/kubernetes-mcp" --read-only --disable-destructive --port 8203
+  "$bin/kubernetes-mcp" --config "$repo/deploy/local/kubernetes-mcp.toml" --port 8203
 
 wait_http http://127.0.0.1:8201/mcp "Keycloak MCP"
 wait_http http://127.0.0.1:8202/mcp "Prometheus MCP"

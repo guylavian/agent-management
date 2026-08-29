@@ -9,3 +9,6 @@ replicas: 2
 resources:
   requests: { cpu: 500m, memory: 512Mi }
   limits: { cpu: "1", memory: 1Gi }
+# loopback: the PoC runs each agent as a process, not a Service, so the cluster
+# endpointTemplate does not resolve here
+endpoint: http://127.0.0.1:3103
