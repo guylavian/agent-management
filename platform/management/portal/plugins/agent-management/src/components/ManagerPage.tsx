@@ -157,6 +157,11 @@ export function ManagerPage() {
 }
 
 function Header({ manager }: { manager: ManagerDetail }) {
+  // The fan-out bound is stated against what the Manager can actually reach.
+  // "3 of 5" while this environment runs two of them is a true sentence about
+  // the document and a false one about the deployment.
+  const reachable = manager.allowed.length - (manager.notDeployed ?? []).length;
+  const undeployed = (manager.notDeployed ?? []).length;
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 24 }}>
@@ -167,8 +172,12 @@ function Header({ manager }: { manager: ManagerDetail }) {
             <StatusPill tone={lifecycleTone(manager.lifecycle as AgentLifecycle)}>{manager.lifecycle}</StatusPill>
           </div>
           <div style={{ fontSize: 14, color: C.muted, marginTop: 8 }}>
-            Routes every request to at most {manager.execution.maxAgentsPerRequest ?? '—'} of {manager.allowed.length} specialist
-            {manager.allowed.length === 1 ? '' : 's'}. It calls no tool of its own.
+            Routes every request to at most {manager.execution.maxAgentsPerRequest ?? '—'} of {reachable} reachable specialist
+            {reachable === 1 ? '' : 's'}. It calls no tool of its own.
+            {undeployed > 0 && (
+              <> {manager.allowed.length} are in the routing table
+                {manager.environment ? `, but ${manager.environment} does not run ${undeployed} of them` : `, but ${undeployed} are not deployed`}.</>
+            )}
           </div>
         </div>
       </div>
@@ -210,6 +219,10 @@ function RoutingTab(props: {
   // routes to, so an agent removed in the draft stays visible and re-addable
   const names = [...new Set([...props.agents.map(agent => agent.id), ...props.manager.allowed, ...props.manager.notRouted, ...props.draft.allowed])].sort();
   const byId = new Map(props.agents.map(agent => [agent.id, agent]));
+  // Allowed and reachable are different facts. An older runtime sends neither
+  // field; an empty list then reads as "everything is deployed", which is the
+  // honest thing to say when the runtime has not told us otherwise.
+  const notDeployed = props.manager.notDeployed ?? [];
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, alignItems: 'start' }}>
@@ -246,7 +259,17 @@ function RoutingTab(props: {
                     ? <StatusPill tone={on ? 'ok' : 'warn'}>{on ? 'will be added' : 'will be removed'}</StatusPill>
                     : draftLifecycle
                       ? <StatusPill tone="warn">{agent?.lifecycle} — not routable</StatusPill>
-                      : <StatusPill tone={on ? 'ok' : 'neutral'}>{on ? 'Routable' : 'Not routed'}</StatusPill>}
+                      : on && notDeployed.includes(name)
+                        // Allowed here, but this environment does not run it, so
+                        // the Manager is never offered it and cannot reach it.
+                        // Saying "Routable" was the whole bug.
+                        ? <StatusPill tone="warn">allowed — not deployed{props.manager.environment ? ` in ${props.manager.environment}` : ''}</StatusPill>
+                        : on && notDeployed.includes(name)
+                        // allowed here, but this environment does not run it, so
+                        // the Manager is never offered it. Saying "Routable" was
+                        // the whole bug.
+                        ? <StatusPill tone="warn">allowed — not deployed{props.manager.environment ? ` in ${props.manager.environment}` : ''}</StatusPill>
+                        : <StatusPill tone={on ? 'ok' : 'neutral'}>{on ? 'Routable' : 'Not routed'}</StatusPill>}
                 </div>
               </label>
             );

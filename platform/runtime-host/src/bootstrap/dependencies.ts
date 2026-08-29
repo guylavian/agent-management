@@ -22,6 +22,7 @@ import {
   loadAgentRegistry,
   loadAppConfig,
   loadApprovedCatalog,
+  loadDeploymentEnvironment,
   loadEffectiveAgentCatalog,
   ConfigValidationError,
   type AgentCatalog,
@@ -80,6 +81,13 @@ export interface ManagerDependencies extends CommonDependencies {
    * management surface rather than serving a partial one.
    */
   managementRegistry?: AgentRegistry;
+  /**
+   * What this environment actually enables, alongside the canonical registry
+   * above. The console needs the pair: an Agent in the Manager's routing table
+   * but absent here is allowed and NOT reachable, and showing only the first
+   * half is how "Routable" came to mean something it did not.
+   */
+  deployment?: { environment: string; enabledAgentIds: string[] };
   runs: RunStore;
 }
 
@@ -154,6 +162,12 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       agentClient,
       runs: new InMemoryRunStore(),
       ...(managementRegistry ? { managementRegistry } : {}),
+      // the effective catalog already knows both halves; naming the deployed
+      // half is what lets the console stop presenting allowed as reachable
+      deployment: {
+        environment: loadDeploymentEnvironment(config.deploymentEnvironmentDir).settings.environment,
+        enabledAgentIds: registry.listEnabled().map((entry) => entry.agentId),
+      },
       identityIssuer,
       model,
       promptAssistModel: buildPromptAssistModel(config, model),

@@ -114,15 +114,37 @@ export interface ManagerDetailView {
   allowed: string[];
   /** specialists that exist but are NOT routable, listed rather than omitted */
   notRouted: string[];
+  /**
+   * The deployment environment this runtime is serving, and which of the allowed
+   * specialists it does not actually run.
+   *
+   * Being in the routing table is only half of being reachable: the effective
+   * catalog is the allowlist INTERSECTED with what this environment enables. The
+   * console showed the allowlist alone and labelled it "Routable", so an agent
+   * that was allowed but not deployed read as reachable — which it is not, and
+   * the Manager is never even offered it.
+   *
+   * Absent when the runtime has no deployment environment mounted, so the
+   * console can say nothing rather than imply everything is deployed.
+   */
+  environment?: string;
+  notDeployed?: string[];
   execution: Record<string, number>;
   /** stated so the console does not leave a blank where a client id would be */
   identity: { provider: "none"; reason: string };
 }
 
-export function managerDetail(registry: { manager: ManagerAgentConfig; listSpecialists(): SpecialistAgentConfig[] }): ManagerDetailView {
+export function managerDetail(
+  registry: { manager: ManagerAgentConfig; listSpecialists(): SpecialistAgentConfig[] },
+  deployment?: { environment: string; enabledAgentIds: string[] },
+): ManagerDetailView {
   const manager = registry.manager;
   const allowed = manager.spec.agents.allowed;
+  const notDeployed = deployment === undefined
+    ? undefined
+    : allowed.filter((name) => !deployment.enabledAgentIds.includes(name)).sort();
   return {
+    ...(deployment === undefined ? {} : { environment: deployment.environment, notDeployed: notDeployed as string[] }),
     id: manager.name,
     ...(manager.displayName === undefined ? {} : { displayName: manager.displayName }),
     ...(manager.description === undefined ? {} : { description: manager.description }),

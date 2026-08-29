@@ -480,6 +480,20 @@ components:
             Specialists that exist but are not routable. Listed rather than
             omitted, so "not shown" and "not reachable" cannot look alike.
           items: { type: string }
+        environment:
+          type: string
+          description: >-
+            The deployment environment this runtime serves. Absent when none is
+            mounted, so a console can say nothing rather than imply everything
+            is deployed.
+        notDeployed:
+          type: array
+          description: >-
+            Allowed specialists this environment does not run. Being in the
+            routing table is only half of being reachable: the effective catalog
+            is the allowlist intersected with what the environment enables, and
+            an agent listed here is never offered to the Manager at all.
+          items: { type: string }
         execution:
           type: object
           additionalProperties: { type: number }
@@ -602,6 +616,7 @@ components:
         startedAt: { type: string }
         durationMs: { type: integer }
         status: { type: string, enum: [complete, partial, failed] }
+        question: { type: string, description: The question after redaction, as the model saw it. }
         userSubjectHash: { type: string, description: Hashed initiator; a raw subject never leaves the runtime. }
         agents:
           type: array
@@ -611,22 +626,43 @@ components:
 
     RunNode:
       type: object
+      description: >-
+        One event in a run's execution trace. Events record intent
+        (tool.request), enforcement (authorization.check) and execution
+        (toolhive.call) as separate nodes, so a refused attempt is
+        distinguishable from one that was never made.
       additionalProperties: false
-      required: [id, kind, label, status, startedAt, durationMs]
+      required: [id, kind, label, status, startedAt, durationMs, actor]
       properties:
         id: { type: string }
         kind:
           type: string
-          enum: [manager.route, specialist, authorization.check, workload.token, tool.request, toolhive.call, evidence, domain.escalation, synthesis]
+          description: >-
+            The trailing values name capabilities the platform does not have
+            yet; they are declared so adding one is an emission rather than a
+            contract change.
+          enum:
+            [user.request, manager.route, followup.route, run.completed,
+             specialist, agent.action, agent.result, domain.escalation,
+             authorization.check, workload.token,
+             tool.request, toolhive.call, evidence, synthesis, error,
+             approval.requested, approval.granted, write.action, retry, verify.result]
         label: { type: string }
         parentId: { type: string }
         status: { type: string, enum: [ok, denied, failed, timeout] }
         startedAt: { type: string }
         durationMs: { type: integer }
+        actor: { type: string, enum: [user, manager, specialist, runtime] }
+        detail: { type: string, description: The substance of the step - a task, a rationale, a refusal reason. }
         agentId: { type: string }
         mcp: { type: string }
         tool: { type: string }
         round: { type: integer, description: Which bounded round produced this node. }
+        metadata:
+          type: object
+          description: Event-specific facts. Scalars only, so no payload can be carried here.
+          additionalProperties:
+            oneOf: [{ type: string }, { type: number }, { type: boolean }]
 
     RunDetail:
       type: object
@@ -637,6 +673,7 @@ components:
         startedAt: { type: string }
         durationMs: { type: integer }
         status: { type: string, enum: [complete, partial, failed] }
+        question: { type: string, description: The question after redaction, as the model saw it. }
         userSubjectHash: { type: string }
         environment: { type: string }
         agents:

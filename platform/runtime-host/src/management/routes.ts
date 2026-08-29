@@ -48,6 +48,14 @@ export interface ManagementDeps {
    * and the endpoint reports that rather than falling back to an Agent's model.
    */
   promptAssistModel?: ModelClient;
+  /**
+   * What this environment actually runs, as opposed to what the Agent documents
+   * declare. `registry` above is the CANONICAL set — every Agent that exists —
+   * which is right for a management plane that must be able to show and edit an
+   * agent this cluster does not deploy. It is wrong as an answer to "can the
+   * Manager reach this", and the console was reading it as though it were.
+   */
+  deployment?: { environment: string; enabledAgentIds: string[] };
 }
 
 export function managementRouter(deps: ManagementDeps): Router {
@@ -224,7 +232,7 @@ export function managementRouter(deps: ManagementDeps): Router {
    * document that has no identity, access or routing vocabulary.
    */
   router.get("/manager", (_request: Request, response: Response) => {
-    response.json(managerDetail(deps.registry));
+    response.json(managerDetail(deps.registry, deps.deployment));
   });
 
   /**

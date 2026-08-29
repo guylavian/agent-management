@@ -1,18 +1,28 @@
+import type { RoutingTrace } from "@sre/orchestrator";
 import type { RunNode, RunRecord } from "./run-store.ts";
 
 /**
- * Builds the multi-agent execution graph (TDD §45) from the SpecialistResults
- * the runtime already produces. Every node is derived from something that
- * actually happened — a routed agent, a recorded Evidence item, a returned
- * error — so the graph cannot show a step the runtime did not take.
+ * Builds the execution trace (TDD §45) from what the runtime actually did.
  *
- * The graph is a tree with fan-out (Manager → N specialists → synthesis) and
- * represents the bounded Round 2 as an explicit escalation node, rather than
- * flattening everything into one timeline.
+ * Every node is derived from something that happened — an offered agent, a
+ * routed task, a returned Evidence item, a refusal — so the trace cannot show a
+ * step the runtime did not take, and cannot omit one it did.
+ *
+ * THE SHAPE OF THE ANSWER. Each tool the agent reached for produces up to three
+ * nodes, and the split is the whole point:
+ *
+ *   tool.request        the agent's INTENT — it asked for this
+ *   authorization.check the runtime's ENFORCEMENT — allowed, or refused and why
+ *   toolhive.call       the EXECUTION — present only if something actually ran
+ *
+ * A refused call therefore has an intent and a refusal and no execution node,
+ * which is the only honest way to render "it tried, and was stopped". Collapsing
+ * these into one node — as this module used to — makes a blocked attempt and a
+ * call that was never made look identical.
  *
  * Deliberately absent: the answer text, model reasoning, tool arguments and
- * tool payloads. A run graph shows the shape of an investigation, not its
- * contents.
+ * tool payloads. The redacted question and the task each agent was given are
+ * present; those are the request and the instruction, not the deliberation.
  */
 
 /** The subset of SpecialistResult this module needs, so it does not depend on the runtime. */
@@ -29,6 +39,8 @@ export interface SpecialistResultLike {
     tool?: string;
     status: string;
     agentId?: string;
+    citation?: string;
+    observedAt?: string;
   }>;
 }
 
@@ -47,6 +59,41 @@ export interface BuildRunInput {
   status: RunRecord["status"];
   evidenceCount: number;
   synthesized: boolean;
+  /** what the Manager was asked, chose and was refused; absent for older callers */
+  routing?: RoutingTrace;
+  /** why the run ended as it did, when the response carried an error or was degraded */
+  outcomeReason?: string;
+}
+
+/**
+ * Evidence status is richer than node status, and the mapping is not cosmetic.
+ *
+ * `denied` and `missing` were previously conflated into one "failed and
+ * absent" test, which reported every refusal as a failure and every timeout as
+ * a refusal — exactly backwards. The engine sets these deliberately
+ * (`TOOL_DENIED` → denied, `MCP_TIMEOUT` → missing) and they are read that way
+ * here.
+ */
+function nodeStatus(evidenceStatus: string): RunNode["status"] {
+  if (evidenceStatus === "denied") return "denied";
+  if (evidenceStatus === "missing") return "timeout";
+  if (evidenceStatus === "failed") return "failed";
+  return "ok";
+}
+
+/** What a specialist concluded, in the platform's own control vocabulary. */
+function agentOutcome(result: SpecialistResultLike): { label: string; status: RunNode["status"]; detail?: string } {
+  if (result.status === "failed") {
+    const error = result.errors?.[0];
+    return { label: "failed", status: "failed", ...(error ? { detail: `${error.code}: ${error.message}` } : {}) };
+  }
+  const domain = result.needsDomain?.[0];
+  if (domain !== undefined) return { label: "needs_domain", status: "ok", detail: `handed off to ${domain}` };
+  // the summary TEXT is the answer and is never stored; only whether one exists
+  if (result.summary === undefined || result.summary.trim() === "") {
+    return { label: "insufficient_evidence", status: "failed", detail: "the specialist produced no supported summary" };
+  }
+  return { label: "complete", status: "ok" };
 }
 
 export function buildRunRecord(input: BuildRunInput): RunRecord {
@@ -57,16 +104,72 @@ export function buildRunRecord(input: BuildRunInput): RunRecord {
   let toolCalls = 0;
   let deniedToolCalls = 0;
 
-  nodes.push({
-    id: "manager.route",
+  const push = (node: RunNode) => { nodes.push(node); };
+  const routing = input.routing;
+  const question = routing?.question;
+  const taskFor = new Map((routing?.selected ?? []).map((route) => [route.agent, route]));
+
+  // ── the request ─────────────────────────────────────────────────────────
+  const ROOT = "user.request";
+  push({
+    id: ROOT,
+    kind: "user.request",
+    label: question === undefined ? "question not recorded" : truncate(question, 200),
+    status: "ok",
+    startedAt: startedAtIso,
+    durationMs: 0,
+    actor: "user",
+    // the full redacted question, where the label had to be cut for the tree
+    ...(question === undefined ? {} : { detail: question }),
+  });
+
+  // ── the Manager's decision ──────────────────────────────────────────────
+  const ROUTE = "manager.route";
+  push({
+    id: ROUTE,
     kind: "manager.route",
     label: `routed to ${input.routedAgents.length || "no"} specialist${input.routedAgents.length === 1 ? "" : "s"}`,
+    parentId: ROOT,
     status: input.routedAgents.length > 0 ? "ok" : "failed",
     startedAt: startedAtIso,
     durationMs: 0,
+    actor: "manager",
     round: 1,
+    ...(routing === undefined ? {} : {
+      metadata: {
+        offered: routing.offered.length,
+        selected: routing.selected.length,
+        refused: routing.refused.length,
+        abstained: routing.abstained,
+      },
+    }),
   });
 
+  /*
+   * A refused selection, recorded as its own node.
+   *
+   * This agent has no SpecialistResult and never will, so it appears nowhere
+   * else in this record. Without this branch the trace would show the Manager
+   * routing to two agents and only one running, with nothing to say why.
+   */
+  for (const refusal of routing?.refused ?? []) {
+    push({
+      id: `authz.${refusal.agent}`,
+      kind: "authorization.check",
+      label: refusal.agent,
+      parentId: ROUTE,
+      status: "denied",
+      startedAt: startedAtIso,
+      durationMs: 0,
+      actor: "runtime",
+      agentId: refusal.agent,
+      detail: "selected by the Manager, refused by the runtime; this specialist never ran",
+      metadata: { reason: refusal.reason },
+      round: 1,
+    });
+  }
+
+  // ── each specialist ─────────────────────────────────────────────────────
   const firstRound = new Set(input.routedAgents);
   for (const result of input.results) {
     // an agent that ran without being in the initial routing came from Round 2
@@ -76,21 +179,32 @@ export function buildRunRecord(input: BuildRunInput): RunRecord {
     if (workload !== undefined) workloads.add(workload);
     const profile = input.modelProfileFor(result.agentId);
     if (profile !== undefined) modelProfiles.add(profile);
+    const route = taskFor.get(result.agentId);
 
-    nodes.push({
+    push({
       id: specialistId,
       kind: "specialist",
       label: result.agentId,
-      parentId: "manager.route",
+      parentId: ROUTE,
       status: result.status === "failed" ? "failed" : "ok",
       startedAt: startedAtIso,
       durationMs: 0,
+      actor: "specialist",
       agentId: result.agentId,
       round,
+      // the task is the Manager's instruction, and is the answer to "what did
+      // this agent set out to do"
+      ...(route?.task ? { detail: route.task } : {}),
+      ...(route?.rationale || profile ? {
+        metadata: {
+          ...(route?.rationale ? { rationale: route.rationale } : {}),
+          ...(profile ? { modelProfile: profile } : {}),
+        },
+      } : {}),
     });
 
     if (workload !== undefined) {
-      nodes.push({
+      push({
         id: `${specialistId}.workload`,
         kind: "workload.token",
         // the client id is an identifier, never the token itself
@@ -99,45 +213,87 @@ export function buildRunRecord(input: BuildRunInput): RunRecord {
         status: "ok",
         startedAt: startedAtIso,
         durationMs: 0,
+        actor: "runtime",
         agentId: result.agentId,
         round,
       });
     }
 
     for (const [index, evidence] of result.evidence.entries()) {
-      const denied = evidence.status === "failed" && evidence.kind === "missing";
+      const status = nodeStatus(evidence.status);
+      const at = evidence.observedAt ?? startedAtIso;
+      const base = { startedAt: at, durationMs: 0, agentId: result.agentId, round } as const;
+
+      // evidence with no tool came from the runtime itself (a transport
+      // failure, a refused follow-up) and hangs off the specialist directly
+      let evidenceParent = specialistId;
+
       if (evidence.tool !== undefined) {
         toolCalls += 1;
-        if (denied) deniedToolCalls += 1;
-        nodes.push({
-          id: `${specialistId}.tool.${index}`,
-          kind: "toolhive.call",
+        const requestId = `${specialistId}.request.${index}`;
+        push({
+          ...base,
+          id: requestId,
+          kind: "tool.request",
           label: `${evidence.system}/${evidence.tool}`,
           parentId: specialistId,
-          status: denied ? "denied" : evidence.status === "failed" ? "failed" : "ok",
-          startedAt: startedAtIso,
-          durationMs: 0,
-          agentId: result.agentId,
+          // the intent itself always succeeded — the agent did ask
+          status: "ok",
+          actor: "specialist",
           mcp: evidence.system,
           tool: evidence.tool,
-          round,
+          detail: "the agent asked to call this tool",
         });
+        evidenceParent = requestId;
+
+        if (status === "denied") {
+          deniedToolCalls += 1;
+          push({
+            ...base,
+            id: `${specialistId}.authz.${index}`,
+            kind: "authorization.check",
+            label: `${evidence.system}/${evidence.tool}`,
+            parentId: requestId,
+            status: "denied",
+            actor: "runtime",
+            mcp: evidence.system,
+            tool: evidence.tool,
+            detail: "refused by the tool policy; the call was never sent",
+            metadata: { reason: "TOOL_DENIED" },
+          });
+        } else {
+          const callId = `${specialistId}.tool.${index}`;
+          push({
+            ...base,
+            id: callId,
+            kind: "toolhive.call",
+            label: `${evidence.system}/${evidence.tool}`,
+            parentId: requestId,
+            status,
+            actor: "runtime",
+            mcp: evidence.system,
+            tool: evidence.tool,
+          });
+          evidenceParent = callId;
+        }
       }
-      nodes.push({
+
+      push({
+        ...base,
         id: `${specialistId}.evidence.${index}`,
         kind: "evidence",
         label: `${evidence.kind}: ${evidence.id}`,
-        parentId: evidence.tool === undefined ? specialistId : `${specialistId}.tool.${index}`,
-        status: evidence.status === "failed" ? "failed" : "ok",
-        startedAt: startedAtIso,
-        durationMs: 0,
-        agentId: result.agentId,
-        round,
+        parentId: evidenceParent,
+        status,
+        actor: "runtime",
+        ...(evidence.tool ? { mcp: evidence.system, tool: evidence.tool } : {}),
+        // the citation is a reference, not a payload
+        ...(evidence.citation ? { metadata: { citation: evidence.citation } } : {}),
       });
     }
 
     for (const domain of result.needsDomain ?? []) {
-      nodes.push({
+      push({
         id: `${specialistId}.escalate.${domain}`,
         kind: "domain.escalation",
         label: `needs ${domain}`,
@@ -145,21 +301,70 @@ export function buildRunRecord(input: BuildRunInput): RunRecord {
         status: "ok",
         startedAt: startedAtIso,
         durationMs: 0,
+        actor: "specialist",
         agentId: result.agentId,
+        detail: "returned through the Manager; specialists never call each other",
         round,
       });
     }
+
+    const outcome = agentOutcome(result);
+    push({
+      id: `${specialistId}.result`,
+      kind: "agent.result",
+      label: outcome.label,
+      parentId: specialistId,
+      status: outcome.status,
+      startedAt: startedAtIso,
+      durationMs: 0,
+      actor: "specialist",
+      agentId: result.agentId,
+      round,
+      ...(outcome.detail ? { detail: outcome.detail } : {}),
+    });
   }
 
-  nodes.push({
+  // ── the one bounded cross-domain hop ────────────────────────────────────
+  if (routing?.followup !== undefined) {
+    push({
+      id: "followup.route",
+      kind: "followup.route",
+      label: routing.followup.agent,
+      parentId: ROUTE,
+      status: "ok",
+      startedAt: startedAtIso,
+      durationMs: 0,
+      actor: "manager",
+      agentId: routing.followup.agent,
+      detail: "Round 2: the Manager dispatched a follow-up after a domain handoff",
+      metadata: { reason: routing.followup.reason },
+      round: 2,
+    });
+  }
+
+  // ── the end ─────────────────────────────────────────────────────────────
+  push({
     id: "synthesis",
     kind: "synthesis",
     label: input.synthesized ? "synthesized across specialists" : "deterministic response",
     // fan-in: every specialist converges here
-    parentId: "manager.route",
+    parentId: ROUTE,
     status: input.status === "failed" ? "failed" : "ok",
     startedAt: startedAtIso,
     durationMs: input.durationMs,
+    actor: "runtime",
+  });
+
+  push({
+    id: "run.completed",
+    kind: "run.completed",
+    label: input.status,
+    parentId: ROOT,
+    status: input.status === "failed" ? "failed" : input.status === "partial" ? "timeout" : "ok",
+    startedAt: startedAtIso,
+    durationMs: input.durationMs,
+    actor: "runtime",
+    ...(input.outcomeReason ? { detail: input.outcomeReason } : {}),
   });
 
   return {
@@ -167,6 +372,7 @@ export function buildRunRecord(input: BuildRunInput): RunRecord {
     startedAt: startedAtIso,
     durationMs: input.durationMs,
     status: input.status,
+    ...(question === undefined ? {} : { question: truncate(question, 2_000) }),
     userSubjectHash: input.userSubjectHash,
     environment: input.environment,
     agents: input.results.map((result) => result.agentId),
@@ -177,4 +383,9 @@ export function buildRunRecord(input: BuildRunInput): RunRecord {
     modelProfiles: [...modelProfiles],
     nodes,
   };
+}
+
+/** Cut with a visible marker, so a shortened question never reads as the whole one. */
+function truncate(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }

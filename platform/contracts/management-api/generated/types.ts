@@ -134,6 +134,10 @@ export interface ManagerDetail {
   allowed: Array<string>;
   /** Specialists that exist but are not routable. Listed rather than omitted, so "not shown" and "not reachable" cannot look alike. */
   notRouted: Array<string>;
+  /** The deployment environment this runtime serves. Absent when none is mounted, so a console can say nothing rather than imply everything is deployed. */
+  environment?: string;
+  /** Allowed specialists this environment does not run. Being in the routing table is only half of being reachable: the effective catalog is the allowlist intersected with what the environment enables, and an agent listed here is never offered to the Manager at all. */
+  notDeployed?: Array<string>;
   execution: Record<string, number>;
   /** Stated, so the console shows no blank where a client id would be. */
   identity: {
@@ -213,6 +217,8 @@ export interface RunSummary {
   startedAt: string;
   durationMs: number;
   status: "complete" | "partial" | "failed";
+  /** The question after redaction */
+  question?: string;
   /** Hashed initiator; a raw subject never leaves the runtime. */
   userSubjectHash: string;
   agents: Array<string>;
@@ -220,19 +226,29 @@ export interface RunSummary {
   evidenceCount: number;
 }
 
+/**
+ * One event in a run's execution trace. Events record intent (tool.request), enforcement (authorization.check) and execution (toolhive.call) as separate nodes, so a refused attempt is distinguishable from one that was never made.
+ */
+
 export interface RunNode {
   id: string;
-  kind: "manager.route" | "specialist" | "authorization.check" | "workload.token" | "tool.request" | "toolhive.call" | "evidence" | "domain.escalation" | "synthesis";
+  /** The trailing values name capabilities the platform does not have yet; they are declared so adding one is an emission rather than a contract change. */
+  kind: "user.request" | "manager.route" | "followup.route" | "run.completed" | "specialist" | "agent.action" | "agent.result" | "domain.escalation" | "authorization.check" | "workload.token" | "tool.request" | "toolhive.call" | "evidence" | "synthesis" | "error" | "approval.requested" | "approval.granted" | "write.action" | "retry" | "verify.result";
   label: string;
   parentId?: string;
   status: "ok" | "denied" | "failed" | "timeout";
   startedAt: string;
   durationMs: number;
+  actor: "user" | "manager" | "specialist" | "runtime";
+  /** The substance of the step - a task */
+  detail?: string;
   agentId?: string;
   mcp?: string;
   tool?: string;
   /** Which bounded round produced this node. */
   round?: number;
+  /** Event-specific facts. Scalars only, so no payload can be carried here. */
+  metadata?: Record<string, string | number | boolean>;
 }
 
 export interface RunDetail {
@@ -240,6 +256,8 @@ export interface RunDetail {
   startedAt: string;
   durationMs: number;
   status: "complete" | "partial" | "failed";
+  /** The question after redaction */
+  question?: string;
   userSubjectHash: string;
   environment: string;
   agents: Array<string>;

@@ -35,7 +35,11 @@ export function createApp(deps: ApiDependencies): TestableApp {
     registerManagerRoutes(app, deps);
     // read-only management plane, behind the same human authentication as /v1/query
     if (deps.managementRegistry) {
-      app.use("/management", oidcAuthenticationMiddleware(deps.oidc), managementRouter({ registry: deps.managementRegistry, config: deps.config, runs: deps.runs, ...(deps.promptAssistModel ? { promptAssistModel: deps.promptAssistModel } : {}) }));
+      // `registry` is canonical — every Agent that exists, which is what a
+      // management plane must be able to show and edit. `deployment` is what
+      // THIS environment runs. The console needs both to tell "allowed" from
+      // "reachable"; the effective catalog is their intersection.
+      app.use("/management", oidcAuthenticationMiddleware(deps.oidc), managementRouter({ registry: deps.managementRegistry, config: deps.config, runs: deps.runs, ...(deps.deployment ? { deployment: deps.deployment } : {}), ...(deps.promptAssistModel ? { promptAssistModel: deps.promptAssistModel } : {}), ...(deps.deployment ? { deployment: deps.deployment } : {}) }));
     }
   } else registerSpecialistRoutes(app, deps);
 
