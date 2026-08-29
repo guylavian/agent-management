@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+root="$(cd "$(dirname "$0")/.." && pwd)"   # platform/
+repo="$(cd "$root/.." && pwd)"            # git root; deploy/ is a sibling of platform/
 cd "$root"
 env_file="${REAL_POC_ENV_FILE:-$root/.env.real-poc}"
 state="$root/.real-poc"
@@ -25,10 +26,10 @@ for name in "${required[@]}"; do
 done
 
 docker info >/dev/null
-test -x "$bin/thv" && test -x "$bin/prometheus-mcp" || "$root/engineering/tools/prepare-real-poc.sh"
-"$root/engineering/tools/gen-keycloak-cert.sh"
-chmod +x "$root/engineering/tools/gen-manager-cert.sh"; "$root/engineering/tools/gen-manager-cert.sh"
-docker compose --env-file "$env_file" -f "$root/deploy/local/compose.yaml" -f "$root/deploy/local/keycloak/tls.override.yml" up -d
+test -x "$bin/thv" && test -x "$bin/prometheus-mcp" || "$root/tools/prepare-real-poc.sh"
+"$root/tools/gen-keycloak-cert.sh"
+chmod +x "$root/tools/gen-manager-cert.sh"; "$root/tools/gen-manager-cert.sh"
+docker compose --env-file "$env_file" -f "$repo/deploy/local/compose.yaml" -f "$repo/deploy/local/keycloak/tls.override.yml" up -d
 
 wait_http() {
   local url="$1" label="$2"
@@ -42,7 +43,7 @@ wait_http() {
 }
 
 wait_http "http://127.0.0.1:${KEYCLOAK_MGMT_PORT:-9000}/health/ready" Keycloak
-"$root/engineering/tools/bootstrap-keycloak-real-poc.sh"
+"$root/tools/bootstrap-keycloak-real-poc.sh"
 wait_http "http://127.0.0.1:${PROMETHEUS_PORT:-9090}/-/healthy" Prometheus
 wait_http "$LLM_WIKI_MCP_ENDPOINT" "LLM Wiki MCP"
 llm_probe="${SRE_LLM_BASE_URL%/}"
@@ -107,8 +108,8 @@ if [ -n "${SRE_LLM_API_KEY:-}" ]; then common_env+=(SRE_LLM_API_KEY="$SRE_LLM_AP
 
 start_runtime() {
   local name="$1" port="$2" config="$3"; shift 3
-  start_background "$name" env "${common_env[@]}" "$@" SRE_PORT="$port" AGENT_CONFIG="$config" SRE_DEPLOYMENT_ENVIRONMENT_DIR=deploy/environments/poc \
-    node --import tsx "$root/core/runtime-host/src/main.ts"
+  start_background "$name" env "${common_env[@]}" "$@" SRE_PORT="$port" AGENT_CONFIG="$config" SRE_DEPLOYMENT_ENVIRONMENT_DIR=../deploy/environments/poc \
+    node --import tsx "$root/runtime-host/src/main.ts"
   wait_http "http://127.0.0.1:$port/health/ready" "$name"
 }
 
@@ -144,7 +145,7 @@ run_proxy() {
   local tool_args=() t
   IFS=',' read -ra _tarr <<< "$tools"
   for t in "${_tarr[@]}"; do tool_args+=(--tools "$t"); done
-  local authz="$root/deploy/environments/poc/rendered/toolhive/$mcp.authz.yaml"
+  local authz="$repo/deploy/environments/poc/rendered/toolhive/$mcp.authz.yaml"
   test -f "$authz" || { echo "missing rendered ToolHive policy for $mcp; run npm run render:toolhive" >&2; exit 1; }
   "$thv" run "$endpoint" --name "$name" --group sre-real-poc --proxy-port "$port" "${tool_args[@]}" \
     --transport streamable-http \
@@ -160,4 +161,4 @@ run_proxy http://127.0.0.1:8202/mcp sre-poc-prometheus 8302 sre-toolhive:prometh
   query,range_query,metric_metadata,label_names,label_values,series,list_targets,healthy,ready,runtime_info,build_info prometheus
 run_proxy "$LLM_WIKI_MCP_ENDPOINT" sre-poc-wiki 8303 sre-toolhive:wiki wiki_search,wiki_read_page,wiki_route wiki
 
-echo "Real PoC started. Run: $root/engineering/tools/verify-real-poc.sh"
+echo "Real PoC started. Run: $root/tools/verify-real-poc.sh"

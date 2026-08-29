@@ -43,7 +43,7 @@ spec:
             {{- if eq .Values.agent.mode "manager" }}
             # the Manager derives its effective catalog from config/agents intersected
             # with this environment's deployment state; there is no registry file
-            - { name: SRE_DEPLOYMENT_ENVIRONMENT_DIR, value: {{ printf "deploy/environments/%s" .Values.deploymentEnvironment | quote }} }
+            - { name: SRE_DEPLOYMENT_ENVIRONMENT_DIR, value: {{ printf "../deploy/environments/%s" .Values.deploymentEnvironment | quote }} }
             - { name: SRE_WORKLOAD_TOKEN_FILE, value: {{ printf "%s/token" .Values.workloadIdentity.mountPath | quote }} }
             {{- end }}
             # logical model profile -> served model id, rendered from

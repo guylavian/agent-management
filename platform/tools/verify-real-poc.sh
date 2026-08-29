@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+root="$(cd "$(dirname "$0")/.." && pwd)"   # platform/
+repo="$(cd "$root/.." && pwd)"            # git root; deploy/ is a sibling of platform/
 cd "$root"
 env_file="${REAL_POC_ENV_FILE:-$root/.env.real-poc}"
 state="$root/.real-poc"
@@ -105,7 +106,7 @@ query A "What clients exist in the sre-test realm?" keycloak keycloak
 query B "What does our documentation say about Keycloak authentication, and does the current Keycloak configuration match it?" keycloak wiki,keycloak
 if ! reachable "$kc/realms/$realm/.well-known/openid-configuration"; then
   block "failed-login generation cannot run while Keycloak is unavailable"
-elif "$root/engineering/tools/generate-keycloak-login-failures.sh" 5 >"$results/login-failures.log" 2>&1; then
+elif "$root/tools/generate-keycloak-login-failures.sh" 5 >"$results/login-failures.log" 2>&1; then
   ok "generated real failed Keycloak logins"
 else
   no "failed to generate Keycloak login signals"

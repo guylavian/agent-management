@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+root="$(cd "$(dirname "$0")/.." && pwd)"   # platform/
+repo="$(cd "$root/.." && pwd)"            # git root; deploy/ is a sibling of platform/
 state="$root/.real-poc"
 src="$state/src"
 bin="$state/bin"

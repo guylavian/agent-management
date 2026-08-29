@@ -4,7 +4,8 @@
 # verifies it — run `mkcert -install` once to trust that CA.
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+root="$(cd "$(dirname "$0")/.." && pwd)"   # platform/
+repo="$(cd "$root/.." && pwd)"            # git root; deploy/ is a sibling of platform/
 state="$root/.real-poc"
 crt="$state/manager-tls.crt"
 key="$state/manager-tls.key"

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+root="$(cd "$(dirname "$0")/.." && pwd)"   # platform/
+repo="$(cd "$root/.." && pwd)"            # git root; deploy/ is a sibling of platform/
 env_file="${REAL_POC_ENV_FILE:-$root/.env.real-poc}"
 if [ -f "$env_file" ]; then
   set -a
@@ -9,4 +10,4 @@ if [ -f "$env_file" ]; then
   source "$env_file"
   set +a
 fi
-exec "$root/engineering/tools/generate-keycloak-test-events.sh" "${1:-5}"
+exec "$root/tools/generate-keycloak-test-events.sh" "${1:-5}"

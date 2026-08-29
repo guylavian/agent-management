@@ -10,7 +10,8 @@
 #
 # Requires the vendored ToolHive source (engineering/tools/prepare-real-poc.sh) and Go.
 set -euo pipefail
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+root="$(cd "$(dirname "$0")/.." && pwd)"   # platform/
+repo="$(cd "$root/.." && pwd)"            # git root; deploy/ is a sibling of platform/
 toolhive="${TOOLHIVE_SRC:-$root/.real-poc/src/toolhive}"
 
 if [ ! -f "$toolhive/go.mod" ]; then
@@ -21,6 +22,6 @@ command -v go >/dev/null || { echo "BLOCKED: Go toolchain not available" >&2; ex
 
 # the test must live inside ToolHive's module to import its internal packages
 mkdir -p "$toolhive/sre-policy-check"
-cp "$root/engineering/tools/toolhive-policy-check/main_test.go" "$toolhive/sre-policy-check/"
+cp "$root/tools/toolhive-policy-check/main_test.go" "$toolhive/sre-policy-check/"
 cd "$toolhive"
-SRE_REPO="$root" go test ./sre-policy-check/...
+SRE_REPO="$repo" go test ./sre-policy-check/...
