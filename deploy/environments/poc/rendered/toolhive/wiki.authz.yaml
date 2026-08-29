@@ -1,0 +1,19 @@
+# GENERATED FILE — DO NOT EDIT.
+# Produced by `npm run render:toolhive` from config/agents/*.yaml intersected
+# with deploy/environments/<env>. Cedar is default-deny: a tool with no
+# permit below is refused by the gateway, and a disabled Agent has none.
+#
+# MCP server: wiki
+#   keycloak (sre-agent-keycloak) -> 3 tool(s), aud sre-toolhive:wiki
+#   observability (sre-agent-observability) -> 3 tool(s), aud sre-toolhive:wiki
+version: "1.0"
+type: cedarv1
+cedar:
+  policies:
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal.claim_azp == "sre-agent-keycloak" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_route") when { principal.claim_azp == "sre-agent-keycloak" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal.claim_azp == "sre-agent-keycloak" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_route") when { principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal.claim_azp == "sre-agent-observability" };'
+  entities_json: "[]"

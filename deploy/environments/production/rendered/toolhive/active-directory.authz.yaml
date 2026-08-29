@@ -1,0 +1,16 @@
+# GENERATED FILE — DO NOT EDIT.
+# Produced by `npm run render:toolhive` from config/agents/*.yaml intersected
+# with deploy/environments/<env>. Cedar is default-deny: a tool with no
+# permit below is refused by the gateway, and a disabled Agent has none.
+#
+# MCP server: active-directory
+#   active-directory (sre-agent-active-directory) -> 4 tool(s), aud sre-toolhive:active-directory
+version: "1.0"
+type: cedarv1
+cedar:
+  policies:
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_dc_health") when { principal.claim_azp == "sre-agent-active-directory" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_dns_health") when { principal.claim_azp == "sre-agent-active-directory" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_replication_status") when { principal.claim_azp == "sre-agent-active-directory" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"list_domain_controllers") when { principal.claim_azp == "sre-agent-active-directory" };'
+  entities_json: "[]"

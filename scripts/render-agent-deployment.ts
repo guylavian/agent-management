@@ -146,14 +146,17 @@ export function render(environments: string[] = readdirSync("deploy/environments
       throw new Error(`${environment}: model-bindings declares environment "${bindings.environment}" but environment.yaml declares "${state.settings.environment}"`);
     }
 
+    // clear only the subtree this renderer owns: deploy/environments/<env>/rendered
+    // is shared with the ToolHive policy renderer, and wiping the parent would
+    // silently delete the other's output depending on which ran last
     const renderedDir = join(directory, "rendered", "agents");
-    rmSync(join(directory, "rendered"), { recursive: true, force: true });
+    rmSync(renderedDir, { recursive: true, force: true });
     mkdirSync(renderedDir, { recursive: true });
 
     const manager = documents.get("manager");
     if (manager === undefined) throw new Error("no canonical manager Agent");
     if (state.manager?.enabled) {
-      const file = join(directory, "rendered", "agents", "manager.yaml");
+      const file = join(renderedDir, "manager.yaml");
       writeFileSync(file, toYaml(renderAgent(manager, state.manager, bindings, environment)), "utf8");
       written.push(file);
     }

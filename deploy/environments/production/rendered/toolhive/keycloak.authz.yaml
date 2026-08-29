@@ -1,0 +1,19 @@
+# GENERATED FILE — DO NOT EDIT.
+# Produced by `npm run render:toolhive` from config/agents/*.yaml intersected
+# with deploy/environments/<env>. Cedar is default-deny: a tool with no
+# permit below is refused by the gateway, and a disabled Agent has none.
+#
+# MCP server: keycloak
+#   keycloak (sre-agent-keycloak) -> 7 tool(s), aud sre-toolhive:keycloak
+version: "1.0"
+type: cedarv1
+cedar:
+  policies:
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"find_user") when { principal.claim_azp == "sre-agent-keycloak" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_client") when { principal.claim_azp == "sre-agent-keycloak" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"keycloak_health") when { principal.claim_azp == "sre-agent-keycloak" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"keycloak_read") when { principal.claim_azp == "sre-agent-keycloak" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"list_clients") when { principal.claim_azp == "sre-agent-keycloak" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"list_realms") when { principal.claim_azp == "sre-agent-keycloak" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"resolve_client_uuid") when { principal.claim_azp == "sre-agent-keycloak" };'
+  entities_json: "[]"

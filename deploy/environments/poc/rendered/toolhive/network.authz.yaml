@@ -1,0 +1,12 @@
+# GENERATED FILE — DO NOT EDIT.
+# Produced by `npm run render:toolhive` from config/agents/*.yaml intersected
+# with deploy/environments/<env>. Cedar is default-deny: a tool with no
+# permit below is refused by the gateway, and a disabled Agent has none.
+#
+# MCP server: network
+# No Agent is granted access to this server in this environment.
+version: "1.0"
+type: cedarv1
+cedar:
+  policies: []
+  entities_json: "[]"

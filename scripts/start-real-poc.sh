@@ -124,28 +124,40 @@ start_runtime manager 3000 config/agents/manager.yaml \
 start_runtime keycloak-agent 3101 config/agents/keycloak.yaml
 start_runtime observability-agent 3102 config/agents/observability.yaml
 
+# the gateway policy is derived from the canonical Agent config, so it is
+# re-rendered here rather than trusted to be current on disk
+(cd "$root" && npm run --silent render:toolhive >/dev/null)
+
 thv="$bin/thv"
 "$thv" group create sre-real-poc >/dev/null 2>&1 || true
 for workload in sre-poc-keycloak sre-poc-prometheus sre-poc-wiki; do "$thv" rm "$workload" >/dev/null 2>&1 || true; done
 
+# Two independent gateway-side bounds, deliberately not one:
+#   --tools        the proxy exposes only approved tools at all (server-wide)
+#   --authz-config Cedar, per-Agent: which workload may call which of them
+# The runtime enforces its own allowlist regardless; none of the three is
+# permitted to be the only thing standing between an Agent and a tool.
 run_proxy() {
-  local endpoint="$1" name="$2" port="$3" audience="$4" tools="$5"
+  local endpoint="$1" name="$2" port="$3" audience="$4" tools="$5" mcp="$6"
   # --tools is a StringArray (no comma splitting): pass each tool as its own flag
   # so the allow-list is an exact-match set, not one bogus comma-joined entry.
   local tool_args=() t
   IFS=',' read -ra _tarr <<< "$tools"
   for t in "${_tarr[@]}"; do tool_args+=(--tools "$t"); done
+  local authz="$root/deploy/environments/poc/rendered/toolhive/$mcp.authz.yaml"
+  test -f "$authz" || { echo "missing rendered ToolHive policy for $mcp; run npm run render:toolhive" >&2; exit 1; }
   "$thv" run "$endpoint" --name "$name" --group sre-real-poc --proxy-port "$port" "${tool_args[@]}" \
     --transport streamable-http \
+    --authz-config "$authz" \
     --oidc-issuer http://127.0.0.1:3000 \
     --oidc-jwks-url https://127.0.0.1:3443/internal/.well-known/jwks.json \
     --oidc-audience "$audience" --oidc-insecure-allow-http --jwks-allow-private-ip --enable-audit
 }
 
 run_proxy http://127.0.0.1:8201/mcp sre-poc-keycloak 8301 sre-toolhive:keycloak \
-  keycloak_read,keycloak_health,list_realms,list_clients,get_client,find_user,resolve_client_uuid
+  keycloak_read,keycloak_health,list_realms,list_clients,get_client,find_user,resolve_client_uuid keycloak
 run_proxy http://127.0.0.1:8202/mcp sre-poc-prometheus 8302 sre-toolhive:prometheus \
-  query,range_query,metric_metadata,label_names,label_values,series,list_targets,healthy,ready,runtime_info,build_info
-run_proxy "$LLM_WIKI_MCP_ENDPOINT" sre-poc-wiki 8303 sre-toolhive:wiki wiki_search,wiki_read_page,wiki_route
+  query,range_query,metric_metadata,label_names,label_values,series,list_targets,healthy,ready,runtime_info,build_info prometheus
+run_proxy "$LLM_WIKI_MCP_ENDPOINT" sre-poc-wiki 8303 sre-toolhive:wiki wiki_search,wiki_read_page,wiki_route wiki
 
 echo "Real PoC started. Run: $root/scripts/verify-real-poc.sh"

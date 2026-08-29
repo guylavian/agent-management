@@ -1,0 +1,17 @@
+# GENERATED FILE — DO NOT EDIT.
+# Produced by `npm run render:toolhive` from config/agents/*.yaml intersected
+# with deploy/environments/<env>. Cedar is default-deny: a tool with no
+# permit below is refused by the gateway, and a disabled Agent has none.
+#
+# MCP server: splunk
+#   active-directory (sre-agent-active-directory) -> 1 tool(s), aud sre-toolhive:splunk
+#   network-observability (sre-agent-network-observability) -> 1 tool(s), aud sre-toolhive:splunk
+#   openshift (sre-agent-openshift) -> 1 tool(s), aud sre-toolhive:splunk
+version: "1.0"
+type: cedarv1
+cedar:
+  policies:
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"search_ad_events") when { principal.claim_azp == "sre-agent-active-directory" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"search_network_logs") when { principal.claim_azp == "sre-agent-network-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"search_platform_logs") when { principal.claim_azp == "sre-agent-openshift" };'
+  entities_json: "[]"

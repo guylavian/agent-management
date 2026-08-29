@@ -1,0 +1,16 @@
+# GENERATED FILE — DO NOT EDIT.
+# Produced by `npm run render:toolhive` from config/agents/*.yaml intersected
+# with deploy/environments/<env>. Cedar is default-deny: a tool with no
+# permit below is refused by the gateway, and a disabled Agent has none.
+#
+# MCP server: network
+#   network-observability (sre-agent-network-observability) -> 4 tool(s), aud sre-toolhive:network
+version: "1.0"
+type: cedarv1
+cedar:
+  policies:
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_bgp_status") when { principal.claim_azp == "sre-agent-network-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_interface_status") when { principal.claim_azp == "sre-agent-network-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_load_balancer_pool") when { principal.claim_azp == "sre-agent-network-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_path_health") when { principal.claim_azp == "sre-agent-network-observability" };'
+  entities_json: "[]"
