@@ -21,6 +21,11 @@ spec:
           env:
             - name: AGENT_CONFIG
               value: {{ if .Values.agent.configOverride }}/config/agent.yaml{{ else }}{{ .Values.agent.configFile }}{{ end }}
+            # ROLE and AGENT_ID state the deployment's intent. The Agent document
+            # remains authoritative; startup fails if the two disagree, so a
+            # manifest cannot quietly mount the wrong configuration.
+            - { name: ROLE, value: {{ .Values.agent.mode | quote }} }
+            - { name: AGENT_ID, value: {{ .Values.agent.name | quote }} }
             - { name: SRE_ENV, value: {{ .Values.environment | quote }} }
             - { name: SRE_DEFAULT_ENVIRONMENT, value: {{ .Values.defaultEnvironment | quote }} }
             - { name: SRE_OTEL_EXPORTER, value: otlp }

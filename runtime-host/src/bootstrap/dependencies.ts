@@ -95,6 +95,7 @@ export type ApiDependencies = ManagerDependencies | SpecialistDependencies;
 export function buildDependencies(env: Record<string, string | undefined> = process.env): ApiDependencies {
   const config = loadAppConfig(env);
   const agent = loadAgentInstance({ configFile: config.agentConfigFile, mcpServersDir: config.mcpServersDir });
+  assertDeclaredRole(config, agent);
   const modelMap = buildModelMap(config, config.llm.model);
   // FAIL CLOSED: an enabled Agent whose model profile does not resolve in this
   // environment is a startup error, not a surprise on someone's first question.
@@ -211,6 +212,22 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     identityVerifier,
     ...(config.clients.agent === "real" ? { workloadOidc: new RealOidcClient(config.internalOidc) } : {}),
   };
+}
+
+/**
+ * ROLE and AGENT_ID describe what a deployment BELIEVES it is running. The Agent
+ * document is what it IS. Trusting the environment variable would create a
+ * second source of truth; ignoring it would let a manifest that mounted the
+ * wrong configuration start silently as the wrong agent. So it is checked.
+ */
+function assertDeclaredRole(config: AppConfig, agent: ManagerAgentConfig | SpecialistAgentConfig): void {
+  const actualRole = agent.spec.type === "manager" ? "manager" : "specialist";
+  if (config.role !== undefined && config.role !== actualRole) {
+    throw new ConfigValidationError(`unsafe configuration:\n- ROLE declares "${config.role}" but ${config.agentConfigFile} is a ${actualRole}`);
+  }
+  if (config.agentId !== undefined && config.agentId !== agent.name) {
+    throw new ConfigValidationError(`unsafe configuration:\n- AGENT_ID declares "${config.agentId}" but ${config.agentConfigFile} defines agent "${agent.name}"`);
+  }
 }
 
 function configPaths(config: AppConfig): { agentsDir: string; promptsDir: string; mcpServersDir: string; modelProfilesFile: string; toolPolicyFile: string } {

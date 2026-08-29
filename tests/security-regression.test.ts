@@ -198,3 +198,26 @@ describe("model profiles fail closed", () => {
     expect(() => buildDependencies({ ...realLlm, AGENT_CONFIG: "config/agents/keycloak.yaml", SRE_MODEL_TOOL_CALLER: "qwen3:8b" })).not.toThrow();
   });
 });
+
+/**
+ * ROLE and AGENT_ID describe what a deployment believes it runs; the Agent
+ * document decides what it IS. A manifest that mounts the wrong configuration
+ * must fail at startup rather than come up as a different agent than the
+ * cluster thinks it deployed.
+ */
+describe("declared role must match the mounted configuration", () => {
+  it("rejects a ROLE that disagrees with the Agent document", () => {
+    expect(() => buildDependencies({ AGENT_CONFIG: "config/agents/keycloak.yaml", ROLE: "manager" }))
+      .toThrow(/ROLE declares "manager" but .* is a specialist/u);
+  });
+
+  it("rejects an AGENT_ID that disagrees with the Agent document", () => {
+    expect(() => buildDependencies({ AGENT_CONFIG: "config/agents/keycloak.yaml", ROLE: "specialist", AGENT_ID: "observability" }))
+      .toThrow(/AGENT_ID declares "observability" but .* defines agent "keycloak"/u);
+  });
+
+  it("accepts a declaration that agrees, and omission", () => {
+    expect(() => buildDependencies({ AGENT_CONFIG: "config/agents/keycloak.yaml", ROLE: "specialist", AGENT_ID: "keycloak" })).not.toThrow();
+    expect(() => buildDependencies({ AGENT_CONFIG: "config/agents/keycloak.yaml" })).not.toThrow();
+  });
+});

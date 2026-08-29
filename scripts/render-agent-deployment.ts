@@ -64,7 +64,7 @@ function canonicalAgents(): Map<string, AgentDocument> {
 function resolveModelEnv(doc: AgentDocument, bindings: ModelBindings, environment: string): Record<string, string> {
   const profiles = doc.spec.type === "manager" ? [doc.spec.model.profile, "tier-l-synthesis"] : [doc.spec.model.profile];
   const modelEnv: Record<string, string> = {};
-  for (const profile of [...new Set(profiles)]) {
+  for (const profile of new Set(profiles)) {
     const binding = bindings.profiles[profile];
     if (binding === undefined) {
       throw new Error(`${environment}: agent "${doc.metadata.name}" references model profile "${profile}", which has no binding in deploy/environments/${environment}/model-bindings.yaml`);
@@ -158,7 +158,7 @@ export function render(environments: string[] = readdirSync("deploy/environments
       written.push(file);
     }
 
-    for (const [agentId, overlay] of [...state.overlays].sort(([left], [right]) => left.localeCompare(right))) {
+    for (const [agentId, overlay] of [...state.overlays.entries()].sort(([left], [right]) => left.localeCompare(right))) {
       const doc = documents.get(agentId);
       if (doc === undefined) throw new Error(`${environment}: deployment overlay for "${agentId}" has no canonical Agent`);
       // a disabled Agent renders nothing: the ApplicationSet discovers files, so

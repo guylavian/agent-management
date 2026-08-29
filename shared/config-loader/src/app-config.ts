@@ -27,6 +27,15 @@ export const appConfigSchema = z
     port: z.coerce.number().int().min(1).max(65_535).default(3000),
     agentsDir: z.string().min(1).default(CONFIG_PATHS.agentsDir),
     agentConfigFile: z.string().min(1).default("config/agents/manager.yaml"),
+    /**
+     * Declared role and agent id. Both are OPTIONAL and never authoritative:
+     * the Agent document decides what this process is. They exist so a
+     * deployment can state its intent, and so a manifest that disagrees with
+     * the configuration it mounted fails at startup instead of running as
+     * something nobody asked for.
+     */
+    role: z.enum(["manager", "specialist"]).optional(),
+    agentId: z.string().regex(/^[a-z][a-z0-9-]*$/u).optional(),
     promptsDir: z.string().min(1).default(CONFIG_PATHS.promptsDir),
     mcpServersDir: z.string().min(1).default(CONFIG_PATHS.mcpServersDir),
     modelProfilesFile: z.string().min(1).default(CONFIG_PATHS.modelProfilesFile),
@@ -144,6 +153,8 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
     port: env.SRE_PORT,
     agentsDir: env.SRE_AGENTS_DIR,
     agentConfigFile: env.AGENT_CONFIG,
+    role: env.ROLE,
+    agentId: env.AGENT_ID,
     promptsDir: env.SRE_PROMPTS_DIR,
     mcpServersDir: env.SRE_MCP_SERVERS_DIR,
     modelProfilesFile: env.SRE_MODEL_PROFILES,

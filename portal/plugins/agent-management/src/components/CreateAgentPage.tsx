@@ -70,11 +70,19 @@ export function CreateAgentPage() {
     });
   };
 
+  /**
+   * The prompt and the limits are edited in their own state, so they have to be
+   * folded back in here. They were not, which meant the Agent document was
+   * generated referencing a prompt file the change never created — the screen
+   * said "saved to config/prompts/<name>.md" and nothing was saved.
+   */
+  const submission = (): AgentDraft => ({ ...draft, prompt, limits });
+
   const runPreview = async () => {
     setBusy(true);
     setIssues([]);
     try {
-      setPreview(await actions.preview(draft));
+      setPreview(await actions.preview(submission()));
     } catch (error) {
       setPreview(undefined);
       const body = error as { issues?: string[]; message?: string };
@@ -87,7 +95,7 @@ export function CreateAgentPage() {
   const createPr = async () => {
     setBusy(true);
     try {
-      setPr(await actions.createPullRequest(draft));
+      setPr(await actions.createPullRequest(submission()));
     } catch (error) {
       setIssues([(error as Error).message]);
     } finally {
@@ -150,7 +158,7 @@ export function CreateAgentPage() {
                 <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5, background: C.canvas, color: C.muted }} value="configured per environment — no cloud coupling" readOnly />
               </Field>
             </div>
-            <Field label="System prompt" hint={`${prompt.trim() ? Math.ceil(prompt.length / 4) : 0} tokens (estimate) · saved to prompts/${draft.name || '<name>'}.md`}>
+            <Field label="System prompt" hint={`${prompt.trim() ? Math.ceil(prompt.length / 4) : 0} tokens (estimate) · saved to config/prompts/${draft.name || '<name>'}.md`}>
               <textarea style={{ ...inputStyle, minHeight: 200, fontFamily: MONO, lineHeight: 1.55, resize: 'vertical' }} value={prompt} onChange={event => setPrompt(event.target.value)} />
             </Field>
             {prompt.trim().length === 0 && (
@@ -276,8 +284,15 @@ export function CreateAgentPage() {
 
             {preview && (
               <div style={{ marginTop: 18 }}>
-                <SectionTitle>Generated configuration · {preview.path}</SectionTitle>
-                <pre style={{ background: '#1d2233', color: '#e8eaf5', padding: 18, borderRadius: 10, overflowX: 'auto', fontSize: 12.5, margin: 0, fontFamily: MONO, lineHeight: 1.6 }}>{preview.yaml}</pre>
+                {/* every file the pull request will contain — an Agent without its
+                    prompt and overlay is not a deployable change */}
+                <SectionTitle>Files in this change</SectionTitle>
+                {preview.files.map(file => (
+                  <div key={file.path} style={{ marginBottom: 14 }}>
+                    <div style={{ fontFamily: MONO, fontSize: 12.5, color: C.body, marginBottom: 6 }}>{file.path}</div>
+                    <pre style={{ background: '#1d2233', color: '#e8eaf5', padding: 18, borderRadius: 10, overflowX: 'auto', fontSize: 12.5, margin: 0, fontFamily: MONO, lineHeight: 1.6 }}>{file.contents}</pre>
+                  </div>
+                ))}
                 <div style={{ marginTop: 16 }}>
                   <SectionTitle>Merging this change will</SectionTitle>
                   <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: C.body, lineHeight: 1.8 }}>
