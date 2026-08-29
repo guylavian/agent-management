@@ -273,8 +273,9 @@ set moves between runs.
 | Keycloak reconciler entrypoint | NOT WIRED — library only, no CLI or job |
 | Decommission workflow | NOT IMPLEMENTED — lifecycle states exist; no guided flow |
 | Sidebar sections Models / Evaluations / Deployments / Teams | NOT IMPLEMENTED — spec §18 lists 10, six are present |
-| Enabled/Disabled toggle on Agent detail | UI ONLY — reflects lifecycle, does not mutate (by design: changes go through a PR), but reads as an interactive control |
-| Edit button | UI ONLY — navigates to the wizard without prefilling the agent |
+| Enabled/Disabled toggle on Agent detail | READ-ONLY — shows what Git declares; disabled, with `aria-readonly` and a tooltip saying a change is a pull request. Lifecycle, routability and reachability are three separate cards, so `enabled` no longer reads as liveness |
+| Edit button | IMPLEMENTED — `/agents/:id/edit` opens the create wizard prefilled from the Agent; the runtime renders it as an "Update" change-set. Proven lossless: all five shipping Agents regenerate a byte-identical document, asserted by a unit round-trip test and confirmed against the live manager |
+| Editing a grant the approved catalog does not list | GUARDED, NOT SUPPORTED — the detail view intersects grants with the catalog, so such a grant would be silently dropped by an edit. It is already dead at runtime, and a test now fails the build rather than letting the portal delete it |
 | Portal image | NOT BUILT — Helm chart references `registry.internal/sre-agent-portal:0.1.0`; no Dockerfile for the portal yet |
 | Workload-client token path | WIRED — real PoC still uses `signed-jwt` |
 | Enterprise RFC 8693 token exchange | BLOCKED — pre-existing integration blocker, unchanged |
