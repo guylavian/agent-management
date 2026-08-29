@@ -1,7 +1,8 @@
 # Monorepo layout
 
-One repository, four code components, two dependency-neutral zones, and a strict
-separation between what the platform IS and where it RUNS.
+Three first-class concerns at the repository root — the engine, the platform
+built on it, and how both are packaged — with a strict separation between what
+the platform IS and where it RUNS.
 
 ```
 <git root>                     directories only
@@ -51,14 +52,15 @@ sits beside `platform/`, not inside it. It links the platform packages it needs
 by path, and `npm run check` in `platform/` delegates into it so there is still
 one command.
 
-Component-local tests stay with their component (`core/agent-engine/tests/`,
-`libs/shared/config-loader/tests/`). Only tests that span components — the
+Component-local tests stay with their component (`agent-engine/tests/`,
+`platform/shared/config-loader/tests/`). Only tests that span components — the
 boundary graph, the domain handoff, lifecycle, render pipeline — live under
-`engineering/tests/`.
+`platform/tests/`.
 
-`libs/` groups contracts and shared for navigation only. It does **not** flatten
-them: `check-boundaries` still forbids `contracts → shared`, which is what keeps
-a contract a contract rather than a facade over implementation.
+`contracts` and `shared` sit side by side under `platform/`, and the distinction
+between them is enforced, not stylistic: `check-boundaries` forbids
+`contracts → shared`, which is what keeps a contract a contract rather than a
+facade over implementation.
 
 ## The dependency graph
 

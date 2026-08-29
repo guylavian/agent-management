@@ -35,7 +35,7 @@
     "gen:schema": "node --import tsx tools/gen-schema.ts",
     "gen:supply-chain": "node --import tsx tools/gen-supply-chain.ts",
     "gen:eval-cases": "node --import tsx tools/gen-eval-cases.ts",
-    "check": "npm run typecheck && npm run lint && npm run validate:boundaries && npm run test && npm run check:engine && npm run validate:yaml && npm run check:generated && npm run validate:deploy",
+    "check": "npm run typecheck && npm run lint && npm run validate:boundaries && npm run validate:tracked && npm run test && npm run check:engine && npm run validate:yaml && npm run check:generated && npm run validate:deploy",
     "eval": "node --import tsx eval/run.ts",
     "load": "node --import tsx eval/load/run-load.ts",
     "render:deploy": "node --import tsx tools/render-agent-deployment.ts",
@@ -47,7 +47,8 @@
     "verify:keycloak": "node --import tsx tools/verify-keycloak-identities.ts",
     "verify:toolhive-policy": "./tools/verify-toolhive-policy.sh",
     "check:engine": "npm --prefix ../agent-engine run check",
-    "install:engine": "npm --prefix ../agent-engine install"
+    "install:engine": "npm --prefix ../agent-engine install",
+    "validate:tracked": "node --import tsx tools/check-tracked-files.ts"
   },
   "devDependencies": {
     "@types/express": "5.0.6",

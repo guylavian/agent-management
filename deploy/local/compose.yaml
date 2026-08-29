@@ -56,7 +56,7 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       # Host-backed TSDB: the Docker VM overlay is full on this local host, so
       # keep Prometheus data on the host disk instead of an anonymous volume.
-      - ../../.real-poc/prom-data:/prometheus
+      - ../../platform/.real-poc/prom-data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
     depends_on:
