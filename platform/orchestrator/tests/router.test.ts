@@ -3,7 +3,7 @@ import { loadAgentInstance, type ManagerAgentConfig } from "@sre/config";
 import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
 import { MockModelClient } from "@sre/llm";
 import { describe, expect, it } from "vitest";
-import { classifyIntent, extractEntities, ManagerRouter } from "../src/index.ts";
+import { classifyIntent, extractEntities, managerRouteSchema, ManagerRouter } from "../src/index.ts";
 
 const registry = loadEffectiveAgentCatalog({ ...CONFIG_PATHS, deploymentEnvironmentDir: deployEnvironmentDir("production") });
 const manager = loadAgentInstance({ configFile: "config/agents/manager.yaml" }) as ManagerAgentConfig;
@@ -92,6 +92,31 @@ describe("Manager", () => {
     const decision = await new ManagerRouter(model, registry, manager).selectAgents("auth failing from site B", ids, {});
     expect(decision.routes.map((route) => route.agent)).toEqual(["active-directory", "network-observability"]);
     expect(decision.routes[0]?.task).not.toEqual(decision.routes[1]?.task);
+  });
+
+  /**
+   * The provider validates the response against this schema DURING generation
+   * and rejects the whole thing if a required field is missing. A model that
+   * spends its budget on a long `task` never reaches `confidence`/`abstain`,
+   * the call 400s, and the request fails with nothing routed. Bound what may be
+   * generated; stay permissive about what may arrive.
+   */
+  it("asks the model for a shorter task than it is willing to accept", async () => {
+    class InspectingModel implements ModelClient {
+      readonly mode = "mock" as const;
+      request?: ChatRequest;
+      async chat(request: ChatRequest): Promise<ChatResponse> { this.request = request; return { content: JSON.stringify({ routes: [{ agent: "active-directory", task: "t" }], confidence: 0.9, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } }; }
+    }
+    const model = new InspectingModel();
+    await new ManagerRouter(model, registry, manager).selectAgents("q", ids, {});
+    const schema = model.request?.guidedJsonSchema as { properties: { routes: { items: { properties: { task: { maxLength: number } } } } } };
+    const generated = schema.properties.routes.items.properties.task.maxLength;
+    expect(generated).toBeLessThanOrEqual(400);
+
+    // and the receiving schema still accepts a longer one, so a task written by
+    // anything other than this prompt is not rejected at the boundary
+    const received = managerRouteSchema.safeParse({ agent: "a", task: "x".repeat(generated + 100) });
+    expect(received.success).toBe(true);
   });
 
   it("rejects unknown or unauthorized agent IDs", async () => {

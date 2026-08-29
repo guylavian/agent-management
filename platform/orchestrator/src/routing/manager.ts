@@ -18,10 +18,18 @@ const jsonSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["agent", "task"],
+        required: ["agent", "task", "rationale"],
         properties: {
           agent: { type: "string" },
-          task: { type: "string", minLength: 1, maxLength: 2000 },
+          // The RECEIVING schema accepts 2000 (managerRouteSchema), because a
+          // long task is valid; what is not survivable is generating one. A
+          // model that spends its completion budget writing four paragraphs of
+          // task never emits `confidence`/`abstain`, and a strict provider
+          // rejects the whole response — the request then fails as
+          // ROUTE_INVALID with nothing routed, which is what happened. Bound
+          // what may be GENERATED, and stay permissive about what may arrive.
+          task: { type: "string", minLength: 1, maxLength: 400, description: "One or two sentences: what this specialist should investigate. Not a plan." },
+          rationale: { type: "string", maxLength: 300, description: "One sentence: why this specialist for this request." },
         },
       },
     },
