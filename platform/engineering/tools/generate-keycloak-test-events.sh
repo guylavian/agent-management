@@ -2,7 +2,7 @@
 # Generate reproducible Keycloak login signals (1 success + N failures) against
 # the local sre-test realm, then show the resulting user-event metrics.
 #
-# Usage: scripts/generate-keycloak-test-events.sh [failed_attempts]   (default 5)
+# Usage: engineering/tools/generate-keycloak-test-events.sh [failed_attempts]   (default 5)
 set -euo pipefail
 
 KC_HTTP_PORT="${KEYCLOAK_HTTP_PORT:-8080}"

@@ -108,7 +108,7 @@ if [ -n "${SRE_LLM_API_KEY:-}" ]; then common_env+=(SRE_LLM_API_KEY="$SRE_LLM_AP
 start_runtime() {
   local name="$1" port="$2" config="$3"; shift 3
   start_background "$name" env "${common_env[@]}" "$@" SRE_PORT="$port" AGENT_CONFIG="$config" SRE_DEPLOYMENT_ENVIRONMENT_DIR=deploy/environments/poc \
-    node --import tsx "$root/runtime-host/src/main.ts"
+    node --import tsx "$root/core/runtime-host/src/main.ts"
   wait_http "http://127.0.0.1:$port/health/ready" "$name"
 }
 

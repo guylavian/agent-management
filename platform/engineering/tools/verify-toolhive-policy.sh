@@ -11,7 +11,7 @@
 # Requires the vendored ToolHive source (engineering/tools/prepare-real-poc.sh) and Go.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-toolhive="${TOOLHIVE_SRC:-$root/.real-poc/src/toolhive-v0.46.0}"
+toolhive="${TOOLHIVE_SRC:-$root/.real-poc/src/toolhive}"
 
 if [ ! -f "$toolhive/go.mod" ]; then
   echo "BLOCKED: ToolHive source not found at $toolhive — run engineering/tools/prepare-real-poc.sh" >&2
