@@ -50,15 +50,24 @@ fi
 # The label is what makes Argo CD adopt this Secret as a repository entry.
 # username is ignored by GitHub for token auth but required by the credential
 # shape, so it stays generic rather than provider-specific.
-kubectl -n argocd create secret generic sre-agent-platform-repo \
-  --from-literal=type=git \
-  --from-literal=url="${repo_url}" \
-  --from-literal=username=git \
-  --from-literal=password="${token}" \
-  --dry-run=client -o yaml \
-  | kubectl label -f - --local -o yaml --dry-run=client \
-      argocd.argoproj.io/secret-type=repository \
-  | kubectl apply -f -
+#
+# Built as a manifest on stdin rather than `--from-literal=password=...`: an
+# argument is visible in `ps` to every other user on the machine for as long as
+# kubectl runs. stdin is not.
+kubectl apply -f - <<YAML
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sre-agent-platform-repo
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  type: git
+  url: ${repo_url}
+  username: git
+  password: ${token}
+YAML
 
 # --- integrations secret ----------------------------------------------------
 # The chart mounts this via envFrom; the pod does not start without it. Locally

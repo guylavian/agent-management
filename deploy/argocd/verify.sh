@@ -50,12 +50,24 @@ echo "  distinct images: $(echo "$images" | tr '\n' ' ')"
 check $? "every agent runs one image"
 
 echo "== 7. workloads owned by Argo, not kubectl"
-unowned="$(kubectl -n "$ns" get deploy -o json 2>/dev/null \
-  | grep -c '"app.kubernetes.io/instance"' || true)"
+# Ownership means Argo's tracking annotation names an Application, per Deployment.
+# Counting label occurrences across the whole JSON would pass on a namespace
+# where one Argo-owned Deployment sits beside three hand-applied ones.
 total="$(kubectl -n "$ns" get deploy --no-headers 2>/dev/null | wc -l | tr -d ' ')"
-[ "$unowned" -ge "$total" ] 2>/dev/null
-check $? "all $total deployments carry an Argo instance label"
+owned=0
+for d in $(kubectl -n "$ns" get deploy -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+  inst="$(kubectl -n "$ns" get deploy "$d" \
+    -o jsonpath='{.metadata.annotations.argocd\.argoproj\.io/tracking-id}' 2>/dev/null)"
+  [ -n "$inst" ] || inst="$(kubectl -n "$ns" get deploy "$d" \
+    -o jsonpath='{.metadata.labels.app\.kubernetes\.io/instance}' 2>/dev/null)"
+  if [ -n "$inst" ]; then owned=$((owned + 1)); else echo "    unowned: $d"; fi
+done
+[ "$total" -gt 0 ] && [ "$owned" = "$total" ]
+check $? "$owned/$total deployments owned by an Argo Application"
 
 echo
-echo "revision deployed: $(kubectl -n argocd get applications -o jsonpath='{.items[0].status.sync.revision}' 2>/dev/null | cut -c1-8)"
+# multi-source Applications report `revisions` (plural); `revision` is empty
+echo "revision deployed: $(kubectl -n argocd get applications \
+  -o jsonpath='{.items[0].status.sync.revisions[0]}' 2>/dev/null | cut -c1-8)"
+echo "revision in git:   $(git -C "${root}" rev-parse HEAD | cut -c1-8)"
 [ "$fail" = 0 ] && echo "ALL CHECKS PASSED" || { echo "SOME CHECKS FAILED"; exit 1; }
