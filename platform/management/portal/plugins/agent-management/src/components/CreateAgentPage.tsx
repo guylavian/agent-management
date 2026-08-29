@@ -8,6 +8,7 @@ import {
   DataRow,
   DataTable,
   DefinitionList,
+  Dialog,
   Field,
   FieldGrid,
   MONO,
@@ -15,9 +16,11 @@ import {
   Mono,
   Muted,
   Panel,
+  R,
   S,
   Section,
   SectionTitle,
+  Body,
   StatusPill,
   inputStyle,
   selectStyle,
@@ -33,6 +36,7 @@ const DEFAULT_LIMITS = {
 };
 
 const TOOL_COLUMNS = '28px 2fr .6fr';
+const ACCESS_COLUMNS = '1.4fr .8fr 1.6fr .5fr';
 
 /**
  * The bounds the runtime schema actually enforces (agent-schema
@@ -94,6 +98,7 @@ export function CreateAgentPage(props: { agentId?: string }) {
   const [issues, setIssues] = useState<string[]>([]);
   const [pr, setPr] = useState<{ url: string; status: string; reason?: string } | undefined>();
   const [busy, setBusy] = useState(false);
+  const [editingMcp, setEditingMcp] = useState<string | undefined>();
 
   /**
    * Prefill once the Agent arrives. Every field the form can edit is filled
@@ -174,6 +179,7 @@ export function CreateAgentPage(props: { agentId?: string }) {
     }
   };
 
+  const editingServer = (servers.value ?? []).find(server => server.id === editingMcp);
   const editing = props.agentId !== undefined;
   // an edit must not be previewed against a half-loaded draft: that draft is a
   // DIFFERENT agent, and every field still blank is a field the change clears
@@ -199,7 +205,7 @@ export function CreateAgentPage(props: { agentId?: string }) {
         {editing ? 'Changes are proposed as a pull request. Nothing reaches production until it is merged.' : 'A new agent is created with lifecycle draft and proposed as a pull request.'}
       </div>
 
-      <Section title="General">
+      <Section icon="general" title="General">
         <FieldGrid>
           {/* the name is the Agent's identity and the root of its workload
               client id, so editing it would not rename this Agent — it would
@@ -219,7 +225,7 @@ export function CreateAgentPage(props: { agentId?: string }) {
         </FieldGrid>
       </Section>
 
-      <Section title="Routing" description="Vocabulary the Manager matches against a request to decide whether this agent should handle it. Comma separated.">
+      <Section icon="routing" title="Routing" description="Vocabulary the Manager matches against a request to decide whether this agent should handle it. Comma separated.">
         <FieldGrid>
           {ROUTING_FIELDS.map(([key, label, hint]) => (
             <Field key={key} label={label} hint={hint}>
@@ -232,7 +238,7 @@ export function CreateAgentPage(props: { agentId?: string }) {
         </FieldGrid>
       </Section>
 
-      <Section title="Model and prompt" description="Agents reference a model profile, never a hardcoded model.">
+      <Section icon="model" title="Model and prompt" description="Agents reference a model profile, never a hardcoded model.">
         <FieldGrid>
           <Field label="Model profile">
             <select style={selectStyle} value={draft.modelProfile} onChange={event => patch({ modelProfile: event.target.value })}>
@@ -262,7 +268,7 @@ export function CreateAgentPage(props: { agentId?: string }) {
         )}
       </Section>
 
-      <Section title="Identity and access" description="Every agent gets its own Keycloak workload client. Never a shared credential.">
+      <Section icon="identity" title="Identity and access" description="Every agent gets its own Keycloak workload client. Never a shared credential.">
         <div style={{ marginBottom: S.lg }}>
           <DefinitionList
             items={[
@@ -272,44 +278,38 @@ export function CreateAgentPage(props: { agentId?: string }) {
             ]}
           />
         </div>
+        {/*
+          * One row per MCP server, not seven stacked tables of checkboxes. With
+          * seven servers and fifty tools the inline form was most of the page,
+          * and the fields that decide what the agent IS sat below it. Picking
+          * tools is a focused sub-task, so it gets a focused surface.
+          */}
         <AsyncState loading={servers.loading} error={servers.error}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: S.md }}>
-            {(servers.value ?? []).map(server => {
-              const selectedCount = draft.access.find(item => item.mcp === server.id)?.tools.length ?? 0;
-              return (
-                <Panel
-                  key={server.id}
-                  padded={false}
-                  title={server.id}
-                  action={
-                    <div style={{ display: 'flex', gap: S.md, alignItems: 'center' }}>
-                      <Muted size={12}>aud {server.expectedAudience}</Muted>
-                      <Muted size={12}>{selectedCount} of {server.tools.length} selected</Muted>
+          <Panel padded={false}>
+            <DataTable columns={ACCESS_COLUMNS} head={['MCP server', 'Tools selected', 'Access', '']}>
+              {(servers.value ?? []).map(server => {
+                const selected = draft.access.find(item => item.mcp === server.id)?.tools.length ?? 0;
+                const selectable = server.tools.filter(tool => tool.classification === 'read').length;
+                return (
+                  <DataRow key={server.id} columns={ACCESS_COLUMNS}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: S.sm, minWidth: 0 }}>
+                      <Body mono>{server.id}</Body>
+                      {selected > 0 && <StatusPill tone="ok" dot>granted</StatusPill>}
                     </div>
-                  }
-                >
-                  <DataTable columns={TOOL_COLUMNS} head={['', 'Tool', 'Access']}>
-                    {server.tools.map(tool => {
-                      // UNKNOWN and WRITE are not selectable: fail closed
-                      const selectable = tool.classification === 'read';
-                      const checked = draft.access.find(item => item.mcp === server.id)?.tools.includes(tool.name) ?? false;
-                      return (
-                        <DataRow key={tool.name} columns={TOOL_COLUMNS}>
-                          <input type="checkbox" aria-label={`${server.id} ${tool.name}`} disabled={!selectable} checked={checked} onChange={() => toggleTool(server.id, tool.name)} />
-                          <div style={{ fontFamily: MONO, fontSize: 12, color: selectable ? C.bodySoft : C.dim }}>{tool.name}</div>
-                          <div><ModeBadge classification={tool.classification} /></div>
-                        </DataRow>
-                      );
-                    })}
-                  </DataTable>
-                </Panel>
-              );
-            })}
-          </div>
+                    <Body>{selected} of {selectable}</Body>
+                    <Muted size={12} mono>{server.expectedAudience}</Muted>
+                    <div style={{ textAlign: 'right' }}>
+                      <Button variant="secondary" onClick={() => setEditingMcp(server.id)}>Edit</Button>
+                    </div>
+                  </DataRow>
+                );
+              })}
+            </DataTable>
+          </Panel>
         </AsyncState>
       </Section>
 
-      <Section title="Runtime" description="Budgets the runtime enforces on every invocation. A run that exceeds one stops.">
+      <Section icon="runtime" title="Runtime" description="Budgets the runtime enforces on every invocation. A run that exceeds one stops.">
         {/*
           * These used to sit behind a "Show advanced settings" button. They are
           * the deadline and the fan-out bound of a production workload — on a
@@ -334,7 +334,7 @@ export function CreateAgentPage(props: { agentId?: string }) {
         </FieldGrid>
       </Section>
 
-      <Section title="Security">
+      <Section icon="security" title="Security">
         <FieldGrid>
           <Field label="Allowed human roles" hint="Comma separated. All are required (AND).">
             <input style={inputStyle} value={draft.requiredRoles.join(', ')} onChange={event => patch({ requiredRoles: splitList(event.target.value) })} />
@@ -353,7 +353,9 @@ export function CreateAgentPage(props: { agentId?: string }) {
               items={draft.access.map(entry => [
                 entry.mcp,
                 <span key={entry.mcp} style={{ display: 'flex', gap: S.md, flexWrap: 'wrap', alignItems: 'baseline' }}>
-                  <Mono>sre-toolhive:{entry.mcp}</Mono>
+                  {/* the audience the runtime reports, not the naming rule
+                      re-implemented here, which could drift from it */}
+                  <Mono>{(servers.value ?? []).find(server => server.id === entry.mcp)?.expectedAudience ?? entry.mcp}</Mono>
                   <Muted size={12}>{entry.tools.join(', ')}</Muted>
                 </span>,
               ])}
@@ -370,7 +372,7 @@ export function CreateAgentPage(props: { agentId?: string }) {
       </div>
 
       {issues.length > 0 && (
-        <div style={{ marginTop: S.lg, background: C.redSoft, border: `1px solid ${C.redBright}`, borderRadius: 3, padding: S.md }}>
+        <div style={{ marginTop: S.lg, background: C.redSoft, border: `1px solid ${C.redBright}`, borderRadius: R.control, padding: S.md }}>
           <div style={{ fontSize: 12.5, fontWeight: 500, color: C.red, marginBottom: S.xs }}>This draft cannot be generated</div>
           <ul style={{ margin: 0, paddingLeft: S.lg, color: C.red, fontSize: 12.5 }}>
             {issues.map(issue => <li key={issue}>{issue}</li>)}
@@ -379,11 +381,11 @@ export function CreateAgentPage(props: { agentId?: string }) {
       )}
 
       {preview && (
-        <Section title="Change set" description={`${preview.title}. Review every file before opening the pull request.`}>
+        <Section icon="general" title="Change set" description={`${preview.title}. Review every file before opening the pull request.`}>
           {preview.files.map(file => (
             <div key={file.path} style={{ marginBottom: S.md }}>
               <div style={{ fontFamily: MONO, fontSize: 12, color: C.body, marginBottom: S.xs }}>{file.path}</div>
-              <pre style={{ background: C.canvas, border: `1px solid ${C.rule}`, color: C.text, padding: S.md, borderRadius: 3, overflowX: 'auto', fontSize: 12, margin: 0, fontFamily: MONO, lineHeight: 1.6 }}>{file.contents}</pre>
+              <pre style={{ background: C.canvas, border: `1px solid ${C.rule}`, color: C.text, padding: S.md, borderRadius: R.control, overflowX: 'auto', fontSize: 12, margin: 0, fontFamily: MONO, lineHeight: 1.6 }}>{file.contents}</pre>
             </div>
           ))}
           <SectionTitle>Merging this change will</SectionTitle>
@@ -391,6 +393,29 @@ export function CreateAgentPage(props: { agentId?: string }) {
             {preview.effects.map(effect => <li key={effect}>{effect}</li>)}
           </ul>
         </Section>
+      )}
+
+      {editingServer && (
+        <Dialog
+          title={editingServer.id}
+          subtitle={`Audience ${editingServer.expectedAudience}. Only read-verified tools can be granted.`}
+          onClose={() => setEditingMcp(undefined)}
+        >
+          <DataTable columns={TOOL_COLUMNS} head={['', 'Tool', 'Access']}>
+            {editingServer.tools.map(tool => {
+              // UNKNOWN and WRITE are not selectable: fail closed
+              const selectable = tool.classification === 'read';
+              const checked = draft.access.find(item => item.mcp === editingServer.id)?.tools.includes(tool.name) ?? false;
+              return (
+                <DataRow key={tool.name} columns={TOOL_COLUMNS}>
+                  <input type="checkbox" aria-label={`${editingServer.id} ${tool.name}`} disabled={!selectable} checked={checked} onChange={() => toggleTool(editingServer.id, tool.name)} />
+                  <div style={{ fontFamily: MONO, fontSize: 12, color: selectable ? C.bodySoft : C.dim }}>{tool.name}</div>
+                  <div><ModeBadge classification={tool.classification} /></div>
+                </DataRow>
+              );
+            })}
+          </DataTable>
+        </Dialog>
       )}
 
       {pr && (

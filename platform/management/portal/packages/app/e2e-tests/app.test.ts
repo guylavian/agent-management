@@ -33,10 +33,14 @@ test('the product sidebar renders instead of Backstage default chrome', async ({
   }
 });
 
-test('agents from the runtime reach the Agents page', async ({ page }) => {
+test('agents from the runtime reach the Agents page, in both views', async ({ page }) => {
   await signIn(page, '/agents');
-  // the workload client id, not the agent id: the id also appears in the hidden
-  // <option>s of the status filter, so matching it proves nothing about the table
+  // cards are the default view; the display name is what they lead with
+  await expect(page.getByText('Active Directory Agent', { exact: true }).first()).toBeVisible();
+
+  // the table is where operational columns live, and the workload client id is
+  // the one field only it shows — switching must not lose it
+  await page.getByRole('button', { name: 'Table view' }).click();
   await expect(page.getByText('sre-agent-active-directory', { exact: true })).toBeVisible();
 });
 
@@ -94,6 +98,27 @@ test('unrouting an agent is previewed as a named routing effect', async ({ page 
   await page.getByText('Review & Propose', { exact: true }).click();
   await page.getByRole('button', { name: 'Preview YAML' }).click();
   await expect(page.getByText('Routing: openshift stops being reachable through the Manager')).toBeVisible();
+});
+
+/**
+ * Tool selection moved out of the page and into a dialog. Seven servers of
+ * inline checkboxes were most of the form; the fields that decide what the
+ * agent IS sat below them.
+ */
+test('MCP tools are selected in a dialog and the count updates', async ({ page }) => {
+  await signIn(page, '/create-agent');
+  const row = page.locator('div').filter({ hasText: /^active-directory$/u }).first();
+  await expect(row).toBeVisible();
+
+  await page.getByRole('button', { name: 'Edit' }).first().click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+
+  // granting a read tool must be reflected back on the page behind the dialog
+  await dialog.getByRole('checkbox').first().check();
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText('1 of 4', { exact: true })).toBeVisible();
 });
 
 test('the enabled toggle reflects state and cannot be clicked', async ({ page }) => {

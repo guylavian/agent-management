@@ -18,6 +18,7 @@ import {
   Muted,
   Page,
   Panel,
+  R,
   SectionTitle,
   StatCard,
   StatGrid,
@@ -180,12 +181,12 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
 }
 
 const primaryButton = (disabled: boolean): React.CSSProperties => ({
-  padding: '6px 16px', borderRadius: 3, border: 'none', fontSize: 13, fontWeight: 500,
+  padding: '6px 16px', borderRadius: R.control, border: 'none', fontSize: 13, fontWeight: 500,
   background: disabled ? C.borderStrong : C.accent, color: C.surface, cursor: disabled ? 'default' : 'pointer',
 });
 
 const secondaryButton: React.CSSProperties = {
-  padding: '6px 16px', borderRadius: 3, border: `1px solid ${C.borderInput}`, fontSize: 13,
+  padding: '6px 16px', borderRadius: R.control, border: `1px solid ${C.borderInput}`, fontSize: 13,
   fontWeight: 500, background: C.surface, color: C.body, cursor: 'pointer',
 };
 
@@ -244,7 +245,7 @@ function PromptTab({ agent }: { agent: AgentDetail }) {
             spellCheck={false}
             aria-label="System prompt"
             style={{
-              width: '100%', minHeight: 320, padding: 12, borderRadius: 3,
+              width: '100%', minHeight: 320, padding: 12, borderRadius: R.control,
               border: `1px solid ${C.borderInput}`, background: C.surface, color: C.text,
               font: "13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace", resize: 'vertical',
             }}
@@ -252,7 +253,7 @@ function PromptTab({ agent }: { agent: AgentDetail }) {
         ) : (
           <pre
             style={{
-              margin: 0, padding: 16, borderRadius: 3, background: C.canvas,
+              margin: 0, padding: 16, borderRadius: R.control, background: C.canvas,
               border: `1px solid ${C.rule}`, color: C.text, whiteSpace: 'pre-wrap',
               wordBreak: 'break-word', font: "13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace",
             }}

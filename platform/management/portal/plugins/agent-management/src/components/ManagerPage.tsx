@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useAgents, useAgentActions, useManager } from '../api/client';
 import {
+  AgentTile,
   AsyncState,
   Body,
+  Card,
   Breadcrumb,
   Button,
   C,
-  Chip,
   DefinitionList,
   Field,
   MONO,
@@ -14,9 +15,8 @@ import {
   Muted,
   Page,
   Panel,
+  R,
   SectionTitle,
-  StatCard,
-  StatGrid,
   StatusPill,
   Tabs,
   inputStyle,
@@ -159,24 +159,39 @@ export function ManagerPage() {
 function Header({ manager }: { manager: ManagerDetail }) {
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 24 }}>
+        <AgentTile id={manager.id} owner={manager.owner} size={44} />
         <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.2px' }}>{manager.displayName ?? 'Manager'}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ fontSize: 28, fontWeight: 600, letterSpacing: '-0.5px' }}>{manager.displayName ?? 'Manager'}</div>
             <StatusPill tone={lifecycleTone(manager.lifecycle as AgentLifecycle)}>{manager.lifecycle}</StatusPill>
-            <Chip mono>{manager.modelProfile}</Chip>
           </div>
-          <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4 }}>
-            {manager.id} · owner {manager.owner} · routes to {manager.allowed.length} specialist{manager.allowed.length === 1 ? '' : 's'}
+          <div style={{ fontSize: 14, color: C.muted, marginTop: 8 }}>
+            Routes every request to at most {manager.execution.maxAgentsPerRequest ?? '—'} of {manager.allowed.length} specialist
+            {manager.allowed.length === 1 ? '' : 's'}. It calls no tool of its own.
           </div>
         </div>
       </div>
-      <StatGrid columns={4}>
-        <StatCard label="Routes to" value={String(manager.allowed.length)} sub="specialists in the routing table" />
-        <StatCard label="Max per request" value={String(manager.execution.maxAgentsPerRequest ?? '—')} sub="agents dispatched in parallel" />
-        <StatCard label="Rounds" value={String(manager.execution.maxRounds ?? '—')} sub="fixed by the schema, not configurable" />
-        <StatCard label="Workload identity" value="none" sub={manager.identity.reason} />
-      </StatGrid>
+
+      {/*
+        * Model, limits and security stated as facts rather than as a KPI strip:
+        * none of these is a measurement, they are the Manager's configuration.
+        */}
+      <Card>
+        <DefinitionList
+          columns="max-content 1fr max-content 1fr"
+          items={[
+            ['Owner', manager.owner],
+            ['Model profile', <Mono key="mp">{manager.modelProfile}</Mono>],
+            ['Model tier', manager.modelTier],
+            ['Rounds', <span key="r"><Mono>{String(manager.execution.maxRounds ?? '—')}</Mono> <Muted size={12}>fixed by the schema</Muted></span>],
+            ['Agents per request', <Mono key="ap">{String(manager.execution.maxAgentsPerRequest ?? '—')}</Mono>],
+            ['Routing timeout', <Mono key="t">{String(manager.execution.timeoutMs ?? '—')} ms</Mono>],
+            ['Workload identity', <Muted key="wi">none — {manager.identity.reason}</Muted>],
+            ['Tool access', <Muted key="ta">none — the Manager never receives a tool schema</Muted>],
+          ]}
+        />
+      </Card>
     </>
   );
 }
@@ -246,7 +261,6 @@ function RoutingTab(props: {
               items={[
                 ['Rounds', <Mono key="r">1</Mono>],
                 ['Output schema', <Mono key="o">ManagerDecision</Mono>],
-                ['Tool access', <Muted key="t">none — the Manager calls no tool</Muted>],
               ]}
             />
             <Muted size={12}>
@@ -291,7 +305,7 @@ function ReviewTab(props: {
       </div>
 
       {props.issues.length > 0 && (
-        <div style={{ marginTop: 16, background: C.redSoft, border: `1px solid ${C.redBright}`, borderRadius: 3, padding: 12 }}>
+        <div style={{ marginTop: 16, background: C.redSoft, border: `1px solid ${C.redBright}`, borderRadius: R.control, padding: 12 }}>
           <div style={{ fontSize: 12.5, fontWeight: 500, color: C.red, marginBottom: 4 }}>This change cannot be generated</div>
           <ul style={{ margin: 0, paddingLeft: 18, color: C.red, fontSize: 12.5 }}>
             {props.issues.map(issue => <li key={issue}>{issue}</li>)}
@@ -305,7 +319,7 @@ function ReviewTab(props: {
           {props.preview.files.map(file => (
             <div key={file.path} style={{ marginBottom: 14 }}>
               <div style={{ fontFamily: MONO, fontSize: 12.5, color: C.body, marginBottom: 6 }}>{file.path}</div>
-              <pre style={{ background: C.canvas, border: `1px solid ${C.rule}`, color: C.text, padding: 12, borderRadius: 3, overflowX: 'auto', fontSize: 12, margin: 0, fontFamily: MONO, lineHeight: 1.6 }}>{file.contents}</pre>
+              <pre style={{ background: C.canvas, border: `1px solid ${C.rule}`, color: C.text, padding: 12, borderRadius: R.control, overflowX: 'auto', fontSize: 12, margin: 0, fontFamily: MONO, lineHeight: 1.6 }}>{file.contents}</pre>
             </div>
           ))}
           <div style={{ marginTop: 16 }}>

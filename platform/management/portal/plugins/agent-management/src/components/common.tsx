@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, KeyboardEvent } from 'react';
 import { NotConfiguredError } from '../api/client';
 import type { AgentLifecycle, ToolClassification } from '../api/types';
@@ -42,40 +43,72 @@ export function clickable(onClick: () => void) {
 /** 4 / 8 / 12 / 16 / 24 / 32. Every gap, pad and margin comes from here. */
 export const S = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 
-/** Containers 3, controls 3, inner elements 2. Nothing is a rounded capsule. */
-export const R = { control: 3, container: 3, small: 2 } as const;
+/** Containers are softened; controls stay tighter so forms still read as forms. */
+export const R = { control: 6, container: 10, small: 4 } as const;
 
 export const C = {
   accent: '#1f5fb5',
   accentHover: '#1a5099',
-  accentSoft: '#eaf1fa',
-  canvas: '#f7f8fa',
+  accentSoft: '#e9f0fa',
+  /** warm near-white, not sterile: the canvas the surfaces sit on */
+  canvas: '#f8f7f4',
   surface: '#ffffff',
-  hover: '#f6f7f9',
-  border: '#d5d9e0',
-  borderInput: '#c9ced8',
-  borderStrong: '#aab2c0',
-  rule: '#e4e7ec',
-  ruleSoft: '#eceef2',
-  chip: '#f0f2f5',
-  text: '#1c2128',
-  body: '#39404a',
-  bodySoft: '#4c545f',
-  muted: '#656d78',
+  /** the nav rail, one step warmer than the canvas so the two read as layers */
+  rail: '#f3f1ec',
+  hover: '#faf9f7',
+  border: '#e4e1db',
+  borderInput: '#d3cfc7',
+  borderStrong: '#b0aba1',
+  rule: '#ece9e3',
+  ruleSoft: '#f2efea',
+  chip: '#f3f1ec',
+  text: '#1f2430',
+  body: '#3b4150',
+  bodySoft: '#4e5464',
+  muted: '#666c7a',
   // 4.5:1 on white: faint carries real metadata (agent ids, breadcrumbs),
   // so it has to be readable, not just present
-  faint: '#6b727c',
-  dim: '#7a828c',
+  faint: '#6c7280',
+  dim: '#7b8290',
   green: '#1a7f45',
   greenBright: '#1f9d55',
-  greenSoft: '#e8f3ec',
+  greenSoft: '#e6f2ea',
   amber: '#8a5a00',
   amberBright: '#c58600',
-  amberSoft: '#fbf1de',
+  amberSoft: '#fbf0dc',
   red: '#a8202f',
   redBright: '#c8394a',
-  redSoft: '#faeaec',
+  redSoft: '#fae9eb',
 };
+
+/**
+ * Tile tones for the small visual area on an agent card.
+ *
+ * Assigned by OWNER, not by a hash of the name, so the colour means something:
+ * agents belonging to the same team carry the same tone and group visually
+ * down the grid. A per-agent colour would be decoration; this is a grouping.
+ * Muted on purpose — the tile is the only place any of this appears.
+ */
+const TILE_TONES = [
+  { bg: '#e8eefb', fg: '#2c4f8f' },
+  { bg: '#e6f2ea', fg: '#1f6b45' },
+  { bg: '#fbf0dc', fg: '#8a5a00' },
+  { bg: '#efeafa', fg: '#54408c' },
+  { bg: '#fae9eb', fg: '#8f2a38' },
+  { bg: '#e5f1f3', fg: '#1d5f6b' },
+] as const;
+
+export function tileTone(owner: string): { bg: string; fg: string } {
+  let hash = 0;
+  for (const char of owner) hash = (hash * 31 + char.charCodeAt(0)) % 9973;
+  return TILE_TONES[hash % TILE_TONES.length] as { bg: string; fg: string };
+}
+
+/** First letters of an owner or agent id, for the tile. Never a person. */
+export function initials(name: string): string {
+  const parts = name.split(/[-\s_]/u).filter(Boolean);
+  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? parts[0]?.[1] ?? '')).toUpperCase();
+}
 
 export const FONT = "'Figtree',Helvetica,Arial,sans-serif";
 export const MONO = 'ui-monospace,Menlo,monospace';
@@ -92,8 +125,8 @@ export function PageHeader(props: { title: string; subtitle?: string; action?: R
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: S.lg, marginBottom: props.tight ? S.lg : S.xl }}>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.2px' }}>{props.title}</div>
-        {props.subtitle && <div style={{ fontSize: 13, color: C.muted, marginTop: S.xs }}>{props.subtitle}</div>}
+        <div style={{ fontSize: 28, fontWeight: 600, letterSpacing: '-0.5px', lineHeight: 1.2 }}>{props.title}</div>
+        {props.subtitle && <div style={{ fontSize: 14, color: C.muted, marginTop: S.sm }}>{props.subtitle}</div>}
       </div>
       {props.action}
     </div>
@@ -151,6 +184,182 @@ export function StatCard(props: { label: string; value: ReactNode; sub?: ReactNo
   );
 }
 
+
+/**
+ * Small monochrome line icons, drawn inline.
+ *
+ * `@material-ui/icons` is a dependency of the app shell but not of this plugin,
+ * and a handful of 16px strokes is not worth taking one on. They inherit
+ * `currentColor`, so a section heading and its icon can never disagree.
+ */
+export function Icon(props: { name: keyof typeof ICON_PATHS; size?: number; color?: string }) {
+  const size = props.size ?? 16;
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke={props.color ?? 'currentColor'} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none' }}>
+      {ICON_PATHS[props.name]}
+    </svg>
+  );
+}
+
+const ICON_PATHS = {
+  overview: <><rect x="2" y="2" width="5" height="5" rx="1" /><rect x="9" y="2" width="5" height="5" rx="1" /><rect x="2" y="9" width="5" height="5" rx="1" /><rect x="9" y="9" width="5" height="5" rx="1" /></>,
+  agents: <><circle cx="8" cy="5" r="2.6" /><path d="M2.6 14c.6-2.6 2.7-4 5.4-4s4.8 1.4 5.4 4" /></>,
+  manager: <><path d="M8 2v3.4M8 10.6V14M3 8h10" /><circle cx="8" cy="8" r="2.4" /></>,
+  mcp: <><rect x="2" y="3" width="12" height="4" rx="1.2" /><rect x="2" y="9" width="12" height="4" rx="1.2" /></>,
+  permissions: <><rect x="3.5" y="7" width="9" height="6.2" rx="1.4" /><path d="M5.8 7V5.2a2.2 2.2 0 0 1 4.4 0V7" /></>,
+  runs: <><circle cx="8" cy="8" r="6" /><path d="M8 4.6V8l2.3 1.4" /></>,
+  catalog: <><path d="M3 3.6h10M3 8h10M3 12.4h10" /></>,
+  settings: <><circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1M12.4 12.4l-1.1-1.1M4.7 4.7 3.6 3.6" /></>,
+  general: <><rect x="2.5" y="2.5" width="11" height="11" rx="2" /><path d="M5.5 6.5h5M5.5 9.5h3" /></>,
+  routing: <><circle cx="3.5" cy="8" r="1.6" /><circle cx="12.5" cy="4" r="1.6" /><circle cx="12.5" cy="12" r="1.6" /><path d="M5.1 8h2.4l3.5-3.6M5.1 8h2.4l3.5 3.6" /></>,
+  model: <><path d="M8 2.2 13.4 5v6L8 13.8 2.6 11V5z" /><path d="M8 8 13.4 5M8 8v5.8M8 8 2.6 5" /></>,
+  identity: <><circle cx="8" cy="5.4" r="2.4" /><path d="M3.2 13.4c.5-2.4 2.4-3.8 4.8-3.8s4.3 1.4 4.8 3.8" /></>,
+  runtime: <><rect x="2.4" y="4.4" width="11.2" height="7.2" rx="1.4" /><path d="M5.6 2.4v2M10.4 2.4v2M5.6 11.6v2M10.4 11.6v2" /></>,
+  security: <><path d="M8 2 3.4 4v4c0 3 1.9 5 4.6 6 2.7-1 4.6-3 4.6-6V4z" /><path d="M6.2 8.2 7.5 9.5l2.5-2.6" /></>,
+  tool: <><path d="M10.6 2.6a3 3 0 0 0-3.9 3.9L2.6 10.6l1.4 1.4 4.1-4.1a3 3 0 0 0 3.9-3.9L10.2 5.4 9 4.2z" /></>,
+  activity: <><path d="M1.8 8h3l1.6-4 2.4 8 1.6-4h3.4" /></>,
+} as const;
+
+/**
+ * A soft container. Used where a group of facts belongs together — a section of
+ * a form, an agent in a grid. `interactive` adds the one-pixel lift that says
+ * a whole surface is clickable; nothing else in the console moves on hover.
+ */
+export function Card(props: { onClick?: () => void; padded?: boolean; children: ReactNode }) {
+  const [hover, setHover] = useState(false);
+  const lifted = props.onClick !== undefined && hover;
+  return (
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        background: C.surface,
+        border: `1px solid ${lifted ? C.borderStrong : C.border}`,
+        borderRadius: R.container,
+        padding: props.padded === false ? undefined : S.lg,
+        cursor: props.onClick ? 'pointer' : 'default',
+        height: '100%',
+        boxShadow: lifted ? '0 1px 3px rgba(31,36,48,.08)' : 'none',
+        transition: 'border-color .12s, box-shadow .12s',
+      }}
+      {...(props.onClick ? clickable(props.onClick) : {})}
+    >
+      {props.children}
+    </div>
+  );
+}
+
+/**
+ * The small visual area on an agent card: initials of the agent id on a tone
+ * chosen by OWNER. It represents a service, never a person — there are no
+ * photographs and no invented identities anywhere in this console.
+ */
+export function AgentTile(props: { id: string; owner: string; size?: number }) {
+  const size = props.size ?? 36;
+  const tone = tileTone(props.owner);
+  return (
+    <div
+      title={`owner: ${props.owner}`}
+      style={{
+        width: size, height: size, borderRadius: R.control, background: tone.bg, color: tone.fg,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
+        fontSize: size > 40 ? 15 : 12.5, fontWeight: 600, letterSpacing: '.2px',
+      }}
+    >
+      {initials(props.id)}
+    </div>
+  );
+}
+
+/** Section heading with an optional icon, for a page built from Cards. */
+export function GroupHeader(props: { title: string; icon?: keyof typeof ICON_PATHS; action?: ReactNode }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: S.sm, marginBottom: S.md, marginTop: S.xl }}>
+      {props.icon && <span style={{ color: C.muted, display: 'flex' }}><Icon name={props.icon} /></span>}
+      <div style={{ fontSize: 15, fontWeight: 600, flex: 1 }}>{props.title}</div>
+      {props.action}
+    </div>
+  );
+}
+
+/**
+ * A modal for one focused sub-task — picking the tools on a single MCP server.
+ *
+ * Closing is possible from three places (the button, the backdrop, Escape)
+ * because a dialog that traps an operator is worse than one that is easy to
+ * dismiss by accident: nothing here is destructive, and every selection is
+ * still only a draft until a pull request is merged.
+ */
+export function Dialog(props: { title: string; subtitle?: string; onClose: () => void; children: ReactNode }) {
+  const panel = useRef<HTMLDivElement>(null);
+
+  /**
+   * `aria-modal` is a promise to keyboard users that the rest of the page is
+   * out of reach. Without focus handling it is only a promise: Tab walks out
+   * of the dialog into the form behind it, and on close the caret lands at the
+   * top of the document rather than back on the Edit button that opened it.
+   */
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    panel.current?.focus();
+
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') { props.onClose(); return; }
+      if (event.key !== 'Tab' || panel.current === null) return;
+      const focusable = panel.current.querySelectorAll<HTMLElement>('button, [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (focusable.length === 0) return;
+      const first = focusable[0] as HTMLElement;
+      const last = focusable[focusable.length - 1] as HTMLElement;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      opener?.focus?.();
+    };
+  }, [props]);
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(31,36,48,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: S.xl }}
+      onClick={props.onClose}
+      role="presentation"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={props.title}
+        ref={panel}
+        tabIndex={-1}
+        onClick={event => event.stopPropagation()}
+        style={{ outline: 'none', background: C.surface, borderRadius: R.container, border: `1px solid ${C.border}`, width: 'min(560px,100%)', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(31,36,48,.16)' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: S.md, padding: `${S.lg}px ${S.xl}px`, borderBottom: `1px solid ${C.rule}` }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>{props.title}</div>
+            {props.subtitle && <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>{props.subtitle}</div>}
+          </div>
+          <Button variant="secondary" onClick={props.onClose}>Done</Button>
+        </div>
+        <div style={{ overflowY: 'auto', padding: `${S.sm}px 0` }}>{props.children}</div>
+      </div>
+    </div>
+  );
+}
+
+/** Relative time from an ISO timestamp. Real value or nothing — never "just now" as filler. */
+export function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return iso;
+  const seconds = Math.round((Date.now() - then) / 1000);
+  if (seconds < 60) return `${Math.max(seconds, 0)}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
 export function StatGrid(props: { columns?: number; children: ReactNode }) {
   return <div style={{ display: 'grid', gridTemplateColumns: `repeat(${props.columns ?? 6},1fr)`, gap: S.md, marginBottom: S.lg }}>{props.children}</div>;
 }
@@ -160,8 +369,8 @@ export function Panel(props: { title?: string; action?: ReactNode; padded?: bool
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: R.container, overflow: 'hidden' }}>
       {(props.title || props.action) && (
-        <div style={{ display: 'flex', alignItems: 'center', padding: `${S.md}px ${S.lg}px`, borderBottom: `1px solid ${C.rule}` }}>
-          <div style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{props.title}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: S.sm, padding: `${S.md}px ${S.lg}px`, borderBottom: `1px solid ${C.rule}` }}>
+          <div style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{props.title}</div>
           {props.action}
         </div>
       )}
@@ -175,11 +384,14 @@ export function Panel(props: { title?: string; action?: ReactNode; padded?: bool
  * is built from. Sections are separated by a rule and a heading rather than by
  * nesting one card inside another, which reads as depth that is not there.
  */
-export function Section(props: { title: string; description?: string; children: ReactNode }) {
+export function Section(props: { title: string; description?: string; icon?: keyof typeof ICON_PATHS; children: ReactNode }) {
   return (
-    <section style={{ borderTop: `1px solid ${C.rule}`, paddingTop: S.lg, marginTop: S.xl }}>
-      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: props.description ? S.xs : S.md }}>{props.title}</div>
-      {props.description && <div style={{ fontSize: 12.5, color: C.muted, marginBottom: S.md, maxWidth: 720 }}>{props.description}</div>}
+    <section style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: R.container, padding: S.xl, marginTop: S.lg }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: S.sm, marginBottom: props.description ? S.xs : S.lg }}>
+        {props.icon && <span style={{ color: C.muted, display: 'flex' }}><Icon name={props.icon} /></span>}
+        <div style={{ fontSize: 15, fontWeight: 600 }}>{props.title}</div>
+      </div>
+      {props.description && <div style={{ fontSize: 12.5, color: C.muted, marginBottom: S.lg, maxWidth: 720 }}>{props.description}</div>}
       {props.children}
     </section>
   );
