@@ -1,10 +1,14 @@
 import { Ajv, type ValidateFunction } from "ajv";
-import type { McpTool } from "./toolhive-client.ts";
+import type { ToolDescriptor } from "./port.ts";
 
 /**
- * Validates model-generated tool arguments against the MCP tool's inputSchema
- * BEFORE ToolHive is called (TDD §13 pre-flight). A failure here means the
- * backend is never invoked.
+ * Validates model-generated tool arguments against the tool's published input
+ * schema BEFORE the provider is called. A failure here means the backend is
+ * never invoked.
+ *
+ * Arguments are the model's output, and the model is untrusted, so this is a
+ * trust boundary rather than a convenience: it is the only thing standing
+ * between a hallucinated argument object and a real backend.
  */
 const ajv = new Ajv({ allErrors: true, strict: false, allowUnionTypes: true });
 const compiled = new WeakMap<object, ValidateFunction>();
@@ -15,7 +19,7 @@ export interface ArgumentValidation {
   detail?: string;
 }
 
-export function validateToolArguments(tool: McpTool, args: unknown): ArgumentValidation {
+export function validateToolArguments(tool: ToolDescriptor, args: unknown): ArgumentValidation {
   const schema = tool.inputSchema;
   const cached = compiled.get(schema);
   let validate: ValidateFunction;

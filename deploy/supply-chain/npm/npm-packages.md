@@ -34,9 +34,11 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `@esbuild/win32-x64` | `0.28.2` | MIT |
 | `@grpc/grpc-js` | `1.14.4` | Apache-2.0 |
 | `@grpc/proto-loader` | `0.8.1` | Apache-2.0 |
+| `@hono/node-server` | `2.1.1` | MIT |
 | `@jridgewell/sourcemap-codec` | `1.6.0` | MIT |
 | `@js-sdsl/ordered-map` | `4.4.2` | MIT |
 | `@minimistjs/subarg` | `1.0.0` | MIT |
+| `@modelcontextprotocol/sdk` | `1.30.0` | MIT |
 | `@opentelemetry/api` | `1.9.1` | Apache-2.0 |
 | `@opentelemetry/api-logs` | `0.221.0` | Apache-2.0 |
 | `@opentelemetry/configuration` | `0.221.0` | Apache-2.0 |
@@ -157,6 +159,8 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `accepts` | `2.0.0` | MIT |
 | `accepts/node_modules/mime-db` | `1.54.0` | MIT |
 | `accepts/node_modules/mime-types` | `3.0.2` | MIT |
+| `ajv` | `8.20.0` | MIT |
+| `ajv-formats` | `3.0.1` | MIT |
 | `ansi-regex` | `5.0.1` | MIT |
 | `ansi-styles` | `4.3.0` | MIT |
 | `assertion-error` | `2.0.1` | MIT |
@@ -184,7 +188,9 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `convert-source-map` | `2.0.0` | MIT |
 | `cookie` | `1.1.1` | MIT |
 | `cookie-signature` | `1.2.2` | MIT |
+| `cors` | `2.8.6` | MIT |
 | `cross-argv` | `2.0.0` | MIT |
+| `cross-spawn` | `7.0.6` | MIT |
 | `debug` | `4.4.3` | MIT |
 | `delayed-stream` | `1.0.0` | MIT |
 | `depd` | `2.0.0` | MIT |
@@ -203,11 +209,16 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `escape-html` | `1.0.3` | MIT |
 | `estree-walker` | `3.0.3` | MIT |
 | `etag` | `1.8.1` | MIT |
+| `eventsource` | `3.0.7` | MIT |
+| `eventsource-parser` | `3.1.1` | MIT |
 | `expect-type` | `1.4.0` | Apache-2.0 |
 | `express` | `5.2.1` | MIT |
+| `express-rate-limit` | `8.7.0` | MIT |
 | `express/node_modules/cookie` | `0.7.2` | MIT |
 | `express/node_modules/mime-db` | `1.54.0` | MIT |
 | `express/node_modules/mime-types` | `3.0.2` | MIT |
+| `fast-deep-equal` | `3.1.3` | MIT |
+| `fast-uri` | `3.1.6` | BSD-3-Clause |
 | `fdir` | `6.5.0` | MIT |
 | `finalhandler` | `2.1.1` | MIT |
 | `form-data` | `4.0.6` | MIT |
@@ -226,6 +237,7 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `hasown` | `2.0.4` | MIT |
 | `hdr-histogram-js` | `3.0.1` | BSD-2-Clause |
 | `hdr-histogram-percentiles-obj` | `3.0.0` | MIT |
+| `hono` | `4.13.5` | MIT |
 | `http-errors` | `2.0.1` | MIT |
 | `http-parser-js` | `0.5.10` | MIT |
 | `hyperid` | `3.3.0` | MIT |
@@ -233,10 +245,14 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `ieee754` | `1.2.1` | BSD-3-Clause |
 | `import-in-the-middle` | `3.3.3` | Apache-2.0 |
 | `inherits` | `2.0.4` | ISC |
+| `ip-address` | `10.7.0` | MIT |
 | `ipaddr.js` | `1.9.1` | MIT |
 | `is-fullwidth-code-point` | `3.0.0` | MIT |
 | `is-promise` | `4.0.0` | MIT |
+| `isexe` | `2.0.0` | ISC |
 | `jose` | `6.2.10` | MIT |
+| `json-schema-traverse` | `1.0.0` | MIT |
+| `json-schema-typed` | `8.0.2` | BSD-2-Clause |
 | `light-my-request` | `6.6.0` | BSD-3-Clause |
 | `lightningcss` | `1.33.0` | MPL-2.0 |
 | `lightningcss-android-arm64` | `1.33.0` | MPL-2.0 |
@@ -268,6 +284,7 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `nanoid` | `3.3.18` | MIT |
 | `negotiator` | `1.1.0` | MIT |
 | `negotiator/node_modules/content-type` | `2.1.0` | MIT |
+| `object-assign` | `4.1.1` | MIT |
 | `object-inspect` | `1.13.4` | MIT |
 | `obug` | `2.1.4` | MIT |
 | `on-finished` | `2.4.1` | MIT |
@@ -276,6 +293,7 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `oxlint` | `1.80.0` | MIT |
 | `pako` | `1.0.11` | (MIT AND Zlib) |
 | `parseurl` | `1.3.3` | MIT |
+| `path-key` | `3.1.1` | MIT |
 | `path-to-regexp` | `8.4.2` | MIT |
 | `pathe` | `2.0.3` | MIT |
 | `pg` | `8.22.0` | MIT |
@@ -288,6 +306,7 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `pgpass` | `1.0.5` | MIT |
 | `picocolors` | `1.1.1` | ISC |
 | `picomatch` | `4.0.7` | MIT |
+| `pkce-challenge` | `5.0.1` | MIT |
 | `postcss` | `8.5.26` | MIT |
 | `postgres-array` | `2.0.0` | MIT |
 | `postgres-bytea` | `1.0.1` | MIT |
@@ -303,6 +322,7 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `raw-body` | `3.0.2` | MIT |
 | `reinterval` | `1.1.0` | MIT |
 | `require-directory` | `2.1.1` | MIT |
+| `require-from-string` | `2.0.2` | MIT |
 | `require-in-the-middle` | `8.0.1` | MIT |
 | `retimer` | `3.0.0` | MIT |
 | `rolldown` | `1.2.6` | MIT |
@@ -315,6 +335,8 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `serve-static` | `2.2.1` | MIT |
 | `set-cookie-parser` | `2.7.2` | MIT |
 | `setprototypeof` | `1.2.0` | ISC |
+| `shebang-command` | `2.0.0` | MIT |
+| `shebang-regex` | `3.0.0` | MIT |
 | `side-channel` | `1.1.1` | MIT |
 | `side-channel-list` | `1.0.1` | MIT |
 | `side-channel-map` | `1.0.1` | MIT |
@@ -347,6 +369,7 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `vary` | `1.1.2` | MIT |
 | `vite` | `8.2.2` | MIT |
 | `vitest` | `4.1.11` | MIT |
+| `which` | `2.0.2` | ISC |
 | `why-is-node-running` | `2.3.0` | MIT |
 | `wrap-ansi` | `7.0.0` | MIT |
 | `wrappy` | `1.0.2` | ISC |
@@ -356,3 +379,4 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `yargs` | `17.7.3` | MIT |
 | `yargs-parser` | `21.1.1` | ISC |
 | `zod` | `4.4.3` | MIT |
+| `zod-to-json-schema` | `3.25.2` | ISC |

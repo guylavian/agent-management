@@ -7,18 +7,11 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
-    "@sre/agent-schema": "file:../platform/contracts/agent-schema",
-    "@sre/auth": "file:../platform/shared/auth",
-    "@sre/config": "file:../platform/shared/config-loader",
     "@sre/evidence": "file:../platform/contracts/evidence",
-    "@sre/llm": "file:../platform/shared/llm",
-    "@sre/redaction": "file:../platform/shared/redaction",
-    "@sre/telemetry": "file:../platform/shared/telemetry",
     "ajv": "8.20.0",
     "zod": "4.4.3"
   },
-  "description": "Generic Specialist Agent engine. Domain-neutral: identity, prompt, tool allowlist and every budget arrive as configuration.",
+  "description": "Generic Agent execution engine. Domain-neutral and host-neutral: prompt, tool policy, identity and every budget arrive as configuration through ports.",
   "devDependencies": {
     "@types/node": "24.13.3",
     "oxlint": "1.80.0",

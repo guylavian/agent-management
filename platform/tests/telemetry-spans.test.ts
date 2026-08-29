@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { context, trace, type Attributes, type Span } from "@opentelemetry/api";
-import { AuthorizationService, MockToolCredentialAuthority } from "@sre/auth";
+import { MockToolCredentialAuthority } from "@sre/auth";
 import { CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
 import { MockModelClient } from "@sre/llm";
-import { MockToolHiveClient } from "@sre/agent-engine";
+import { MockToolHiveClient } from "@sre/runtime-host";
 import { classifyIntent } from "@sre/orchestrator";
-import { runSpecialistInstance } from "@sre/agent-engine";
+import { runSpecialistInstance } from "@sre/runtime-host";
 import type { ExecutionContext } from "@sre/orchestrator";
 
 /**
@@ -52,6 +52,8 @@ async function runOnce(): Promise<Recorded[]> {
     const agent = registry.getSpecialist("keycloak")!;
     const identity = { subject: "alice", groups: ["identity-platform"], roles: ["infra-read"], requestId: "req-span-1" };
     const authority = new MockToolCredentialAuthority({ issuer: "https://mock-toolhive-sts.sre.local", secret: "span-test-shared-secret-at-least-32b" });
+    // the orchestrator's context is deliberately NOT the engine's: the host
+    // projects the former onto the latter, exactly as the transports do
     const ctx: ExecutionContext = {
       request: { question: "which clients exist in the sre-test realm?", identity },
       identity,
@@ -60,8 +62,13 @@ async function runOnce(): Promise<Recorded[]> {
       requestId: identity.requestId,
       deadline: Date.now() + 20_000,
     };
-    await runSpecialistInstance(agent, registry.catalog, ctx, {
-      authorization: new AuthorizationService(registry),
+    await runSpecialistInstance(agent, registry.catalog, {
+      question: ctx.request.question,
+      principal: identity,
+      environment: ctx.environment,
+      requestId: ctx.requestId,
+      deadline: ctx.deadline,
+    }, {
       model: new MockModelClient(),
       toolhive: new MockToolHiveClient(authority),
       credentialExchanger: authority,

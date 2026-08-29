@@ -1,38 +1,26 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { RequestIdentity, ToolCredential, ToolCredentialVerifier } from "@sre/auth";
+import type { ListToolsOptions, Principal, ToolCallRequest, ToolCallResult, ToolCredential, ToolDescriptor, ToolProvider } from "@sre/agent-engine";
+import { toolCredentialSchema, type ToolCredentialVerifier } from "@sre/auth";
 import { toolHiveAudience as canonicalAudience } from "@sre/config";
 
-export interface McpTool {
-  serverId: string;
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
-}
+/**
+ * ToolHive as the engine's ToolProvider.
+ *
+ * The engine asks for tools; this decides that "tools" means MCP servers behind
+ * a ToolHive gateway, that discovery and invocation both carry a verified
+ * delegated credential, and that the credential is a bearer token on an HTTP
+ * request. None of that reaches the engine.
+ */
 
-export interface ToolInvocation {
-  serverId: string;
-  toolName: string;
-  arguments: Record<string, unknown>;
-  environment: string;
-  requestId: string;
-  identity: RequestIdentity;
-  /** verified delegated credential ToolHive checks itself; replaces any x-effective-subject header */
-  credential?: ToolCredential;
-  timeoutMs: number;
-  signal?: AbortSignal;
+/** A ToolProvider that also declares whether it is backed by a real gateway. */
+export interface ToolHiveClient extends ToolProvider {
+  readonly mode: "mock" | "real";
 }
 
 // the audience derivation is canonical in @sre/agent-schema so runtime, portal,
 // Keycloak provisioning and ToolHive cannot disagree about it
 export { toolHiveAudience } from "@sre/config";
-
-export interface ToolResult {
-  content: unknown;
-  isError?: boolean;
-  observedAt: string;
-}
 
 export interface AuditEvent {
   requestId: string;
@@ -45,15 +33,9 @@ export interface AuditEvent {
   workloadClientId?: string;
 }
 
-export interface ToolHiveClient {
-  readonly mode: "mock" | "real";
-  listTools(serverId: string, identity: RequestIdentity, environment: string, options?: { credential?: ToolCredential; requestId?: string; signal?: AbortSignal }): Promise<McpTool[]>;
-  invoke(call: ToolInvocation): Promise<ToolResult>;
-}
-
 const objectSchema = (properties: Record<string, unknown>, required: string[] = []): Record<string, unknown> => ({ type: "object", properties, required, additionalProperties: false });
 
-export const MOCK_TOOLS: McpTool[] = [
+export const MOCK_TOOLS: ToolDescriptor[] = [
   { serverId: "active-directory", name: "get_replication_status", description: "Read AD replication health", inputSchema: objectSchema({ sourceDc: { type: "string" }, targetDc: { type: "string" }, mode: { type: "string", enum: ["ok", "failure", "timeout", "denied", "empty"] } }) },
   { serverId: "active-directory", name: "get_dc_health", description: "Read domain controller health", inputSchema: objectSchema({ dc: { type: "string" }, mode: { type: "string" } }, ["dc"]) },
   { serverId: "active-directory", name: "list_domain_controllers", description: "List domain controllers", inputSchema: objectSchema({ site: { type: "string" }, mode: { type: "string" } }) },
@@ -85,7 +67,7 @@ export const MOCK_TOOLS: McpTool[] = [
 export class MockToolHiveClient implements ToolHiveClient {
   readonly mode = "mock" as const;
   readonly audit: AuditEvent[] = [];
-  readonly backendCalls: ToolInvocation[] = [];
+  readonly backendCalls: ToolCallRequest[] = [];
   readonly #verifier?: ToolCredentialVerifier;
 
   /**
@@ -98,18 +80,18 @@ export class MockToolHiveClient implements ToolHiveClient {
     this.#verifier = verifier;
   }
 
-  async listTools(serverId: string, identity: RequestIdentity, _environment: string): Promise<McpTool[]> {
-    return MOCK_TOOLS.filter((tool) => tool.serverId === serverId && canUse(identity, tool.name));
+  async listTools(serverId: string, principal: Principal, _environment: string): Promise<ToolDescriptor[]> {
+    return MOCK_TOOLS.filter((tool) => tool.serverId === serverId && canUse(principal, tool.name));
   }
 
-  async invoke(call: ToolInvocation): Promise<ToolResult> {
+  async invoke(call: ToolCallRequest): Promise<ToolCallResult> {
     // effective principal comes from the verified credential when a verifier is configured
-    let principalSubject = call.identity.subject;
-    let principalRoles = call.identity.roles;
+    let principalSubject = call.principal.subject;
+    let principalRoles = call.principal.roles;
     let workloadClientId: string | undefined;
     if (this.#verifier !== undefined) {
       try {
-        const verified = await this.#verifier.verify(requireCredential(call), canonicalAudience(call.serverId), call.requestId);
+        const verified = await this.#verifier.verify(toolCredentialSchema.parse(requireCredential(call)), canonicalAudience(call.serverId), call.requestId);
         principalSubject = verified.subject;
         principalRoles = verified.roles;
         workloadClientId = verified.workloadClientId;
@@ -118,7 +100,7 @@ export class MockToolHiveClient implements ToolHiveClient {
         throw Object.assign(new Error("tool access denied"), { code: "TOOL_DENIED" });
       }
     }
-    const allowed = canUse({ ...call.identity, subject: principalSubject, roles: principalRoles }, call.toolName) && MOCK_TOOLS.some((tool) => tool.serverId === call.serverId && tool.name === call.toolName) && call.arguments.mode !== "denied";
+    const allowed = canUse({ ...call.principal, subject: principalSubject, roles: principalRoles }, call.toolName) && MOCK_TOOLS.some((tool) => tool.serverId === call.serverId && tool.name === call.toolName) && call.arguments.mode !== "denied";
     this.audit.push({ requestId: call.requestId, subject: principalSubject, serverId: call.serverId, toolName: call.toolName, decision: allowed ? "allowed" : "denied", backendCalled: allowed, ...(workloadClientId ? { workloadClientId } : {}) });
     if (!allowed) throw Object.assign(new Error("tool access denied"), { code: "TOOL_DENIED" });
     this.backendCalls.push(call);
@@ -141,7 +123,7 @@ export class RealToolHiveClient implements ToolHiveClient {
     this.baseUrl = baseUrl;
     this.#endpoints = new Map(Object.entries(endpoints));
   }
-  async invoke(call: ToolInvocation): Promise<ToolResult> {
+  async invoke(call: ToolCallRequest): Promise<ToolCallResult> {
     const client = await this.#connect(call.serverId, requireCredential(call), call.environment, call.requestId, call.signal);
     try {
       // the MCP SDK forwards this AbortSignal to the underlying HTTP request, so a
@@ -160,10 +142,10 @@ export class RealToolHiveClient implements ToolHiveClient {
     await client.connect(transport);
     return client;
   }
-  async listTools(serverId: string, identity: RequestIdentity, environment: string, options: { credential?: ToolCredential; requestId?: string; signal?: AbortSignal } = {}): Promise<McpTool[]> {
+  async listTools(serverId: string, principal: Principal, environment: string, options: ListToolsOptions = {}): Promise<ToolDescriptor[]> {
     const credential = options.credential;
     if (credential === undefined) throw Object.assign(new Error("verified ToolHive credential is required for discovery"), { code: "TOOL_DENIED" });
-    const client = await this.#connect(serverId, credential, environment, options.requestId ?? identity.requestId, options.signal);
+    const client = await this.#connect(serverId, credential, environment, options.requestId ?? principal.requestId, options.signal);
     try {
       const result = await client.listTools(undefined, options.signal ? { signal: options.signal } : undefined);
       return result.tools.map((tool) => ({
@@ -179,17 +161,17 @@ export class RealToolHiveClient implements ToolHiveClient {
   }
 }
 
-function requireCredential(call: ToolInvocation): ToolCredential {
+function requireCredential(call: ToolCallRequest): ToolCredential {
   if (call.credential === undefined) throw Object.assign(new Error("tool credential missing"), { code: "TOOL_DENIED" });
   return call.credential;
 }
 
-function canUse(identity: RequestIdentity, toolName: string): boolean {
-  if (identity.roles.includes("infra-read")) return true;
-  return identity.roles.includes("network-read") && ["query_prometheus", "search_network_logs", "get_interface_status", "get_path_health", "get_bgp_status", "get_load_balancer_pool"].includes(toolName);
+function canUse(principal: Principal, toolName: string): boolean {
+  if (principal.roles.includes("infra-read")) return true;
+  return principal.roles.includes("network-read") && ["query_prometheus", "search_network_logs", "get_interface_status", "get_path_health", "get_bgp_status", "get_load_balancer_pool"].includes(toolName);
 }
 
-function cannedResult(call: ToolInvocation): unknown {
+function cannedResult(call: ToolCallRequest): unknown {
   const entity = Object.values(call.arguments).find((value) => typeof value === "string" && !["ok", "failure"].includes(value));
   if (call.toolName === "keycloak_health") return { url: "https://keycloak.sre.local", auth_realm: "sre-test", visible_realms: ["sre-test"], read_operations: 148 };
   if (call.toolName === "list_realms") return [{ realm: "master" }, { realm: "sre-test" }];

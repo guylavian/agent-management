@@ -1,5 +1,5 @@
-import { runSpecialist, MockToolHiveClient } from "@sre/agent-engine";
-import { AuthorizationService } from "@sre/auth";
+import type { AgentRunContext } from "@sre/agent-engine";
+import { MockToolHiveClient, runSpecialist } from "@sre/runtime-host";
 import { CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
 import { domainHandoffSchema, type SpecialistResult } from "@sre/evidence";
 import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
@@ -31,7 +31,8 @@ describe("domain handoff", () => {
       async chat(request: ChatRequest): Promise<ChatResponse> { this.requests.push(request); return request.guidedJsonSchema ? { content: JSON.stringify({ summary: "Checked." }), usage: { promptTokens: 1, completionTokens: 1 } } : { usage: { promptTokens: 1, completionTokens: 1 } }; }
     }
     const model = new InspectingModel();
-    await runSpecialist("network-observability", ctx, { registry, authorization: new AuthorizationService(registry), model, toolhive: new MockToolHiveClient() }, handoff);
+    const runCtx: AgentRunContext = { question: ctx.request.question, principal: identity, environment: "prod", requestId: identity.requestId, deadline: ctx.deadline };
+    await runSpecialist("network-observability", runCtx, { registry, model, toolhive: new MockToolHiveClient() }, handoff);
     expect(JSON.stringify(model.requests)).not.toContain("TOP_SECRET_TRANSCRIPT");
   });
 });

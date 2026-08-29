@@ -2,7 +2,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from "vitest";
 import { AuthorizationService, MockToolCredentialAuthority, type RequestIdentity, type WorkloadIdentity } from "@sre/auth";
 import { CONFIG_PATHS, loadAgentRegistry, loadAppConfig, ConfigValidationError, isToolAllowed } from "@sre/config";
-import { MockToolHiveClient, invokeVisibleToolForSpecialist, toolHiveAudience } from "@sre/agent-engine";
+import { authorizeAgent, authorizeAudience, authorizeTool, invokeVisibleTool } from "@sre/agent-engine";
+import { MockToolHiveClient, toAgentDefinition, toToolPolicy, toolHiveAudience } from "@sre/runtime-host";
 import { buildDependencies, createApp, type ManagerDependencies } from "@sre/runtime-host";
 
 /**
@@ -20,18 +21,53 @@ function authority() {
   return new MockToolCredentialAuthority({ issuer: "https://mock-toolhive-sts.sre.local", secret: "security-regression-shared-secret-32b" });
 }
 
+/**
+ * The engine now owns runtime authorization; AuthorizationService still serves
+ * the Manager's routing filter. Two implementations of one policy can drift, so
+ * the drift is asserted away here rather than trusted.
+ */
+describe("the engine's authorization and the Manager's agree", () => {
+  it("reaches the same verdict for every agent, tool and environment in the catalog", () => {
+    const principals: RequestIdentity[] = [
+      alice,
+      { subject: "bob", groups: [], roles: ["network-read"], requestId: "req-agree-2" },
+      { subject: "carol", groups: [], roles: [], requestId: "req-agree-3" },
+    ];
+    let compared = 0;
+    for (const agent of registry.listSpecialists()) {
+      const definition = toAgentDefinition(agent);
+      for (const principal of principals) {
+        expect(authorizeAgent(principal, definition).allowed, `${agent.name}/${principal.subject}`)
+          .toBe(authorization.authorizeAgent(principal, agent, "prod").allowed);
+        for (const tool of registry.catalog.tools) {
+          for (const environment of ["prod", "staging"]) {
+            expect(authorizeTool(principal, definition, tool, environment).allowed, `${agent.name}/${tool.serverId}:${tool.toolName}/${environment}`)
+              .toBe(authorization.preflightTool(principal, agent, tool, environment).allowed);
+            compared += 1;
+          }
+        }
+        for (const server of new Set(registry.catalog.tools.map((tool) => tool.serverId))) {
+          expect(authorizeAudience(definition, server, toolHiveAudience(server)).allowed, `${agent.name}/${server}`)
+            .toBe(authorization.authorizeAudience(agent, server, toolHiveAudience(server)).allowed);
+        }
+      }
+    }
+    expect(compared).toBeGreaterThan(100);
+  });
+});
+
 describe("an agent cannot reach outside its policy", () => {
   it("cannot call an MCP that is not in its access policy", async () => {
     const auth = authority();
     const credential = await auth.exchange(keycloakWorkload, alice, toolHiveAudience("prometheus"), Date.now() + 20_000);
     await expect(
-      invokeVisibleToolForSpecialist(registry.catalog, authorization, new MockToolHiveClient(auth), keycloakAgent, {
+      invokeVisibleTool(toAgentDefinition(keycloakAgent), toToolPolicy(registry.catalog), new MockToolHiveClient(auth), {
         serverId: "prometheus",
         toolName: "query",
         arguments: {},
         environment: "prod",
         requestId: alice.requestId,
-        identity: alice,
+        principal: alice,
         credential,
         timeoutMs: 5_000,
       }),
@@ -47,13 +83,13 @@ describe("an agent cannot reach outside its policy", () => {
     const auth = authority();
     const wrongAudience = await auth.exchange(keycloakWorkload, alice, toolHiveAudience("prometheus"), Date.now() + 20_000);
     await expect(
-      invokeVisibleToolForSpecialist(registry.catalog, authorization, new MockToolHiveClient(auth), keycloakAgent, {
+      invokeVisibleTool(toAgentDefinition(keycloakAgent), toToolPolicy(registry.catalog), new MockToolHiveClient(auth), {
         serverId: "keycloak",
         toolName: "list_clients",
         arguments: {},
         environment: "prod",
         requestId: alice.requestId,
-        identity: alice,
+        principal: alice,
         credential: wrongAudience,
         timeoutMs: 5_000,
       }),
@@ -65,13 +101,13 @@ describe("an agent cannot reach outside its policy", () => {
     const auth = authority();
     const credential = await auth.exchange(keycloakWorkload, alice, toolHiveAudience("keycloak"), Date.now() + 20_000);
     await expect(
-      invokeVisibleToolForSpecialist(registry.catalog, authorization, new MockToolHiveClient(auth), disabled, {
+      invokeVisibleTool(toAgentDefinition(disabled), toToolPolicy(registry.catalog), new MockToolHiveClient(auth), {
         serverId: "keycloak",
         toolName: "list_clients",
         arguments: {},
         environment: "prod",
         requestId: alice.requestId,
-        identity: alice,
+        principal: alice,
         credential,
         timeoutMs: 5_000,
       }),
@@ -83,7 +119,7 @@ describe("ToolHive remains mandatory", () => {
   it("refuses a tool call with no verified credential", async () => {
     const gateway = new MockToolHiveClient(authority());
     await expect(
-      gateway.invoke({ serverId: "keycloak", toolName: "list_clients", arguments: {}, environment: "prod", requestId: "r", identity: alice, timeoutMs: 5_000 }),
+      gateway.invoke({ serverId: "keycloak", toolName: "list_clients", arguments: {}, environment: "prod", requestId: "r", principal: alice, timeoutMs: 5_000 }),
     ).rejects.toMatchObject({ code: "TOOL_DENIED" });
   });
 

@@ -141,16 +141,27 @@ describe("architectural boundaries", () => {
   });
 
   /**
-   * CONSUME vs EXPOSE. A specialist calling a tool through ToolHive speaks MCP
-   * as a client, which is its job. Serving MCP — becoming a server other
-   * systems call — is exposure, and belongs in the adapter layer.
+   * CONSUME vs EXPOSE still decides where an MCP client may live — but the
+   * engine is now on the far side of BOTH. It used to consume MCP as a client,
+   * which was legitimate; tool access is now a port, so the client that speaks
+   * MCP is an adapter in runtime-host and the engine speaks no protocol at all.
    */
-  it("lets the engine consume MCP but never serve it", () => {
-    const engineImports = internalOrExternalImports("../agent-engine");
-    expect(engineImports.some((specifier) => specifier.startsWith("@modelcontextprotocol/sdk/client"))).toBe(true);
+  it("keeps every MCP client in the adapter layer and every MCP server out of the platform", () => {
     for (const zone of ["../agent-engine", "orchestrator"]) {
-      expect(internalOrExternalImports(zone).filter((specifier) => specifier.startsWith("@modelcontextprotocol/sdk/server")), zone).toEqual([]);
+      expect(internalOrExternalImports(zone).filter((specifier) => specifier.startsWith("@modelcontextprotocol")), zone).toEqual([]);
     }
+    const host = internalOrExternalImports("runtime-host");
+    expect(host.some((specifier) => specifier.startsWith("@modelcontextprotocol/sdk/client"))).toBe(true);
+    expect(host.filter((specifier) => specifier.startsWith("@modelcontextprotocol/sdk/server"))).toEqual([]);
+  });
+
+  /**
+   * The engine's dependency list IS its genericity claim. Five platform
+   * implementations used to be in it.
+   */
+  it("leaves the engine depending on one neutral contract and two libraries", () => {
+    const declared = Object.keys((JSON.parse(readFileSync("../agent-engine/package.json", "utf8")) as { dependencies?: Record<string, string> }).dependencies ?? {});
+    expect(declared.sort()).toEqual(["@sre/evidence", "ajv", "zod"]);
   });
 
   it("check-boundaries agrees", () => {

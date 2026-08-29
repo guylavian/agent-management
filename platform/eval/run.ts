@@ -1,10 +1,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
-import { AuthorizationService } from "@sre/auth";
 import { CONFIG_PATHS, deployEnvironmentDir, loadAgentRegistry, loadEffectiveAgentCatalog } from "@sre/config";
 import type { Evidence, RuntimeError, SpecialistResult } from "@sre/evidence";
 import { MockModelClient, type ChatRequest, type ChatResponse, type ModelClient } from "@sre/llm";
-import { MockToolHiveClient } from "@sre/agent-engine";
+import { MockToolHiveClient } from "@sre/runtime-host";
 import { inProcessRuntimeDependencies } from "@sre/runtime-host";
 import { executeRequest, type AssistantResponse } from "@sre/orchestrator";
 import { parse as parseYaml } from "yaml";
@@ -60,7 +59,7 @@ for (const [caseIndex, benchmark] of corpus.cases.entries()) {
     const started = performance.now();
     const response = await executeRequest(
       { question: benchmark.question, environment: benchmark.environment, identity: identityFor(benchmark.identity, `${benchmark.id}-${run}`) },
-      inProcessRuntimeDependencies({ registry, serviceRegistry, authorization: new AuthorizationService(registry), model, toolhive, requestDeadlineMs: 5000, defaultEnvironment: "prod", onResults: (results) => { specialistResults = results; } }),
+      inProcessRuntimeDependencies({ registry, serviceRegistry, model, toolhive, requestDeadlineMs: 5000, defaultEnvironment: "prod", onResults: (results) => { specialistResults = results; } }),
     );
     const latencyMs = performance.now() - started;
     const evidence = specialistResults.flatMap((result) => result.evidence);

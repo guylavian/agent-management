@@ -1,4 +1,5 @@
-import { runSpecialistInstance, type SpecialistExecutionContext } from "@sre/agent-engine";
+import type { AgentRunContext } from "@sre/agent-engine";
+import { runSpecialistInstance } from "../adapters/index.ts";
 import {
   MAX_AGENT_REQUEST_BYTES,
   MAX_AGENT_RESPONSE_BYTES,
@@ -38,22 +39,17 @@ export function registerSpecialistRoutes(app: Express, deps: SpecialistDependenc
         const abort = new AbortController();
         request.on("close", () => { if (!response.writableEnded) abort.abort(); });
         const safeQuestion = redactText(parsed.data.question).value;
-        const executionContext: SpecialistExecutionContext = {
-          request: {
-            question: safeQuestion,
-            environment: parsed.data.environment,
-            identity,
-            ...(parsed.data.conversationContext ? { conversation: parsed.data.conversationContext } : {}),
-          },
-          identity,
+        const executionContext: AgentRunContext = {
+          question: safeQuestion,
+          principal: identity,
           environment: parsed.data.environment,
           requestId: parsed.data.requestId,
           deadline,
           signal: abort.signal,
           ...(parsed.data.task ? { task: parsed.data.task } : {}),
+          ...(parsed.data.conversationContext?.resolvedEntities ? { resolvedEntities: parsed.data.conversationContext.resolvedEntities } : {}),
         };
         const result = await runSpecialistInstance(deps.agent, deps.catalog, executionContext, {
-          authorization: deps.authorization,
           model: deps.model,
           toolhive: deps.toolhive,
           credentialExchanger: deps.credentialExchanger,

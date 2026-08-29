@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { RequestIdentity, ToolCredential } from "@sre/auth";
-import type { McpTool, ToolHiveClient, ToolInvocation, ToolResult } from "./toolhive-client.ts";
+import type { ListToolsOptions, Principal, ToolCallRequest, ToolCallResult, ToolDescriptor } from "@sre/agent-engine";
+import type { ToolHiveClient } from "./toolhive.ts";
 
 /**
  * LOCAL-DEV-ONLY MCP client. Reaches standalone MCP servers directly by a
@@ -29,9 +29,9 @@ export class DirectMcpClient implements ToolHiveClient {
     return endpoint;
   }
 
-  async listTools(serverId: string, identity: RequestIdentity, environment: string, options?: { credential?: ToolCredential; requestId?: string; signal?: AbortSignal }): Promise<McpTool[]> {
-    if (!this.#endpoints.has(serverId) && this.#fallback !== undefined) return this.#fallback.listTools(serverId, identity, environment);
-    const client = await this.#connect(serverId, options?.requestId ?? identity.requestId, options?.signal);
+  async listTools(serverId: string, principal: Principal, environment: string, options?: ListToolsOptions): Promise<ToolDescriptor[]> {
+    if (!this.#endpoints.has(serverId) && this.#fallback !== undefined) return this.#fallback.listTools(serverId, principal, environment);
+    const client = await this.#connect(serverId, options?.requestId ?? principal.requestId, options?.signal);
     try {
       const result = await client.listTools();
       return result.tools.map((tool) => ({ serverId, name: tool.name, description: tool.description ?? "", inputSchema: (tool.inputSchema as Record<string, unknown>) ?? { type: "object" }, ...(tool.annotations ? { annotations: { readOnlyHint: tool.annotations.readOnlyHint, destructiveHint: tool.annotations.destructiveHint } } : {}) }));
@@ -40,7 +40,7 @@ export class DirectMcpClient implements ToolHiveClient {
     }
   }
 
-  async invoke(call: ToolInvocation): Promise<ToolResult> {
+  async invoke(call: ToolCallRequest): Promise<ToolCallResult> {
     if (!this.#endpoints.has(call.serverId) && this.#fallback !== undefined) return this.#fallback.invoke(call);
     const client = await this.#connect(call.serverId, call.requestId, call.signal);
     try {

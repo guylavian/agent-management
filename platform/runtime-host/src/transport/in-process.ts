@@ -1,5 +1,6 @@
 
-import { runSpecialistInstance, type SpecialistExecutionContext, type ToolHiveClient } from "@sre/agent-engine";
+import type { AgentRunContext } from "@sre/agent-engine";
+import { runSpecialistInstance, type SpecialistRuntimeDependencies, type ToolHiveClient } from "../adapters/index.ts";
 import {
   AgentTransportError,
   agentExecutionResponseSchema,
@@ -10,17 +11,13 @@ import {
   type AgentExecutionResponse,
   type SpecialistTransport,
 } from "@sre/agent-protocol";
-import { MockDelegationAuthority, type AuthorizationService, type DelegatedIdentityVerifier } from "@sre/auth";
+import { MockDelegationAuthority, type DelegatedIdentityVerifier } from "@sre/auth";
 import type { AgentCatalog, AgentRegistry as ConfigAgentRegistry } from "@sre/config";
 import type { ModelClient } from "@sre/llm";
 import type { RuntimeDependencies } from "@sre/orchestrator";
 import { redactText } from "@sre/redaction";
 
-export interface InProcessSpecialistDependencies {
-  authorization: AuthorizationService;
-  model: ModelClient;
-  toolhive: ToolHiveClient;
-}
+export type InProcessSpecialistDependencies = SpecialistRuntimeDependencies;
 
 /**
  * Runs the real specialist stack in the current process behind the distributed
@@ -54,19 +51,15 @@ export class InProcessSpecialistTransport implements SpecialistTransport {
     const deadline = Date.parse(request.deadline);
     if (deadline <= Date.now()) throw new AgentTransportError("AGENT_TIMEOUT", "Agent request deadline expired", false);
     const safeQuestion = redactText(request.question).value;
-    const ctx: SpecialistExecutionContext = {
-      request: {
-        question: safeQuestion,
-        environment: request.environment,
-        identity,
-        ...(request.conversationContext ? { conversation: request.conversationContext } : {}),
-      },
-      identity,
+    const ctx: AgentRunContext = {
+      question: safeQuestion,
+      principal: identity,
       environment: request.environment,
       requestId: request.requestId,
       deadline,
       signal,
       ...(request.task ? { task: request.task } : {}),
+      ...(request.conversationContext?.resolvedEntities ? { resolvedEntities: request.conversationContext.resolvedEntities } : {}),
     };
     const result = await runSpecialistInstance(specialist, this.#registry.catalog, ctx, this.#deps, request.handoff);
     try {
@@ -81,7 +74,6 @@ export class InProcessSpecialistTransport implements SpecialistTransport {
 export interface InProcessRuntimeOptions {
   registry: ConfigAgentRegistry;
   serviceRegistry: AgentCatalog;
-  authorization: AuthorizationService;
   model: ModelClient;
   synthesisModel?: ModelClient;
   toolhive: ToolHiveClient;
@@ -101,7 +93,7 @@ export function inProcessRuntimeDependencies(options: InProcessRuntimeOptions): 
     registry: options.serviceRegistry,
     agentClient: new InProcessSpecialistTransport(
       options.registry,
-      { authorization: options.authorization, model: options.model, toolhive: options.toolhive },
+      { model: options.model, toolhive: options.toolhive },
       authority,
     ),
     identityIssuer: authority,

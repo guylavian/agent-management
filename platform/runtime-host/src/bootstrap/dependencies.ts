@@ -1,9 +1,7 @@
 import { createPublicKey } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { DirectMcpClient, mcpEndpointsFromEnv, MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "@sre/agent-engine";
 import type { SpecialistTransport } from "@sre/agent-protocol";
 import {
-  AuthorizationService,
   JwksDelegatedIdentityVerifier,
   KeycloakWorkloadCredentialExchanger,
   MockDelegationAuthority,
@@ -39,6 +37,7 @@ import { DisabledSessionStore, MockSessionStore, PostgresSessionStore } from "@s
 import { InMemoryRunStore, type RunStore } from "../management/index.ts";
 import { ClientCredentialsWorkloadTokenProvider, HttpSpecialistTransport, MockWorkloadTokenProvider, ProjectedWorkloadTokenProvider } from "../transport/http.ts";
 import { InProcessSpecialistTransport } from "../transport/in-process.ts";
+import { DirectMcpClient, mcpEndpointsFromEnv, MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "../adapters/index.ts";
 
 /**
  * THE COMPOSITION ROOT.
@@ -81,7 +80,6 @@ export interface SpecialistDependencies extends CommonDependencies {
   mode: "specialist";
   agent: SpecialistAgentConfig;
   catalog: ApprovedCatalog;
-  authorization: AuthorizationService;
   toolhive: ToolHiveClient;
   credentialExchanger: ToolCredentialExchanger;
   identityVerifier: DelegatedIdentityVerifier;
@@ -116,11 +114,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       const fullRegistry = loadAgentRegistry(configPaths(config));
       agentClient = new InProcessSpecialistTransport(
         fullRegistry,
-        {
-          authorization: new AuthorizationService(fullRegistry),
-          model,
-          toolhive: buildToolhive(config, env),
-        },
+        { model, toolhive: buildToolhive(config, env) },
         mockDelegation as MockDelegationAuthority,
       );
     } else if (config.clients.agent === "mock") {
@@ -195,7 +189,6 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     agent: specialistAgent,
     catalog,
     model,
-    authorization: new AuthorizationService(),
     toolhive: buildToolhive(config, env, toolAuthority),
     credentialExchanger,
     identityVerifier,

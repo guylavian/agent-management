@@ -138,15 +138,22 @@ check(SHARED_DIR, (name: string) =>
 );
 
 /**
- * The Specialist engine is generic. It may rest on contracts and shared and on
- * nothing else — in particular not on the orchestrator, because a specialist
- * that could reach routing or fan-out could reach another specialist, and
- * specialist-to-specialist communication is a red line.
+ * The Agent engine is generic. It may rest on CONTRACTS and on nothing else —
+ * not on shared, and above all not on the orchestrator, because an engine that
+ * could reach routing or fan-out could reach another Agent, and
+ * agent-to-agent communication is a red line.
+ *
+ * Excluding `shared` is the stricter half of this rule and the newer one. The
+ * engine used to import @sre/auth, @sre/config, @sre/llm, @sre/redaction and
+ * @sre/telemetry — five platform implementations — which meant "generic engine"
+ * was true of its behaviour but not of its dependencies. It now declares ports
+ * and the composition root adapts this platform onto them. A shared import here
+ * would be the first step back.
  */
 check(AGENT_ENGINE_DIR, (name: string) =>
-  CONTRACT_PACKAGES.has(name) || SHARED_PACKAGES.has(name) || name === AGENT_ENGINE
+  CONTRACT_PACKAGES.has(name) || name === AGENT_ENGINE
     ? undefined
-    : `agent-engine imports "@sre/${name}" — the engine may depend only on contracts and shared`,
+    : `agent-engine imports "@sre/${name}" — the engine may depend only on contracts; adapt the platform onto an engine port in runtime-host instead`,
 );
 
 /**
@@ -190,6 +197,34 @@ const PROTOCOL_SERVER_PACKAGES = new Set([
 
 /** Specifiers that expose a protocol rather than consume one. */
 const PROTOCOL_SERVER_SPECIFIERS = ["@modelcontextprotocol/sdk/server"];
+
+/**
+ * The engine is held to the stricter rule: it speaks NO external protocol at
+ * all, in either direction. It used to consume MCP as a client, which was
+ * legitimate but concrete — it meant the engine knew that "a tool" is an MCP
+ * tool behind a gateway. Tool access is now a port, and the client that speaks
+ * MCP is an adapter in runtime-host, so the engine has no protocol left to
+ * consume and must not reacquire one.
+ */
+const ENGINE_FORBIDDEN_PACKAGES = new Set([...PROTOCOL_SERVER_PACKAGES, "@modelcontextprotocol/sdk", "@opentelemetry/api", "jose", "pg"]);
+
+for (const dependency of declaredDependencies(join(AGENT_ENGINE_DIR, "package.json"))) {
+  if (ENGINE_FORBIDDEN_PACKAGES.has(dependency)) {
+    violations.push({
+      file: join(AGENT_ENGINE_DIR, "package.json"),
+      line: 1,
+      detail: `agent-engine declares "${dependency}" — the engine speaks no protocol and reaches no infrastructure; put the adapter in runtime-host`,
+    });
+  }
+}
+for (const file of sourceFiles(AGENT_ENGINE_DIR)) {
+  for (const { specifier, line } of allImports(file)) {
+    const root = specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : (specifier.split("/")[0] as string);
+    if (ENGINE_FORBIDDEN_PACKAGES.has(root)) {
+      violations.push({ file, line, detail: `agent-engine imports "${specifier}" — the engine speaks no protocol and reaches no infrastructure` });
+    }
+  }
+}
 
 for (const zone of [AGENT_ENGINE_DIR, ORCHESTRATOR_DIR]) {
   for (const dependency of declaredDependencies(join(zone, "package.json"))) {

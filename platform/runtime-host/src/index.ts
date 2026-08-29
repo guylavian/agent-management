@@ -1,3 +1,4 @@
+export * from "./adapters/index.ts";
 export * from "./bootstrap/dependencies.ts";
 export * from "./http/app.ts";
 export * from "./management/index.ts";

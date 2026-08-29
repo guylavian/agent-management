@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HttpSpecialistTransport, MockWorkloadTokenProvider } from "@sre/runtime-host";
 import { MockOidcClient } from "@sre/auth";
-import type { MockToolHiveClient } from "@sre/agent-engine";
+import type { MockToolHiveClient } from "@sre/runtime-host";
 import { buildDependencies, createApp } from "@sre/runtime-host";
 
 /**

@@ -9,9 +9,10 @@ the platform IS and where it RUNS.
 ├── .claude/                   CLAUDE.md, STATUS.md — project-agent context
 ├── .woodpecker/               CI
 │
-├── agent-engine/              THE GENERIC SPECIALIST ENGINE — its own npm project
-│   ├── src/{investigation,actions,tools,evidence,followup}  engine.ts
-│   └── tests/
+├── agent-engine/              THE GENERIC AGENT ENGINE — its own npm project
+│   ├── src/{agent,runner,model,tools,evidence,guardrails,
+│   │        lifecycle,telemetry,errors}  + index.ts
+│   └── tests/                 synthetic host; borrows no platform fixture
 │
 ├── platform/                  THE SRE PLATFORM BUILT ON IT — npm workspace root
 │   ├── orchestrator/          the Manager — routing, fan-out, follow-up, synthesis
@@ -37,10 +38,12 @@ Three first-class concerns, not a hierarchy:
                  deploy  ──►  ONE runtime image  ──►  ROLE=manager | ROLE=specialist
 
 `agent-engine` is a repository-root sibling because it is a GENERIC engine the
-SRE platform consumes, not a part of it. It is domain-neutral: nothing under
-`agent-engine/src` knows what a Keycloak or Active Directory agent is, and
-check-boundaries enforces that. `deploy` is a sibling for the same reason in
-reverse — packaging is not owned by the code it packages.
+SRE platform consumes, not a part of it. It depends on ONE neutral contract
+(`@sre/evidence`) plus `ajv` and `zod` — no platform implementation, no protocol
+SDK, no product name — and declares ports the composition root adapts this
+platform onto. `check-boundaries` and `agent-engine/tests/genericity.test.ts`
+both enforce that. See [agent-engine.md](agent-engine.md). `deploy` is a sibling
+for the same reason in reverse — packaging is not owned by the code it packages.
 
 Source ownership and release unit are separate concepts. All three still build
 into ONE image from ONE Dockerfile, whose context is the repository root
@@ -75,6 +78,7 @@ Two edges are deliberately absent, and they matter more than the ones present:
 | Forbidden | Why |
 |---|---|
 | `agent-engine ✕→ orchestrator` | A specialist that could reach routing or fan-out could reach another specialist. Specialist-to-specialist communication is a red line. |
+| `agent-engine ✕→ shared` | The engine may rest on contracts only. It used to import five platform implementations — auth, config, llm, redaction, telemetry — which made "generic engine" true of its behaviour but not of its dependencies. |
 | `orchestrator ✕→ agent-engine` | Local dev runs both in one process. If the orchestrator could call the engine directly, the transport boundary would collapse the first time someone took the shortcut. |
 
 `npm run validate:boundaries` enforces the whole graph and
@@ -138,12 +142,15 @@ only if the protocol never reaches the components that decide them, so
   (`express`, `fastify`, `koa`, `ws`, `socket.io`, `openai`, A2A), or
 - imports a protocol's SERVER entrypoint.
 
-The distinction that matters is **consume vs expose**. `agent-engine` speaks MCP
-as a *client*, because calling a tool through ToolHive is what a specialist
-does — that is consumption, and it is legitimate. *Serving* MCP, becoming a
-server other systems call, is exposure and belongs in the adapter layer. The
-rule is therefore written against `@modelcontextprotocol/sdk/server`, not
-against the package.
+The distinction that matters is **consume vs expose**, and it decides where an
+MCP *client* may live: calling a tool through ToolHive is consumption, and it is
+legitimate. *Serving* MCP, becoming a server other systems call, is exposure.
+The rule against exposure is therefore written against
+`@modelcontextprotocol/sdk/server`, not against the package.
+
+The engine is now on the far side of both. Tool access is a port, so the client
+that speaks MCP is an adapter in `runtime-host` and the engine speaks no external
+protocol in either direction.
 
 An external protocol must never become the internal one by default. Internal
 Orchestrator→Specialist communication stays behind

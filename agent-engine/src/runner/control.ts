@@ -1,14 +1,16 @@
-import type { ToolSchema } from "@sre/llm";
 import { z } from "zod";
+import type { ModelToolSchema } from "../model/port.ts";
 
 /**
- * The one structured action a specialist may take per model turn.
+ * The one structured action an Agent may take per model turn.
  *
- * Native tool-calling models express this through `tool_calls`; deterministic
+ * Native tool-calling models express this through tool calls; deterministic
  * mocks and models without native support may return the same envelope as
- * content. Both paths converge here so the runtime validates exactly one shape.
+ * content. Both paths converge here so the runtime validates exactly one shape,
+ * and anything that does not match it is treated as invalid model output rather
+ * than being interpreted generously.
  */
-const specialistActionSchema = z
+const agentActionSchema = z
   .object({
     action: z.enum(["tool_call", "answer", "needs_domain", "insufficient_evidence"]),
     // short operational fields only — never chain-of-thought
@@ -21,12 +23,16 @@ const specialistActionSchema = z
     reason: z.string().max(500).optional(),
   })
   .strict();
-export type SpecialistAction = z.infer<typeof specialistActionSchema>;
+export type AgentAction = z.infer<typeof agentActionSchema>;
 
-const CONTROL_TOOL_NAMES = ["answer", "need_domain", "insufficient_evidence"] as const;
+export const CONTROL_TOOL_NAMES = ["answer", "need_domain", "insufficient_evidence"] as const;
 
-// virtual control tools: the model calls these to finish; they never execute through ToolHive
-export const CONTROL_TOOLS: ToolSchema[] = [
+/**
+ * Virtual control tools. The model calls one of these to finish; they terminate
+ * the loop inside the engine and are never dispatched to a ToolProvider, so a
+ * model cannot reach a backend by naming one.
+ */
+export const CONTROL_TOOLS: ModelToolSchema[] = [
   { name: "answer", description: "Provide the final answer once collected evidence is sufficient.", inputSchema: { type: "object", additionalProperties: false, required: ["summary"], properties: { summary: { type: "string" }, evidenceIds: { type: "array", items: { type: "string" } } } } },
   { name: "need_domain", description: "Request one additional domain when another specialist is genuinely required.", inputSchema: { type: "object", additionalProperties: false, required: ["needsDomain", "reason"], properties: { needsDomain: { type: "string" }, reason: { type: "string" } } } },
   { name: "insufficient_evidence", description: "Stop when the remaining question cannot be proven from available tools.", inputSchema: { type: "object", additionalProperties: false, required: ["reason"], properties: { reason: { type: "string" } } } },
@@ -36,11 +42,11 @@ export function isControlTool(name: string): boolean {
   return (CONTROL_TOOL_NAMES as readonly string[]).includes(name);
 }
 
-/** deterministic mocks may return a SpecialistAction envelope as content instead of native tool_calls */
-export function parseEnvelope(content: string | undefined): SpecialistAction | undefined {
+/** Deterministic mocks may return an action envelope as content instead of native tool calls. */
+export function parseEnvelope(content: string | undefined): AgentAction | undefined {
   if (content === undefined) return undefined;
   try {
-    return specialistActionSchema.parse(JSON.parse(content));
+    return agentActionSchema.parse(JSON.parse(content));
   } catch {
     return undefined;
   }

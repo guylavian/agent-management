@@ -2,7 +2,7 @@
 
 The Git root holds directories only, and three of them are first-class concerns:
 
-    agent-engine/   the generic Specialist engine (its own npm project)
+    agent-engine/   the generic Agent execution engine (its own npm project)
     platform/       the SRE platform built on it (npm workspace root)
     deploy/         how both are packaged and run
 
@@ -13,9 +13,13 @@ Commands run from `platform/`; `npm run check` delegates into the engine.
 | Check | State | Evidence |
 |---|---|---|
 | Repository layout | **PASS** | Git root directories-only; agent-engine / platform / deploy are siblings |
-| Full repository check | **PASS** | `cd platform && npm run check` — 320 tests (289 platform + 31 engine), 12 YAML checks, boundaries, generated freshness, 2 Helm charts |
+| Full repository check | **PASS** | `cd platform && npm run check` — 352 tests (291 platform + 61 engine), 12 YAML checks, boundaries, generated freshness, 2 Helm charts |
 | Monorepo structure | **PASS** | `agent-engine/ orchestrator/ runtime-host/ portal/ contracts/ shared/ config/ deploy/` |
-| Architectural boundaries | **PASS** | `agent-engine ✕→ orchestrator` and `orchestrator ✕→ agent-engine` proven at 0 imports; only `runtime-host` composes both |
+| Engine genericity | **PASS** | `agent-engine` depends on `@sre/evidence` + `ajv` + `zod` only; 0 platform implementations, 0 protocol SDKs, 0 product names — asserted by `genericity.test.ts` and `check-boundaries` |
+| Engine ports | **PASS** | `Model`, `ToolProvider`, `Sanitizer` (required, no default), `Telemetry` (no-op default), `CredentialProvider`; adapters in `runtime-host/src/adapters` |
+| Authorization parity | **PASS** | engine `authorizeAgent`/`authorizeTool`/`authorizeAudience` compared against `AuthorizationService` across every agent × tool × principal × environment |
+| Evaluation harness | **PASS** | `npm run eval` — 8/8 target metrics met end to end through orchestrator → transport → engine → adapters |
+| Architectural boundaries | **PASS** | `agent-engine ✕→ orchestrator`, `orchestrator ✕→ agent-engine` and `agent-engine ✕→ shared` proven at 0 imports; only `runtime-host` composes both |
 | One image, two roles | **PASS** | one image from `deploy/runtime/Dockerfile` boots `mode: manager` and `mode: specialist` (run, not asserted) |
 | In-process transport | **PASS** | manager + in-process specialist answers `/v1/query` with real evidence; `bob` denied `AUTHZ_DENIED` |
 | HTTP transport | **PASS** | two real processes over TCP: manager :3100 → specialist :3110, real citation returned |
