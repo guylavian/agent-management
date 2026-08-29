@@ -35,8 +35,9 @@ Commands run from `platform/`; `npm run check` delegates into the engine.
 | Keycloak workload identities (real) | **PASS** | 9/9 against live Keycloak 26.6 — see below |
 | ToolHive access policy (real engine) | **PASS** | rendered Cedar policies evaluated by ToolHive's own authorizer |
 | One image, both roles (post-refactor) | **PASS** | `deploy/runtime/Dockerfile` built and run: `ROLE=manager` answered a real `/v1/query` with cited evidence through orchestrator → in-process transport → runtime-host → agent-engine → adapters; `ROLE=specialist AGENT_ID=keycloak` booted from the SAME image |
-| Real PoC smoke (post-refactor) | **BLOCKED** | `platform/.env.real-poc` line 1 is a stray `x`, so `start-real-poc.sh` aborts under `set -e` before anything starts. The file holds secrets and is sandbox-denied, so it must be corrected by hand. NOT a platform regression and NOT evidence the refactor works. |
-| Real PoC smoke (pre-refactor baseline, earlier session) | **16 PASS / 3 FAIL / 0 BLOCKED** | the 3 are `MODEL_RATE_LIMITED` in specialist spans, an external provider limit |
+| **Real PoC smoke (post-refactor)** | **16 PASS / 3 FAIL / 0 BLOCKED** | run at HEAD `ba4354b` against real Keycloak 26.6, real Prometheus, real ToolHive v0.46 with Cedar, real Keycloak/Prometheus/Wiki MCP and a real local LLM. Identical totals to the pre-refactor baseline. The 3 FAILs are local-model latency, not platform regressions — see below. |
+| Real PoC failure causes | **environmental** | smoke B/C: `REQUEST_TIMEOUT`/`AGENT_TIMEOUT` — the local model exhausted the per-agent deadline. smoke D: `AUTHN_FAILED` 401 — verify obtains ONE user token then runs four smokes at up to 130s each; the Keycloak default 300s access-token lifespan expires before D. No `MODEL_RATE_LIMITED` this run (that was the Groq-era cause). |
+| Real PoC smoke (pre-refactor baseline) | **16 PASS / 3 FAIL / 0 BLOCKED** | the 3 are `MODEL_RATE_LIMITED` in specialist spans, an external provider limit |
 
 ## What was verified against real infrastructure
 
