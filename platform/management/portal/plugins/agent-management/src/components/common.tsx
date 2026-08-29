@@ -315,11 +315,11 @@ function AgentGlyph({ id, owner }: { id: string; owner: string }) {
   for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) % 100003;
   const nodes = Array.from({ length: 5 }, (_value, index) => {
     const seed = (hash >> (index * 3)) % 97;
-    return { x: 18 + index * 26 + (seed % 9), y: 20 + ((seed * 7) % 34), r: 3 + (seed % 3) };
+    return { x: 22 + index * 26 + (seed % 10), y: 30 + ((seed * 7) % 48), r: 4 + (seed % 3) };
   });
   return (
-    <div style={{ height: 74, borderRadius: 8, background: tone.bg, overflow: 'hidden', marginBottom: 12, flex: 'none' }}>
-      <svg width="100%" height="74" viewBox="0 0 148 74" fill="none" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <div style={{ height: 108, borderRadius: 8, background: tone.bg, overflow: 'hidden', marginBottom: 14, flex: 'none' }}>
+      <svg width="100%" height="108" viewBox="0 0 190 108" fill="none" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
         {nodes.slice(0, -1).map((node, index) => {
           const next = nodes[index + 1] as { x: number; y: number };
           return <line key={index} x1={node.x} y1={node.y} x2={next.x} y2={next.y} stroke={tone.fg} strokeWidth="1.1" strokeOpacity=".38" />;
@@ -327,9 +327,10 @@ function AgentGlyph({ id, owner }: { id: string; owner: string }) {
         {nodes.map((node, index) => (
           <circle key={index} cx={node.x} cy={node.y} r={node.r} fill={tone.fg} fillOpacity={index % 2 === 0 ? '.55' : '.28'} />
         ))}
-        <rect x="96" y="18" width="38" height="5" rx="2.5" fill={tone.fg} fillOpacity=".22" />
-        <rect x="96" y="29" width="26" height="5" rx="2.5" fill={tone.fg} fillOpacity=".16" />
-        <rect x="96" y="40" width="32" height="5" rx="2.5" fill={tone.fg} fillOpacity=".12" />
+        <rect x="128" y="26" width="46" height="7" rx="3.5" fill={tone.fg} fillOpacity=".22" />
+        <rect x="128" y="41" width="32" height="7" rx="3.5" fill={tone.fg} fillOpacity=".16" />
+        <rect x="128" y="56" width="40" height="7" rx="3.5" fill={tone.fg} fillOpacity=".12" />
+        <rect x="128" y="71" width="24" height="7" rx="3.5" fill={tone.fg} fillOpacity=".09" />
       </svg>
     </div>
   );
@@ -362,7 +363,7 @@ export function AgentGridCard(props: {
         cursor: 'pointer',
         display: 'flex',
         flexDirection: 'column',
-        gap: 10,
+        gap: 11,
         boxShadow: hover ? '0 2px 8px rgba(28,33,40,.06)' : 'none',
         transition: 'border-color .12s, box-shadow .12s',
       }}

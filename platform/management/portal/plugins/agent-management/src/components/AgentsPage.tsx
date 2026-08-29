@@ -115,7 +115,7 @@ export function AgentsPage() {
       <AsyncState loading={loading} error={error}>
         {view === 'cards' ? (
           <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))', gap: S.md }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(268px,1fr))', gap: S.md }}>
             {filtered.map(agent => (
               <AgentGridCard
                 key={agent.id}

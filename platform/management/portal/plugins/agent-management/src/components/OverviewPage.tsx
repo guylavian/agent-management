@@ -54,7 +54,7 @@ export function OverviewPage() {
       <AsyncState loading={agents.loading} error={agents.error}>
         <Panel>
           <GroupHeader title="Your agents" action={<Button variant="link" onClick={() => go('/agents')}>View all agents</Button>} />
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(215px,1fr))', gap: S.md }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(268px,1fr))', gap: S.md }}>
             {list.map(agent => (
               <AgentGridCard
                 key={agent.id}
