@@ -27,8 +27,8 @@
  * not grow into one.
  */
 
-export { authorizeAgent, authorizeAudience, authorizeTool } from "./guardrails/authorization.ts";
-export type { AuthorizationDecision } from "./guardrails/authorization.ts";
+export { authorizeAgent, authorizeAudience, authorizeTool } from "../guardrails/authorization.ts";
+export type { AuthorizationDecision } from "../guardrails/authorization.ts";
 
-export { invokeVisibleTool, visibleTools } from "./tools/visibility.ts";
-export type { VisibleTool } from "./tools/port.ts";
+export { invokeVisibleTool, visibleTools } from "../tools/visibility.ts";
+export type { VisibleTool } from "../tools/port.ts";

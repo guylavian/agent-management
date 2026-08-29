@@ -5,7 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./testing": "./src/testing.ts"
+    "./testing": "./src/testing/index.ts"
   },
   "dependencies": {
     "@sre/evidence": "file:../platform/contracts/evidence",

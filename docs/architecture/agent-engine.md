@@ -20,12 +20,12 @@ src/
 ├── lifecycle/   CredentialProvider port and per-run credential acquisition
 ├── telemetry/   Telemetry port, no-op default, subject hashing
 ├── errors/      taxonomy, transience, safe messages
-├── index.ts     THE PACKAGE CONTRACT — 35 curated exports
-└── testing.ts   conformance-test subpath; production imports fail the build
+├── testing/     conformance-test subpath; production imports fail the build
+└── index.ts     THE PACKAGE CONTRACT — 35 curated exports
 ```
 
-`src/` holds directories and those two files. A file at the root is a file that
-belongs to no concern.
+`src/` holds directories and `index.ts`, nothing else. A file at the root is a
+file that belongs to no concern.
 
 ## The package contract
 
@@ -147,7 +147,7 @@ dependency, a product name or a protocol SDK:
 - declares only those three in `package.json`
 - names no product, vendor or domain
 - imports no protocol SDK, client or server
-- `src/` holds directories, `index.ts` and `testing.ts`
+- `src/` holds directories and one `index.ts`
 - the public surface is exactly the 35 names above, and the test subpath exactly 7
 
 The engine's own tests use a **synthetic host** — invented server names, an

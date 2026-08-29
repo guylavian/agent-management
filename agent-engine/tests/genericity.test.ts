@@ -94,8 +94,8 @@ describe("the engine depends on nothing platform-specific", () => {
 
   it("keeps src/ to directories and one index.ts", () => {
     const rootEntries = readdirSync(SRC).filter((entry) => !statSync(join(SRC, entry)).isDirectory()).sort();
-    // index.ts is the package contract; testing.ts is the conformance-test subpath
-    expect(rootEntries).toEqual(["index.ts", "testing.ts"]);
+    // index.ts is the package contract; testing/ is the conformance-test subpath
+    expect(rootEntries).toEqual(["index.ts"]);
   });
 });
 
@@ -172,9 +172,9 @@ describe("the public API is a curated contract, not a barrel", () => {
   });
 
   it("confines the conformance-test surface to the testing subpath", () => {
-    expect(exportedNames(join(SRC, "testing.ts"))).toEqual(TESTING_API);
+    expect(exportedNames(join(SRC, "testing", "index.ts"))).toEqual(TESTING_API);
     const manifest = JSON.parse(readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8")) as { exports: Record<string, string> };
-    expect(manifest.exports).toEqual({ ".": "./src/index.ts", "./testing": "./src/testing.ts" });
+    expect(manifest.exports).toEqual({ ".": "./src/index.ts", "./testing": "./src/testing/index.ts" });
   });
 
   it("exports no host adapter", () => {
