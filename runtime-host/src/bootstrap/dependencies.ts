@@ -36,7 +36,7 @@ import {
 import { MockModelClient, RealOpenAiCompatibleClient, type ModelClient } from "@sre/llm";
 import { MockSpecialistTransport, type SessionStore } from "@sre/orchestrator";
 import { DisabledSessionStore, MockSessionStore, PostgresSessionStore } from "@sre/orchestrator";
-import { GitHubGitOpsProvider, InMemoryRunStore, UnconfiguredGitOpsProvider, type GitOpsProvider, type RunStore } from "../management/index.ts";
+import { InMemoryRunStore, type RunStore } from "../management/index.ts";
 import { ClientCredentialsWorkloadTokenProvider, HttpSpecialistTransport, MockWorkloadTokenProvider, ProjectedWorkloadTokenProvider } from "../transport/http.ts";
 import { InProcessSpecialistTransport } from "../transport/in-process.ts";
 
@@ -75,8 +75,6 @@ export interface ManagerDependencies extends CommonDependencies {
    */
   managementRegistry?: AgentRegistry;
   runs: RunStore;
-  /** opens Agent changes as pull requests; unconfigured deployments say so rather than pretend */
-  gitops: GitOpsProvider;
 }
 
 export interface SpecialistDependencies extends CommonDependencies {
@@ -154,15 +152,6 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       registry,
       agentClient,
       runs: new InMemoryRunStore(),
-      gitops: config.gitops.provider === "github"
-        ? new GitHubGitOpsProvider({
-            owner: config.gitops.owner as string,
-            repo: config.gitops.repo as string,
-            baseBranch: config.gitops.baseBranch,
-            token: () => config.gitops.token as string,
-            ...(config.gitops.apiBaseUrl ? { apiBaseUrl: config.gitops.apiBaseUrl } : {}),
-          })
-        : new UnconfiguredGitOpsProvider(),
       ...(managementRegistry ? { managementRegistry } : {}),
       identityIssuer,
       model,

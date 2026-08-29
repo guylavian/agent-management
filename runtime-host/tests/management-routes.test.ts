@@ -130,11 +130,25 @@ describe("GitOps change flow", () => {
     expect(body.yaml).not.toMatch(/secret|password|token:|private[_-]?key/iu);
   });
 
-  it("reports not-configured rather than faking a pull request", async () => {
+  /**
+   * The runtime renders a change-set and cannot publish one. Writing moved to
+   * the management plane so the process that ENFORCES Agent policy cannot also
+   * CHANGE it, and holds no Git credential that would let it try.
+   */
+  it("exposes no endpoint that writes a change", async () => {
     const { app, token } = await managerApp();
-    const response = await post(app, "/management/agents/change", token, draft);
-    expect(response.statusCode).toBe(501);
-    expect(response.json()).toMatchObject({ status: "not-configured" });
+    for (const url of ["/management/agents/change", "/management/agents/commit", "/management/agents/pr"]) {
+      expect((await post(app, url, token, draft)).statusCode, url).toBe(404);
+    }
+  });
+
+  it("renders everything the management plane needs to open the pull request", async () => {
+    const { app, token } = await managerApp();
+    const body = (await post(app, "/management/agents/preview", token, draft)).json() as { branch: string; title: string; body: string; files: Array<{ path: string }> };
+    expect(body.branch).toBe("agent/add-check-point");
+    expect(body.title).toContain("check-point");
+    expect(body.body).toContain("Workload identity");
+    expect(body.files.map((file) => file.path)).toHaveLength(3);
   });
 
   it("exposes no endpoint that deploys to production", async () => {

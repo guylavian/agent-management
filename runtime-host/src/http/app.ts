@@ -35,7 +35,7 @@ export function createApp(deps: ApiDependencies): TestableApp {
     registerManagerRoutes(app, deps);
     // read-only management plane, behind the same human authentication as /v1/query
     if (deps.managementRegistry) {
-      app.use("/management", oidcAuthenticationMiddleware(deps.oidc), managementRouter({ registry: deps.managementRegistry, config: deps.config, runs: deps.runs, gitops: deps.gitops }));
+      app.use("/management", oidcAuthenticationMiddleware(deps.oidc), managementRouter({ registry: deps.managementRegistry, config: deps.config, runs: deps.runs }));
     }
   } else registerSpecialistRoutes(app, deps);
 

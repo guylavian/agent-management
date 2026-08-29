@@ -177,30 +177,10 @@ paths:
               schema: { $ref: "#/components/schemas/ChangePreview" }
         "400": { $ref: "#/components/responses/DraftInvalid" }
 
-  /agents/change:
-    post:
-      operationId: proposeAgentChange
-      summary: Propose the change as a pull request.
-      description: >-
-        The only way an Agent changes. There is deliberately no endpoint that
-        deploys to production.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AgentDraft" }
-      responses:
-        "201":
-          description: Pull request opened.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ChangeResult" }
-        "400": { $ref: "#/components/responses/DraftInvalid" }
-        "501":
-          description: No Git provider is configured; nothing was proposed.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ChangeResult" }
+  # There is deliberately NO mutating endpoint on the runtime. The execution
+  # plane renders a change-set and never writes one: the pull request is opened
+  # by the management plane, so the process that enforces Agent policy cannot
+  # also change it, and holds no Git credential.
 
 components:
   parameters:
@@ -518,12 +498,13 @@ components:
     ChangePreview:
       type: object
       additionalProperties: false
-      required: [path, yaml, branch, title, effects, files]
+      required: [path, yaml, branch, title, body, effects, files]
       properties:
         path: { type: string, description: Path of the canonical Agent document. }
         yaml: { type: string }
         branch: { type: string }
         title: { type: string }
+        body: { type: string, description: "Pull-request description, rendered by the runtime for the management plane to publish." }
         effects:
           type: array
           items: { type: string }
@@ -535,6 +516,9 @@ components:
     ChangeResult:
       type: object
       additionalProperties: false
+      description: >-
+        Outcome of publishing a change-set. Produced by the MANAGEMENT plane,
+        which owns the Git credential; the runtime never returns one.
       required: [status, branch, effects]
       properties:
         status: { type: string, enum: [created, not-configured] }

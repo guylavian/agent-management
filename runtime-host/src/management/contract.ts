@@ -11,8 +11,7 @@ import type {
 } from "@sre/management-api-contract";
 import type { AgentDetailView, AgentSummaryView, McpAccessView, McpServerView, ToolView } from "./view-model.ts";
 import type { RunRecord, RunSummary } from "./run-store.ts";
-import type { GeneratedChange } from "./yaml.ts";
-import type { ProposedChange } from "./gitops.ts";
+import type { GeneratedChange, ProposedChange } from "./yaml.ts";
 
 /**
  * COMPILE-TIME CONFORMANCE.
@@ -44,6 +43,7 @@ export type _ChangePreview = Conforms<
     files: GeneratedChange["files"];
     branch: ProposedChange["branch"];
     title: ProposedChange["title"];
+    body: ProposedChange["body"];
     effects: ProposedChange["effects"];
   },
   ChangePreview

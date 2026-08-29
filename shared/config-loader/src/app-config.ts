@@ -104,15 +104,6 @@ export const appConfigSchema = z
       jwksUri: z.string().optional(),
     }).strict(),
     postgres: z.object({ connectionString: z.string().optional() }).strict(),
-    /** Git host used to open Agent change pull requests; token is env-only — TDD §30/§36 */
-    gitops: z.object({
-      provider: z.enum(["none", "github"]).default("none"),
-      apiBaseUrl: z.string().optional(),
-      owner: z.string().optional(),
-      repo: z.string().optional(),
-      baseBranch: z.string().min(1).default("main"),
-      token: z.string().optional(),
-    }).strict(),
     agentTransport: z.object({
       workloadTokenFile: z.string().optional(),
       tokenEndpoint: z.string().optional(),
@@ -206,14 +197,6 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
       jwksUri: env.SRE_TOOL_CREDENTIAL_JWKS_URI,
     },
     postgres: { connectionString: env.SRE_POSTGRES_URL },
-    gitops: {
-      provider: env.SRE_GITOPS_PROVIDER,
-      apiBaseUrl: env.SRE_GITOPS_API_BASE_URL,
-      owner: env.SRE_GITOPS_OWNER,
-      repo: env.SRE_GITOPS_REPO,
-      baseBranch: env.SRE_GITOPS_BASE_BRANCH,
-      token: env.SRE_GITOPS_TOKEN,
-    },
     agentTransport: {
       workloadTokenFile: env.SRE_WORKLOAD_TOKEN_FILE,
       tokenEndpoint: env.SRE_WORKLOAD_TOKEN_ENDPOINT,
@@ -278,9 +261,6 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
   }
   if (config.clients.delegation === "real" && !config.delegation.jwksUri && !config.delegation.publicKeyFile && !config.delegation.privateKeyPkcs8 && !config.delegation.privateKeyFile) {
     problems.push("delegation is real but no verifier or signing key is configured");
-  }
-  if (config.gitops.provider === "github" && !(config.gitops.owner && config.gitops.repo && config.gitops.token)) {
-    problems.push("gitops provider is github but SRE_GITOPS_OWNER, SRE_GITOPS_REPO or SRE_GITOPS_TOKEN is unset");
   }
   if (config.telemetry.exporter === "otlp" && !config.telemetry.otlpEndpoint) {
     problems.push("telemetry exporter is otlp but SRE_OTEL_ENDPOINT is unset");

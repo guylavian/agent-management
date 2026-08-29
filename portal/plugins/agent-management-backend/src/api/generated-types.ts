@@ -213,10 +213,16 @@ export interface ChangePreview {
   yaml: string;
   branch: string;
   title: string;
+  /** Pull-request description, rendered by the runtime for the management plane to publish. */
+  body: string;
   effects: Array<string>;
   /** Every file in the change-set — Agent, prompt and deployment overlay. */
   files: Array<ChangedFile>;
 }
+
+/**
+ * Outcome of publishing a change-set. Produced by the MANAGEMENT plane, which owns the Git credential; the runtime never returns one.
+ */
 
 export interface ChangeResult {
   status: "created" | "not-configured";

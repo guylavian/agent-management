@@ -13,6 +13,8 @@ import {
   runReadPermission,
 } from './permissions';
 import { runtimeManagementClientRef } from './services/RuntimeManagementClient';
+import type { gitOpsPublisherRef } from './services/GitOpsPublisher';
+import type { ChangePreview } from './api/generated-types';
 
 /**
  * Management operations for the portal.
@@ -26,10 +28,12 @@ export async function createRouter({
   httpAuth,
   permissions,
   runtime,
+  gitops,
 }: {
   httpAuth: HttpAuthService;
   permissions: PermissionsService;
   runtime: typeof runtimeManagementClientRef.T;
+  gitops: typeof gitOpsPublisherRef.T;
 }): Promise<express.Router> {
   const router = Router();
   router.use(express.json());
@@ -78,15 +82,33 @@ export async function createRouter({
     response.status(result.status).json(result.body);
   });
 
-  /** Opens a pull request. This is the only way an Agent changes — there is no deploy route. */
+  /**
+   * Opens the pull request. This is the only way an Agent changes — there is no
+   * deploy route, and there is no runtime endpoint that could add one.
+   *
+   * The runtime RENDERS the change-set, because it owns the canonical schema
+   * and must load the result at startup. The management plane PUBLISHES it,
+   * because it owns the Git credential. The execution plane therefore cannot
+   * write a change to its own policy, and holds no token that would let it.
+   */
   router.post('/agents/change', async (request, response) => {
     await requirePermission(request, agentCreatePrPermission);
     if (!runtime.configured) {
       response.status(501).json({ status: 'not-configured', reason: 'sreAgent.managementApi.baseUrl is not set' });
       return;
     }
-    const result = await runtime.post('/management/agents/change', request.body);
-    response.status(result.status).json(result.body);
+    const rendered = await runtime.post<ChangePreview>('/management/agents/preview', request.body);
+    if (rendered.status !== 200) {
+      response.status(rendered.status).json(rendered.body);
+      return;
+    }
+    const preview = rendered.body;
+    if (!gitops.configured) {
+      response.status(501).json({ status: 'not-configured', reason: (await gitops.createPullRequest({ branch: preview.branch, title: preview.title, body: preview.body, files: preview.files })).reason, branch: preview.branch, effects: preview.effects });
+      return;
+    }
+    const outcome = await gitops.createPullRequest({ branch: preview.branch, title: preview.title, body: preview.body, files: preview.files });
+    response.status(outcome.status === 'created' ? 201 : 501).json({ ...outcome, branch: preview.branch, effects: preview.effects });
   });
 
   return router;

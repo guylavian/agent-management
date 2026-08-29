@@ -8,7 +8,6 @@ import {
   permissionMatrix,
   proposeAgentChange,
   type AgentDraft,
-  type GitOpsProvider,
   type RunStore,
 } from "./index.ts";
 
@@ -25,7 +24,6 @@ export interface ManagementDeps {
   registry: AgentRegistry;
   config: AppConfig;
   runs: RunStore;
-  gitops: GitOpsProvider;
 }
 
 export function managementRouter(deps: ManagementDeps): Router {
@@ -103,28 +101,17 @@ export function managementRouter(deps: ManagementDeps): Router {
   });
 
   /**
-   * Validate a draft and render the canonical YAML. Pure: it changes nothing,
-   * and it runs the same schema the runtime loads, so the portal cannot preview
-   * a file that would fail at startup.
+   * Validate a draft and render the whole change-set. PURE: it changes nothing.
+   * It runs the same schema the runtime loads at startup, so the management
+   * plane cannot propose a file that would fail to load — but the runtime does
+   * not open the pull request. Rendering is an execution-plane concern because
+   * the execution plane owns the schema; WRITING is not, because the process
+   * that enforces Agent policy must not be able to change it.
    */
   router.post("/agents/preview", (request: Request, response: Response) => {
     try {
       const { change, generated } = proposeAgentChange({ draft: request.body as AgentDraft, requestedBy: request.identity?.subject ?? "unknown", update: deps.registry.getSpecialist((request.body as AgentDraft)?.name ?? "") !== undefined });
-      response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, effects: change.effects, files: generated.files });
-    } catch (error) {
-      respondDraftError(response, error);
-    }
-  });
-
-  /**
-   * Propose the change as a pull request. This is the ONLY way an Agent
-   * changes; there is deliberately no endpoint that deploys to production.
-   */
-  router.post("/agents/change", async (request: Request, response: Response) => {
-    try {
-      const { change } = proposeAgentChange({ draft: request.body as AgentDraft, requestedBy: request.identity?.subject ?? "unknown", update: deps.registry.getSpecialist((request.body as AgentDraft)?.name ?? "") !== undefined });
-      const result = await deps.gitops.createPullRequest(change);
-      response.status(result.status === "created" ? 201 : 501).json({ ...result, branch: change.branch, effects: change.effects });
+      response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: generated.files });
     } catch (error) {
       respondDraftError(response, error);
     }
