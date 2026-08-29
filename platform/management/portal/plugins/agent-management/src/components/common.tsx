@@ -294,10 +294,19 @@ export function Toggle(props: { on: boolean; onClick?: () => void; label?: strin
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
       {props.label && <span style={{ fontSize: 12.5, fontWeight: 600, color: C.muted }}>{props.label}</span>}
+      {/*
+        * Without an onClick this REFLECTS state, it does not change it — agent
+        * lifecycle moves through a pull request, not a click. It is disabled
+        * rather than silently inert so the control does not look actionable
+        * and then do nothing when pressed.
+        */}
       <button
         type="button"
         onClick={props.onClick}
-        style={{ width: 38, height: 22, borderRadius: 99, background: props.on ? C.accent : '#cdd2e0', position: 'relative', cursor: props.onClick ? 'pointer' : 'default', border: 'none', transition: 'background .15s', flex: 'none', padding: 0 }}
+        disabled={!props.onClick}
+        aria-readonly={!props.onClick}
+        title={props.onClick ? undefined : 'Reflects what Git declares, not what is running. Changing it is a pull request, not a click.'}
+        style={{ width: 38, height: 22, borderRadius: 99, background: props.on ? C.accent : '#cdd2e0', position: 'relative', cursor: props.onClick ? 'pointer' : 'default', border: 'none', transition: 'background .15s', flex: 'none', padding: 0, opacity: props.onClick ? 1 : 0.85 }}
       >
         <span style={{ position: 'absolute', top: 3, left: props.on ? 19 : 3, width: 16, height: 16, borderRadius: 99, background: '#fff', transition: 'left .15s' }} />
       </button>
