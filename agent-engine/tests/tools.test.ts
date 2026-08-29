@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isReadOnlyTool, invokeVisibleTool, validateToolArguments, visibleTools, type ToolDescriptor } from "../src/index.ts";
+import { isReadOnlyTool } from "../src/guardrails/read-only.ts";
+import { validateToolArguments } from "../src/tools/arguments.ts";
+import { invokeVisibleTool, visibleTools } from "../src/tools/visibility.ts";
+import type { ToolDescriptor } from "../src/index.ts";
 import { agentDefinition, ALICE, BOB, FixtureToolProvider, toolPolicy } from "./harness.ts";
 
 const tool: ToolDescriptor = {

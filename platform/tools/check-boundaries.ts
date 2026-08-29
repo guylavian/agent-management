@@ -169,6 +169,32 @@ check(ORCHESTRATOR_DIR, (name: string) =>
 );
 
 /**
+ * THE ENGINE'S TEST-ONLY SUBPATH IS FOR TESTS.
+ *
+ * `@sre/agent-engine/testing` exposes the engine's authorization predicates and
+ * tool-visibility resolver so that the platform can prove two things it cannot
+ * prove from inside the engine: that the engine's authorization agrees with the
+ * Manager's across the REAL catalog, and that an Agent cannot reach a server
+ * outside its policy in the configuration that actually ships.
+ *
+ * Those are conformance tests. If production code ever imports this subpath, the
+ * narrow package contract has been bypassed rather than extended — so it fails
+ * the build here instead of being noticed in review.
+ */
+const TESTING_SUBPATH = "@sre/agent-engine/testing";
+
+for (const zone of [AGENT_ENGINE_DIR, ORCHESTRATOR_DIR, RUNTIME_HOST_DIR, CONTRACTS_DIR, SHARED_DIR, "eval", "tools"]) {
+  for (const file of sourceFiles(zone)) {
+    if (/\.test\.tsx?$/u.test(file) || file.includes("/tests/")) continue;
+    for (const { specifier, line } of allImports(file)) {
+      if (specifier === TESTING_SUBPATH) {
+        violations.push({ file, line, detail: `${file} imports "${TESTING_SUBPATH}" — that subpath is for conformance tests; production code uses the package contract in agent-engine/src/index.ts` });
+      }
+    }
+  }
+}
+
+/**
  * EXTERNAL PROTOCOL EXPOSURE IS AN ADAPTER CONCERN.
  *
  * OpenAI Responses, A2A, MCP server exposure and enterprise messaging are ways

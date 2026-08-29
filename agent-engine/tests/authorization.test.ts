@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { authorizeAgent, authorizeAudience, authorizeTool, runAgent, type ApprovedTool } from "../src/index.ts";
+import { authorizeAgent, authorizeAudience, authorizeTool } from "../src/guardrails/authorization.ts";
+import { runAgent, type ApprovedTool } from "../src/index.ts";
 import { agentDefinition, ALICE, answerAction, BOB, dependencies, FixtureToolProvider, ScriptedModel, runContext, toolPolicy } from "./harness.ts";
 
 const approved: ApprovedTool = { serverId: "alpha", toolName: "alpha_status", readOnlyVerified: true, environments: ["prod"], timeoutMs: 5_000, retryPolicy: "none", evidenceKind: "telemetry" };

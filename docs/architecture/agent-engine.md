@@ -20,11 +20,60 @@ src/
 ├── lifecycle/   CredentialProvider port and per-run credential acquisition
 ├── telemetry/   Telemetry port, no-op default, subject hashing
 ├── errors/      taxonomy, transience, safe messages
-└── index.ts
+├── index.ts     THE PACKAGE CONTRACT — 35 curated exports
+└── testing.ts   conformance-test subpath; production imports fail the build
 ```
 
-`src/` holds directories and `index.ts`, nothing else. A file at the root is a
-file that belongs to no concern.
+`src/` holds directories and those two files. A file at the root is a file that
+belongs to no concern.
+
+## The package contract
+
+`src/index.ts` is a curated list of **35 symbols**, not a barrel. It was 77.
+
+| Group | Exported |
+|---|---|
+| entry point | `runAgent`, `AgentRunContext`, `EngineDependencies` |
+| what an Agent is | `AgentDefinition`, `AgentBudgets`, `AgentToolAccess`, `AgentWorkload`, `Principal`, `ToolCredential` |
+| Model port | `Model`, `ModelRequest`, `ModelResponse`, `ModelMessage`, `ModelToolCall`, `ModelToolSchema` |
+| ToolProvider port | `ToolProvider`, `ToolDescriptor`, `ToolCallRequest`, `ToolCallResult`, `ListToolsOptions`, `ApprovedTool`, `ToolPolicy` |
+| Sanitizer / Telemetry | `Sanitizer`, `Telemetry`, `SpanAttributes`, `noopTelemetry` |
+| CredentialProvider | `CredentialProvider`, `WorkloadRef` |
+| results and failures | `AgentResult`, `Evidence`, `EvidenceStatus`, `DomainHandoff`, `RuntimeError`, `RuntimeErrorCode`, `engineError` |
+
+Everything a host must be able to NAME in order to run an Agent, and nothing
+else. The loop, tool execution, result construction, credential exchange,
+evidence normalisation, the authorization predicates and the envelope parser are
+**37 now-private symbols**, so changing any of them is not a breaking change.
+
+`genericity.test.ts` asserts this list EXACTLY rather than with `toContain`, so
+adding an export is as deliberate an act as removing one. A barrel that grows
+quietly is how an implementation detail becomes a compatibility obligation.
+
+### The one exception, and why it exists
+
+`@sre/agent-engine/testing` exposes seven symbols — `authorizeAgent`,
+`authorizeTool`, `authorizeAudience`, `AuthorizationDecision`, `visibleTools`,
+`invokeVisibleTool`, `VisibleTool`.
+
+Two claims about the engine can only be proven from OUTSIDE the package, against
+the host's real configuration, and the engine may not import a host to prove
+them itself:
+
+1. **Authorization parity** — the engine's predicates must agree with the
+   platform's `AuthorizationService` across every agent × tool × principal ×
+   environment in the shipping catalog.
+2. **Tool visibility against the real catalog** — "this Agent cannot reach that
+   server" is a claim about configuration as much as about code, so it is
+   asserted against the configuration that actually ships.
+
+Both consumers were examined individually; neither can move into
+`agent-engine/tests/` without losing what it proves, because their value comes
+from the real catalog rather than from engine logic.
+
+`check-boundaries` fails the build if any non-test file imports this subpath,
+and `platform/tests/boundaries.test.ts` asserts the rule by name. The guard was
+verified by planting a violating import and confirming a non-zero exit.
 
 ## The ports
 
@@ -98,7 +147,8 @@ dependency, a product name or a protocol SDK:
 - declares only those three in `package.json`
 - names no product, vendor or domain
 - imports no protocol SDK, client or server
-- `src/` holds directories and one `index.ts`
+- `src/` holds directories, `index.ts` and `testing.ts`
+- the public surface is exactly the 35 names above, and the test subpath exactly 7
 
 The engine's own tests use a **synthetic host** — invented server names, an
 in-memory `ToolProvider`, a toy sanitizer. Borrowing the platform's real Agent

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
-import { invokeVisibleTool, visibleTools } from "@sre/agent-engine";
+import { invokeVisibleTool, visibleTools } from "@sre/agent-engine/testing";
 import { MockToolHiveClient, toAgentDefinition, toToolPolicy } from "@sre/runtime-host";
 import { AuthorizationService, MockOidcClient } from "@sre/auth";
 

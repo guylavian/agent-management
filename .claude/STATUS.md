@@ -13,8 +13,9 @@ Commands run from `platform/`; `npm run check` delegates into the engine.
 | Check | State | Evidence |
 |---|---|---|
 | Repository layout | **PASS** | Git root directories-only; agent-engine / platform / deploy are siblings |
-| Full repository check | **PASS** | `cd platform && npm run check` — 352 tests (291 platform + 61 engine), 12 YAML checks, boundaries, generated freshness, 2 Helm charts |
+| Full repository check | **PASS** | `cd platform && npm run check` — 354 tests (291 platform + 63 engine), 12 YAML checks, boundaries, generated freshness, 2 Helm charts |
 | Monorepo structure | **PASS** | `agent-engine/ orchestrator/ runtime-host/ portal/ contracts/ shared/ config/ deploy/` |
+| Engine public API | **PASS** | `agent-engine/src/index.ts` is a curated 35-symbol contract (was 77); 37 internals now private; 7 conformance-test symbols behind `@sre/agent-engine/testing`, guarded by `check-boundaries` (guard verified by planting a violation) |
 | Engine genericity | **PASS** | `agent-engine` depends on `@sre/evidence` + `ajv` + `zod` only; 0 platform implementations, 0 protocol SDKs, 0 product names — asserted by `genericity.test.ts` and `check-boundaries` |
 | Engine ports | **PASS** | `Model`, `ToolProvider`, `Sanitizer` (required, no default), `Telemetry` (no-op default), `CredentialProvider`; adapters in `runtime-host/src/adapters` |
 | Authorization parity | **PASS** | engine `authorizeAgent`/`authorizeTool`/`authorizeAudience` compared against `AuthorizationService` across every agent × tool × principal × environment |
@@ -33,7 +34,9 @@ Commands run from `platform/`; `npm run check` delegates into the engine.
 | Backstage typecheck / lint / test / build | **PASS** | `yarn tsc`, `yarn lint:all`, 7 tests, `yarn build:all` — lint was red before this work |
 | Keycloak workload identities (real) | **PASS** | 9/9 against live Keycloak 26.6 — see below |
 | ToolHive access policy (real engine) | **PASS** | rendered Cedar policies evaluated by ToolHive's own authorizer |
-| Real PoC smoke | **16 PASS / 3 FAIL / 0 BLOCKED** | the 3 are `MODEL_RATE_LIMITED` in specialist spans, an external provider limit |
+| One image, both roles (post-refactor) | **PASS** | `deploy/runtime/Dockerfile` built and run: `ROLE=manager` answered a real `/v1/query` with cited evidence through orchestrator → in-process transport → runtime-host → agent-engine → adapters; `ROLE=specialist AGENT_ID=keycloak` booted from the SAME image |
+| Real PoC smoke (post-refactor) | **BLOCKED** | `platform/.env.real-poc` line 1 is a stray `x`, so `start-real-poc.sh` aborts under `set -e` before anything starts. The file holds secrets and is sandbox-denied, so it must be corrected by hand. NOT a platform regression and NOT evidence the refactor works. |
+| Real PoC smoke (pre-refactor baseline, earlier session) | **16 PASS / 3 FAIL / 0 BLOCKED** | the 3 are `MODEL_RATE_LIMITED` in specialist spans, an external provider limit |
 
 ## What was verified against real infrastructure
 

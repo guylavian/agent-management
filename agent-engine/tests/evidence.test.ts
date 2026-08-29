@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { enforceEvidenceBudget, normalizeEvidence } from "../src/index.ts";
+import { enforceEvidenceBudget, normalizeEvidence } from "../src/evidence/normalize.ts";
 import { baseEvidence, BUDGETS, testSanitizer } from "./harness.ts";
 
 const budgets = { ...BUDGETS, maxEvidenceBytes: 4096, maxContextTokens: 1000, maxEvidenceItems: 2, maxRawExcerptBytes: 512 };

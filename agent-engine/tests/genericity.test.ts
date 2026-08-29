@@ -47,8 +47,17 @@ describe("the engine depends on nothing platform-specific", () => {
   it("names no product, vendor or domain", () => {
     // ToolHive, Keycloak, Prometheus, OpenShift and the PoC's domains were all
     // reachable from engine source before this refactor.
+    //
+    // Two `@sre/` specifiers are exempt and neither is domain knowledge: the
+    // neutral evidence contract, and the engine's own package name. The npm
+    // scope is inherited from the repository that first hosted the engine and
+    // is a publishing decision, not a dependency — renaming it would touch
+    // every consumer for no behavioural gain.
     const forbidden = /toolhive|keycloak|openshift|prometheus|active[-_ ]directory|backstage|argocd|\bsre\b/iu;
-    const offenders = sources.filter(({ text }) => forbidden.test(text.replace(/@sre\/evidence/gu, ""))).map(({ file }) => file);
+    const offenders = sources
+      .map(({ file, text }) => ({ file, text: text.replace(/@sre\/(evidence|agent-engine)/gu, "") }))
+      .filter(({ text }) => forbidden.test(text))
+      .map(({ file }) => file);
     expect(offenders).toEqual([]);
   });
 
@@ -84,25 +93,88 @@ describe("the engine depends on nothing platform-specific", () => {
   });
 
   it("keeps src/ to directories and one index.ts", () => {
-    const rootEntries = readdirSync(SRC).filter((entry) => !statSync(join(SRC, entry)).isDirectory());
-    expect(rootEntries).toEqual(["index.ts"]);
+    const rootEntries = readdirSync(SRC).filter((entry) => !statSync(join(SRC, entry)).isDirectory()).sort();
+    // index.ts is the package contract; testing.ts is the conformance-test subpath
+    expect(rootEntries).toEqual(["index.ts", "testing.ts"]);
   });
 });
 
-describe("the public API is the whole engine and nothing more", () => {
-  it("exports the entry point, the ports and the guardrails", () => {
-    for (const name of [
-      "runAgent", "runLoop",
-      "visibleTools", "invokeVisibleTool", "executeTool", "validateToolArguments",
-      "authorizeAgent", "authorizeTool", "authorizeAudience", "isReadOnlyTool", "withDeadline",
-      "normalizeEvidence", "enforceEvidenceBudget",
-      "acquireCredentials", "hashSubject", "noopTelemetry",
-      "CONTROL_TOOLS", "parseEnvelope", "isControlTool",
-      "accessServers", "audienceFor", "isToolAllowed",
-      "errorCode", "isTransient", "engineError", "safeToolMessage",
-    ]) {
-      expect(engine, `missing export: ${name}`).toHaveProperty(name);
+/** Names in an `export { … }` / `export type { … }` clause, ignoring `as` aliases' left side. */
+function exportedNames(file: string): string[] {
+  const text = readFileSync(file, "utf8");
+  const names: string[] = [];
+  for (const match of text.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}\s+from/gu)) {
+    for (const part of (match[1] as string).split(",")) {
+      const name = part.trim().replace(/^type\s+/u, "").split(/\s+as\s+/u).pop()?.trim();
+      if (name) names.push(name);
     }
+  }
+  return [...new Set(names)].sort();
+}
+
+/**
+ * THE PACKAGE CONTRACT, pinned.
+ *
+ * This list is the whole host-facing API. It is asserted exactly — not with
+ * `toContain` — so that ADDING an export is as deliberate as removing one. A
+ * barrel that grows quietly is how an implementation detail becomes a
+ * compatibility obligation.
+ */
+const PUBLIC_API = [
+  // entry point
+  "runAgent", "AgentRunContext", "EngineDependencies",
+  // what an Agent is
+  "AgentBudgets", "AgentDefinition", "AgentToolAccess", "AgentWorkload", "Principal", "ToolCredential",
+  // Model port
+  "Model", "ModelMessage", "ModelRequest", "ModelResponse", "ModelToolCall", "ModelToolSchema",
+  // ToolProvider port and the policy that bounds it
+  "ApprovedTool", "ListToolsOptions", "ToolCallRequest", "ToolCallResult", "ToolDescriptor", "ToolPolicy", "ToolProvider",
+  // Sanitizer port (required) and Telemetry port (optional)
+  "Sanitizer", "Telemetry", "SpanAttributes", "noopTelemetry",
+  // CredentialProvider port
+  "CredentialProvider", "WorkloadRef",
+  // results and failures
+  "AgentResult", "DomainHandoff", "Evidence", "EvidenceStatus", "RuntimeError", "RuntimeErrorCode", "engineError",
+].sort();
+
+/** Reachable from `@sre/agent-engine/testing`, and from nowhere else. */
+const TESTING_API = [
+  "authorizeAgent", "authorizeAudience", "authorizeTool", "AuthorizationDecision",
+  "invokeVisibleTool", "visibleTools", "VisibleTool",
+].sort();
+
+describe("the public API is a curated contract, not a barrel", () => {
+  it("exports exactly the host-facing surface", () => {
+    expect(exportedNames(join(SRC, "index.ts"))).toEqual(PUBLIC_API);
+  });
+
+  it("keeps the implementation private", () => {
+    const surface = new Set([...exportedNames(join(SRC, "index.ts")), ...Object.keys(engine)]);
+    for (const internal of [
+      // the loop and its result construction
+      "runLoop", "answerResult", "insufficientResult", "handoffResult", "failed", "failedWithEvidence", "ResultScope",
+      // model-output parsing and the virtual control tools
+      "parseEnvelope", "isControlTool", "toStringArray", "CONTROL_TOOLS", "CONTROL_TOOL_NAMES", "AgentAction",
+      // tool execution and evidence construction
+      "executeTool", "ToolExecutionScope", "toolResultToEvidence", "toolFailureEvidence", "toolProblemEvidence",
+      "visibleTools", "invokeVisibleTool", "VisibleTool", "validateToolArguments", "ArgumentValidation",
+      // guardrail internals
+      "authorizeAgent", "authorizeTool", "authorizeAudience", "AuthorizationDecision", "withDeadline", "isReadOnlyTool",
+      // credential exchange
+      "acquireCredentials", "exchangeFor", "requireCredentialFor", "workloadRef", "CredentialScope",
+      // evidence normalisation and misc helpers
+      "normalizeEvidence", "enforceEvidenceBudget", "hashSubject",
+      "errorCode", "isTransient", "toolFailureCode", "safeToolMessage",
+      "accessServers", "isToolAllowed", "audienceFor",
+    ]) {
+      expect(surface.has(internal), `internal leaked into the package contract: ${internal}`).toBe(false);
+    }
+  });
+
+  it("confines the conformance-test surface to the testing subpath", () => {
+    expect(exportedNames(join(SRC, "testing.ts"))).toEqual(TESTING_API);
+    const manifest = JSON.parse(readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8")) as { exports: Record<string, string> };
+    expect(manifest.exports).toEqual({ ".": "./src/index.ts", "./testing": "./src/testing.ts" });
   });
 
   it("exports no host adapter", () => {

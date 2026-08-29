@@ -164,6 +164,27 @@ describe("architectural boundaries", () => {
     expect(declared.sort()).toEqual(["@sre/evidence", "ajv", "zod"]);
   });
 
+  /**
+   * The engine's package contract is a curated list, not a barrel. Two internals
+   * are reachable from `@sre/agent-engine/testing` so the platform can prove
+   * authorization parity and tool visibility against its REAL catalog — claims
+   * the engine cannot make about a host it is forbidden to import. Production
+   * code must use the contract.
+   */
+  it("keeps the engine's test-only subpath out of production code", () => {
+    const productionImports = (zone: string): string[] => [...sourceFiles(zone)]
+      .filter((file) => !/\.test\.tsx?$/u.test(file) && !file.includes("/tests/"))
+      .flatMap((file) => [...readFileSync(file, "utf8").matchAll(/from\s+"([^"]+)"/gu)].map((match) => match[1] as string));
+    for (const zone of ["../agent-engine/src", "runtime-host", "orchestrator", "shared", "contracts", "eval"]) {
+      expect(productionImports(zone).filter((specifier) => specifier === "@sre/agent-engine/testing"), zone).toEqual([]);
+    }
+    // ...and the conformance tests that legitimately use it still do
+    const consumers = ["tests/architecture-gate.test.ts", "tests/security-regression.test.ts"];
+    for (const file of consumers) {
+      expect(readFileSync(file, "utf8"), file).toContain("@sre/agent-engine/testing");
+    }
+  });
+
   it("check-boundaries agrees", () => {
     const output = execFileSync("node", ["--import", "tsx", "tools/check-boundaries.ts"], { encoding: "utf8" });
     expect(output).toContain("boundaries ok");

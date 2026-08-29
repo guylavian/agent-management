@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from "vitest";
 import { AuthorizationService, MockToolCredentialAuthority, type RequestIdentity, type WorkloadIdentity } from "@sre/auth";
 import { CONFIG_PATHS, loadAgentRegistry, loadAppConfig, ConfigValidationError, isToolAllowed } from "@sre/config";
-import { authorizeAgent, authorizeAudience, authorizeTool, invokeVisibleTool } from "@sre/agent-engine";
+import { authorizeAgent, authorizeAudience, authorizeTool, invokeVisibleTool } from "@sre/agent-engine/testing";
 import { MockToolHiveClient, toAgentDefinition, toToolPolicy, toolHiveAudience } from "@sre/runtime-host";
 import { buildDependencies, createApp, type ManagerDependencies } from "@sre/runtime-host";
 
