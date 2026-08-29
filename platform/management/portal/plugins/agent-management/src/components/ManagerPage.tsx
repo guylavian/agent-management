@@ -3,7 +3,7 @@ import { useAgents, useAgentActions, useManager } from '../api/client';
 import {
   AgentTile,
   AsyncState,
-  Body,
+  GroupHeader,
   Card,
   Breadcrumb,
   Button,
@@ -22,7 +22,7 @@ import {
   inputStyle,
   lifecycleTone,
 } from './common';
-import type { AgentLifecycle, ChangePreview, ManagerDetail, ManagerDraft } from '../api/types';
+import type { AgentLifecycle, AgentSummary, ChangePreview, ManagerDetail, ManagerDraft } from '../api/types';
 
 const TABS = ['Routing', 'Prompt', 'Review & Propose'] as const;
 
@@ -114,7 +114,7 @@ export function ManagerPage() {
               <RoutingTab
                 manager={manager.value}
                 draft={draft}
-                every={(agents.value ?? []).map(agent => agent.id)}
+                agents={agents.value ?? []}
                 onToggle={toggleAgent}
                 onPatch={patch}
               />
@@ -177,20 +177,23 @@ function Header({ manager }: { manager: ManagerDetail }) {
         * Model, limits and security stated as facts rather than as a KPI strip:
         * none of these is a measurement, they are the Manager's configuration.
         */}
+      {/*
+        * A strip of stated facts, divided rather than boxed. These are the
+        * Manager's configuration, not measurements, so they are read across
+        * rather than stacked as cards with numbers in them.
+        */}
       <Card>
-        <DefinitionList
-          columns="max-content 1fr max-content 1fr"
-          items={[
-            ['Owner', manager.owner],
-            ['Model profile', <Mono key="mp">{manager.modelProfile}</Mono>],
-            ['Model tier', manager.modelTier],
-            ['Rounds', <span key="r"><Mono>{String(manager.execution.maxRounds ?? '—')}</Mono> <Muted size={12}>fixed by the schema</Muted></span>],
-            ['Agents per request', <Mono key="ap">{String(manager.execution.maxAgentsPerRequest ?? '—')}</Mono>],
-            ['Routing timeout', <Mono key="t">{String(manager.execution.timeoutMs ?? '—')} ms</Mono>],
-            ['Workload identity', <Muted key="wi">none — {manager.identity.reason}</Muted>],
-            ['Tool access', <Muted key="ta">none — the Manager never receives a tool schema</Muted>],
-          ]}
-        />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(168px, 1fr))', gap: '16px 0' }}>
+          <Fact label="Owner" value={manager.owner} note="owning team" first />
+          <Fact label="Model profile" value={manager.modelProfile} note={`tier ${manager.modelTier}`} mono />
+          <Fact label="Agents per request" value={`${manager.execution.maxAgentsPerRequest ?? '—'} of ${manager.allowed.length}`} note="fan-out bound" />
+          <Fact label="Routing timeout" value={`${manager.execution.timeoutMs ?? '—'} ms`} note="time to decide" />
+          <Fact label="Rounds" value={String(manager.execution.maxRounds ?? '—')} note="fixed by the schema" />
+          <Fact label="Tool access" value="none" note="by design — never receives a tool schema" />
+          {/* the reason the RUNTIME gives, not a sentence restated here: if the
+              runtime ever changes why, the page changes with it */}
+          <Fact label="Workload identity" value="none" note={manager.identity.reason} />
+        </div>
       </Card>
     </>
   );
@@ -199,76 +202,136 @@ function Header({ manager }: { manager: ManagerDetail }) {
 function RoutingTab(props: {
   manager: ManagerDetail;
   draft: ManagerDraft;
-  every: string[];
+  agents: AgentSummary[];
   onToggle: (name: string) => void;
   onPatch: (next: Partial<ManagerDraft>) => void;
 }) {
   // the union of what the runtime says exists and what the draft currently
   // routes to, so an agent removed in the draft stays visible and re-addable
-  const names = [...new Set([...props.every, ...props.manager.allowed, ...props.manager.notRouted, ...props.draft.allowed])].sort();
+  const names = [...new Set([...props.agents.map(agent => agent.id), ...props.manager.allowed, ...props.manager.notRouted, ...props.draft.allowed])].sort();
+  const byId = new Map(props.agents.map(agent => [agent.id, agent]));
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 14, alignItems: 'start' }}>
-      <Panel title="Routing table">
-        <div style={{ marginBottom: 12 }}>
-          <Muted size={12.5}>
-            Which specialists a request can reach. Removing one makes it unreachable through the Manager; its own tool access is unchanged.
-          </Muted>
-        </div>
-        {names.map(name => {
-          const on = props.draft.allowed.includes(name);
-          const was = props.manager.allowed.includes(name);
-          return (
-            <label key={name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 2px', borderBottom: `1px solid ${C.border}`, cursor: 'pointer' }}>
-              <input type="checkbox" checked={on} onChange={() => props.onToggle(name)} />
-              <Body mono>{name}</Body>
-              {on !== was && <StatusPill tone={on ? 'ok' : 'warn'}>{on ? 'will be added' : 'will be removed'}</StatusPill>}
-            </label>
-          );
-        })}
-        {props.draft.allowed.length === 0 && (
-          <div style={{ marginTop: 12 }}>
-            <StatusPill tone="warn">A Manager that can route nowhere is rejected by the schema.</StatusPill>
-          </div>
-        )}
-      </Panel>
-
-      <Panel title="Execution">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Field label="Max agents per request" hint="1–3. The fan-out bound, enforced by the runtime.">
-            <input
-              type="number"
-              min={1}
-              max={3}
-              style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5 }}
-              value={props.draft.execution?.maxAgentsPerRequest ?? 3}
-              onChange={event => props.onPatch({ execution: { ...props.draft.execution, maxAgentsPerRequest: Number(event.target.value) } })}
-            />
-          </Field>
-          <Field label="Routing timeout (ms)" hint="100–5000. How long the Manager may take to decide.">
-            <input
-              type="number"
-              min={100}
-              max={5000}
-              style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5 }}
-              value={props.draft.execution?.timeoutMs ?? 1500}
-              onChange={event => props.onPatch({ execution: { ...props.draft.execution, timeoutMs: Number(event.target.value) } })}
-            />
-          </Field>
-          <div>
-            <SectionTitle>Not editable</SectionTitle>
-            <DefinitionList
-              items={[
-                ['Rounds', <Mono key="r">1</Mono>],
-                ['Output schema', <Mono key="o">ManagerDecision</Mono>],
-              ]}
-            />
-            <Muted size={12}>
-              A second Manager loop is a runtime feature, never configuration, so there is no field for it.
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, alignItems: 'start' }}>
+      <div style={{ gridColumn: 'span 2', minWidth: 0 }}>
+        <Panel>
+          <GroupHeader title="Routing table" />
+          <div style={{ marginBottom: 12 }}>
+            <Muted size={12.5}>
+              Which specialists a request can reach. Removing one makes it unreachable through the Manager; its own tool access is unchanged.
             </Muted>
           </div>
-        </div>
-      </Panel>
+          {names.map(name => {
+            const agent = byId.get(name);
+            const on = props.draft.allowed.includes(name);
+            const was = props.manager.allowed.includes(name);
+            const draftLifecycle = agent !== undefined && agent.lifecycle !== 'active';
+            return (
+              <label key={name} style={{ display: 'grid', gridTemplateColumns: '20px 1.6fr 1.6fr auto', gap: 12, alignItems: 'center', padding: '11px 2px', borderBottom: `1px solid ${C.rule}`, cursor: 'pointer' }}>
+                <input type="checkbox" checked={on} onChange={() => props.onToggle(name)} aria-label={`Route to ${name}`} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <AgentTile id={name} owner={agent?.owner ?? name} size={26} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{agent?.displayName ?? name}</div>
+                    <div style={{ fontSize: 11.5, fontFamily: MONO, color: C.faint }}>{name}</div>
+                  </div>
+                </div>
+                {/* the agent's own description, so the row says what routing here
+                    would actually reach rather than only that it is permitted */}
+                <div style={{ fontSize: 12.5, color: C.bodySoft, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {agent?.description ?? ''}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  {on !== was
+                    ? <StatusPill tone={on ? 'ok' : 'warn'}>{on ? 'will be added' : 'will be removed'}</StatusPill>
+                    : draftLifecycle
+                      ? <StatusPill tone="warn">{agent?.lifecycle} — not routable</StatusPill>
+                      : <StatusPill tone={on ? 'ok' : 'neutral'}>{on ? 'Routable' : 'Not routed'}</StatusPill>}
+                </div>
+              </label>
+            );
+          })}
+          {props.draft.allowed.length === 0 && (
+            <div style={{ marginTop: 12 }}>
+              <StatusPill tone="warn">A Manager that can route nowhere is rejected by the schema.</StatusPill>
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+        <Panel>
+          <GroupHeader title="Decision bounds" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <Field label="Max agents per request" hint="1–3 · enforced by the runtime">
+              <input
+                type="number"
+                min={1}
+                max={3}
+                style={inputStyle}
+                value={props.draft.execution?.maxAgentsPerRequest ?? 3}
+                onChange={event => props.onPatch({ execution: { ...props.draft.execution, maxAgentsPerRequest: Number(event.target.value) } })}
+              />
+            </Field>
+            <Field label="Routing timeout (ms)" hint="100–5000 · how long the Manager may take to decide">
+              <input
+                type="number"
+                min={100}
+                max={5000}
+                style={inputStyle}
+                value={props.draft.execution?.timeoutMs ?? 1500}
+                onChange={event => props.onPatch({ execution: { ...props.draft.execution, timeoutMs: Number(event.target.value) } })}
+              />
+            </Field>
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.8px', textTransform: 'uppercase', color: C.faint, marginBottom: 8 }}>Fixed by the schema</div>
+              <DefinitionList
+                items={[
+                  ['Rounds', <Mono key="r">1</Mono>],
+                  ['Output schema', <Mono key="o">ManagerDecision</Mono>],
+                ]}
+              />
+              <div style={{ marginTop: 8 }}>
+                <Muted size={12}>A second Manager loop is a runtime feature, never configuration, so there is no field for it.</Muted>
+              </div>
+            </div>
+          </div>
+        </Panel>
+
+        {/*
+          * Security stated in the Manager's own terms. Each line is a property
+          * of the architecture rather than a setting, which is why none of them
+          * is a control.
+          */}
+        <Panel>
+          <GroupHeader title="Security" />
+          <Guarantee title="Tool access" value="none — by design" detail="The Manager never receives a tool schema, so there is nothing to grant." />
+          <Guarantee title="MCP access" value="none — by design" detail="Specialists hold the MCP credentials; the Manager holds none." />
+          <Guarantee title="Read-only orchestration" value="enforced" detail="Routing decisions cannot mutate state." last />
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function Guarantee({ title, value, detail, last }: { title: string; value: string; detail: string; last?: boolean }) {
+  return (
+    <div style={{ padding: '10px 0', borderBottom: last === true ? 'none' : `1px solid ${C.rule}` }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, flex: 1 }}>{title}</div>
+        <div style={{ fontSize: 12.5, color: C.green }}>{value}</div>
+      </div>
+      <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{detail}</div>
+    </div>
+  );
+}
+
+function Fact({ label, value, note, mono, first }: { label: string; value: string; note: string; mono?: boolean; first?: boolean }) {
+  return (
+    <div style={{ padding: '0 20px', borderLeft: first === true ? 'none' : `1px solid ${C.rule}` }}>
+      <div style={{ fontSize: 11.5, color: C.muted }}>{label}</div>
+      <div style={{ fontSize: 14, fontWeight: 600, marginTop: 3, ...(mono ? { fontFamily: MONO, fontSize: 13 } : {}) }}>{value}</div>
+      <div style={{ fontSize: 11.5, color: C.faint, marginTop: 2, lineHeight: 1.35 }}>{note}</div>
     </div>
   );
 }
