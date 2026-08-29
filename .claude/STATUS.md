@@ -1,14 +1,19 @@
 # PoC status
 
-All commands run from `platform/` — the Git root is a shell holding
-`.claude/`, `.woodpecker/` and `platform/` only.
+The Git root holds directories only, and three of them are first-class concerns:
+
+    agent-engine/   the generic Specialist engine (its own npm project)
+    platform/       the SRE platform built on it (npm workspace root)
+    deploy/         how both are packaged and run
+
+Commands run from `platform/`; `npm run check` delegates into the engine.
 
 ## Current state
 
 | Check | State | Evidence |
 |---|---|---|
-| Repository layout | **PASS** | Git root is directories-only; `platform/` is the single npm workspace root |
-| Full repository check | **PASS** | `cd platform && npm run check` — 320 tests, 12 YAML checks, boundaries, generated freshness, 2 Helm charts |
+| Repository layout | **PASS** | Git root directories-only; agent-engine / platform / deploy are siblings |
+| Full repository check | **PASS** | `cd platform && npm run check` — 320 tests (289 platform + 31 engine), 12 YAML checks, boundaries, generated freshness, 2 Helm charts |
 | Monorepo structure | **PASS** | `agent-engine/ orchestrator/ runtime-host/ portal/ contracts/ shared/ config/ deploy/` |
 | Architectural boundaries | **PASS** | `agent-engine ✕→ orchestrator` and `orchestrator ✕→ agent-engine` proven at 0 imports; only `runtime-host` composes both |
 | One image, two roles | **PASS** | one image from `deploy/runtime/Dockerfile` boots `mode: manager` and `mode: specialist` (run, not asserted) |
@@ -24,7 +29,7 @@ All commands run from `platform/` — the Git root is a shell holding
 | Backstage typecheck / lint / test / build | **PASS** | `yarn tsc`, `yarn lint:all`, 7 tests, `yarn build:all` — lint was red before this work |
 | Keycloak workload identities (real) | **PASS** | 9/9 against live Keycloak 26.6 — see below |
 | ToolHive access policy (real engine) | **PASS** | rendered Cedar policies evaluated by ToolHive's own authorizer |
-| Real PoC smoke | **17 PASS / 2 FAIL / 0 BLOCKED** | rebuilt from scratch on the new layout; the 2 are `MODEL_RATE_LIMITED` in specialist spans |
+| Real PoC smoke | **16 PASS / 3 FAIL / 0 BLOCKED** | the 3 are `MODEL_RATE_LIMITED` in specialist spans, an external provider limit |
 
 ## What was verified against real infrastructure
 
@@ -107,3 +112,16 @@ history, which is not reproducible and was lost.
 
 That it rebuilds completely is the reason it is not committed. Nothing under
 `platform/config`, `platform/deploy` or any tracked path was affected.
+
+## Why agent-engine is its own npm project
+
+npm requires the workspace root to be an ancestor of every member. The engine is
+a repository-root SIBLING of `platform/`, so it cannot be a platform workspace
+member: npm links it, but Node resolves through the symlink to the real path and
+walks up from the Git root, where there is no `node_modules`. Tested against npm
+11.7.0 before choosing.
+
+It therefore has its own `package.json` and `node_modules`, and links the
+platform packages it needs by path. `npm run check` in `platform/` delegates into
+it, so there is still one command and one baseline. Nothing under
+`agent-engine/src` knows any SRE domain; check-boundaries enforces that.
