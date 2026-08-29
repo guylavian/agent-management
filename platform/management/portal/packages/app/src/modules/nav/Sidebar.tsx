@@ -30,6 +30,7 @@ interface NavEntry {
 const NAV: NavEntry[] = [
   { label: 'Overview', to: '/', glyph: { background: '#4f5be7', borderRadius: 2 } },
   { label: 'Agents', to: '/agents', glyph: { background: '#0e9384', borderRadius: 99 } },
+  { label: 'Manager', to: '/manager', glyph: { background: '#c2410c', borderRadius: 99 } },
   { label: 'MCP Servers', to: '/mcp-servers', glyph: { background: '#e2a306', borderRadius: 2 } },
   { label: 'Permissions', to: '/permissions', glyph: { background: '#7c5cd6', borderRadius: 99 } },
   { label: 'Runs', to: '/runs', glyph: { background: '#19a15e', borderRadius: 2, transform: 'rotate(45deg)' } },

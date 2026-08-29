@@ -5,6 +5,8 @@ import type {
   AgentDraft,
   AgentSummary,
   ChangePreview,
+  ManagerDetail,
+  ManagerDraft,
   McpServer,
   PermissionMatrix,
   RunDetail,
@@ -48,6 +50,12 @@ export function useAgents() {
 export function useAgent(id: string) {
   const request = useFetch();
   return useAsync(async () => (id === '' ? undefined : request<AgentDetail>(`/agents/${encodeURIComponent(id)}`)), [id]);
+}
+
+/** The Manager is its own endpoint because it is its own document type. */
+export function useManager() {
+  const request = useFetch();
+  return useAsync(async () => request<ManagerDetail>('/manager'), []);
 }
 
 export function useAgentHealth(id: string) {
@@ -97,6 +105,20 @@ export function useAgentActions() {
       }),
     createPullRequest: (draft: AgentDraft) =>
       request<{ url: string; status: string; reason?: string; effects: string[] }>('/agents/change', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(draft),
+      }),
+    /** Render the Manager change-set. Pure; changes nothing. */
+    previewManager: (draft: ManagerDraft) =>
+      request<ChangePreview>('/manager/preview', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(draft),
+      }),
+    /** Open the pull request for a Manager change. */
+    createManagerPullRequest: (draft: ManagerDraft) =>
+      request<{ url: string; status: string; reason?: string; effects: string[] }>('/manager/change', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(draft),

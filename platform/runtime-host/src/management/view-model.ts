@@ -6,6 +6,7 @@ import {
   isToolAllowed,
   type AgentLifecycle,
   type ApprovedCatalog,
+  type ManagerAgentConfig,
   type SpecialistAgentConfig,
   audienceScopeName,
   toolRoleName,
@@ -78,6 +79,57 @@ export interface AgentDetailView extends AgentSummaryView {
   description?: string;
   environments: string[];
   routing: { exactTerms: string[]; entityPatterns: string[]; ambiguousTerms: string[]; capabilities: string[]; exclusions: string[] };
+}
+
+/**
+ * The Manager, which is NOT an AgentDetailView and must not pretend to be one.
+ *
+ * It has no workload identity, no MCP access and no routing vocabulary, because
+ * it never calls a tool — that is the design that keeps tool schemas and tool
+ * payloads out of the Manager's context. Rendering it through the specialist
+ * view would mean inventing those fields, so it gets its own.
+ *
+ * Like `AgentDetailView`, this is also everything needed to rebuild a complete
+ * `ManagerDraft`; `tests/manager-change.test.ts` proves the round trip.
+ */
+export interface ManagerDetailView {
+  id: string;
+  displayName?: string;
+  description?: string;
+  owner: string;
+  lifecycle: string;
+  modelProfile: string;
+  modelTier: string;
+  promptFile: string;
+  prompt: string;
+  /** the routing table: the specialists the Manager may dispatch to */
+  allowed: string[];
+  /** specialists that exist but are NOT routable, listed rather than omitted */
+  notRouted: string[];
+  execution: Record<string, number>;
+  /** stated so the console does not leave a blank where a client id would be */
+  identity: { provider: "none"; reason: string };
+}
+
+export function managerDetail(registry: { manager: ManagerAgentConfig; listSpecialists(): SpecialistAgentConfig[] }): ManagerDetailView {
+  const manager = registry.manager;
+  const allowed = manager.spec.agents.allowed;
+  return {
+    id: manager.name,
+    ...(manager.displayName === undefined ? {} : { displayName: manager.displayName }),
+    ...(manager.description === undefined ? {} : { description: manager.description }),
+    owner: manager.owner,
+    lifecycle: manager.spec.lifecycle,
+    modelProfile: manager.spec.model.profile,
+    modelTier: manager.spec.model.tier,
+    promptFile: manager.spec.prompt.systemFile,
+    prompt: manager.systemPrompt,
+    allowed,
+    // "not shown" and "not routable" must not look alike, exactly as with denied MCPs
+    notRouted: registry.listSpecialists().map((agent) => agent.name).filter((name) => !allowed.includes(name)).sort(),
+    execution: { ...manager.spec.execution },
+    identity: { provider: "none", reason: "the Manager calls no tool, so it holds no workload credential" },
+  };
 }
 
 export interface McpServerView {

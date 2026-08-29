@@ -6,6 +6,7 @@ import { createRouteRef } from '@backstage/frontend-plugin-api';
  */
 export const rootRouteRef = createRouteRef();
 export const agentsRouteRef = createRouteRef();
+export const managerRouteRef = createRouteRef();
 export const createAgentRouteRef = createRouteRef();
 export const permissionsRouteRef = createRouteRef();
 export const mcpServersRouteRef = createRouteRef();

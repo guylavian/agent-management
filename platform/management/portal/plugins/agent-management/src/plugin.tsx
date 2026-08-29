@@ -3,6 +3,7 @@ import { createFrontendPlugin, PageBlueprint } from '@backstage/frontend-plugin-
 import {
   agentsRouteRef,
   createAgentRouteRef,
+  managerRouteRef,
   mcpServersRouteRef,
   permissionsRouteRef,
   rootRouteRef,
@@ -37,6 +38,22 @@ export const agentsPage = PageBlueprint.make({
     noHeader: true,
     routeRef: agentsRouteRef,
     loader: () => import('./components/AgentsRoutes').then(m => <m.AgentsRoutes />),
+  },
+});
+
+/**
+ * The Manager gets its own page, not a row in the Agents table: it is a
+ * different document type with no identity, access or routing vocabulary, and
+ * the Agents table's columns would all be blank for it.
+ */
+export const managerPage = PageBlueprint.make({
+  name: 'manager',
+  params: {
+    path: '/manager',
+    title: 'Manager',
+    noHeader: true,
+    routeRef: managerRouteRef,
+    loader: () => import('./components/ManagerPage').then(m => <m.ManagerPage />),
   },
 });
 
@@ -86,7 +103,7 @@ export const runsPage = PageBlueprint.make({
 
 export const agentManagementPlugin = createFrontendPlugin({
   pluginId: 'agent-management',
-  extensions: [overviewPage, agentsPage, createAgentPage, permissionsPage, mcpServersPage, runsPage],
+  extensions: [overviewPage, agentsPage, managerPage, createAgentPage, permissionsPage, mcpServersPage, runsPage],
   routes: {
     root: rootRouteRef,
     agents: agentsRouteRef,

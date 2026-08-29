@@ -62,6 +62,9 @@ export async function createRouter({
   };
 
   proxyGet('/agents', agentReadPermission, '/management/agents');
+  // not /agents/manager: the Manager is a different document type, and serving
+  // it there would mean inventing the identity and access fields it has none of
+  proxyGet('/manager', agentReadPermission, '/management/manager');
   proxyGet('/agents/:id', agentReadPermission, '/management/agents/:id');
   proxyGet('/agents/:id/health', agentReadPermission, '/management/agents/:id/health');
   proxyGet('/agents/:id/metrics', agentReadPermission, '/management/agents/:id/metrics');
@@ -123,6 +126,39 @@ export async function createRouter({
       return;
     }
     const rendered = await runtime.post<ChangePreview>(`/management/agents/${encodeURIComponent(request.params.id)}/prompt/preview`, request.body);
+    if (rendered.status !== 200) {
+      response.status(rendered.status).json(rendered.body);
+      return;
+    }
+    const preview = rendered.body;
+    const outcome = await gitops.createPullRequest({ branch: preview.branch, title: preview.title, body: preview.body, files: preview.files });
+    response.status(outcome.status === 'created' ? 201 : 501).json({ ...outcome, branch: preview.branch, effects: preview.effects });
+  });
+
+  /**
+   * The Manager. Same split as every other change: the runtime RENDERS because
+   * it owns the schema, the management plane PUBLISHES because it owns the Git
+   * credential. Editing the routing table decides which specialists a request
+   * can reach at all, so it is gated on the same permissions as agent access —
+   * and it is still a pull request, never a live mutation.
+   */
+  router.post('/manager/preview', async (request, response) => {
+    await requirePermission(request, agentAccessEditPermission);
+    if (!runtime.configured) {
+      response.status(501).json({ status: 'not-configured', reason: 'sreAgent.managementApi.baseUrl is not set' });
+      return;
+    }
+    const result = await runtime.post('/management/manager/preview', request.body);
+    response.status(result.status).json(result.body);
+  });
+
+  router.post('/manager/change', async (request, response) => {
+    await requirePermission(request, agentCreatePrPermission);
+    if (!runtime.configured) {
+      response.status(501).json({ status: 'not-configured', reason: 'sreAgent.managementApi.baseUrl is not set' });
+      return;
+    }
+    const rendered = await runtime.post<ChangePreview>('/management/manager/preview', request.body);
     if (rendered.status !== 200) {
       response.status(rendered.status).json(rendered.body);
       return;

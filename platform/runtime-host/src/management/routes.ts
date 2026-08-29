@@ -4,11 +4,14 @@ import {
   agentDetail,
   agentSummary,
   AgentDraftError,
+  managerDetail,
   mcpServerViews,
   permissionMatrix,
   proposeAgentChange,
+  proposeManagerChange,
   proposePromptChange,
   type AgentDraft,
+  type ManagerDraft,
   type RunStore,
 } from "./index.ts";
 
@@ -131,6 +134,26 @@ export function managementRouter(deps: ManagementDeps): Router {
       if (typeof prompt !== "string") throw new AgentDraftError(["prompt: a system prompt string is required"]);
       const change = proposePromptChange({ agent, prompt, requestedBy: request.identity?.subject ?? "unknown" });
       response.json({ path: change.files[0]?.path, yaml: change.files[0]?.contents, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: change.files });
+    } catch (error) {
+      respondDraftError(response, error);
+    }
+  });
+
+  /**
+   * The Manager. It is not reachable under /agents/:id because it is not a
+   * specialist — `getSpecialist("manager")` is undefined by construction, and
+   * making it resolve there would mean serving a specialist-shaped view of a
+   * document that has no identity, access or routing vocabulary.
+   */
+  router.get("/manager", (_request: Request, response: Response) => {
+    response.json(managerDetail(deps.registry));
+  });
+
+  /** Render the Manager change-set. PURE, exactly like /agents/preview. */
+  router.post("/manager/preview", (request: Request, response: Response) => {
+    try {
+      const { change, generated } = proposeManagerChange({ draft: request.body as ManagerDraft, current: deps.registry.manager, requestedBy: request.identity?.subject ?? "unknown" });
+      response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: generated.files });
     } catch (error) {
       respondDraftError(response, error);
     }

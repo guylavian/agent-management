@@ -84,6 +84,51 @@ export interface AgentDetail {
   identity: AgentIdentityView;
 }
 
+/**
+ * The Manager. Deliberately NOT an AgentDetail: it has no workloadClientId, no access and no routing vocabulary, because it calls no tool. Like AgentDetail, it carries everything needed to rebuild a ManagerDraft, so editing cannot silently delete a field the console never displayed.
+ */
+
+export interface ManagerDetail {
+  id: string;
+  displayName?: string;
+  description?: string;
+  owner: string;
+  lifecycle: AgentLifecycle;
+  modelProfile: string;
+  modelTier: string;
+  promptFile: string;
+  prompt: string;
+  /** The routing table — specialists the Manager may dispatch to. */
+  allowed: Array<string>;
+  /** Specialists that exist but are not routable. Listed rather than omitted, so "not shown" and "not reachable" cannot look alike. */
+  notRouted: Array<string>;
+  execution: Record<string, number>;
+  /** Stated, so the console shows no blank where a client id would be. */
+  identity: {
+    provider: "none";
+    reason: string;
+  };
+}
+
+/**
+ * What the portal collects to update the Manager. `maxRounds` is absent by design: a second Manager loop is a runtime feature, never configuration, and the schema pins it to 1.
+ */
+
+export interface ManagerDraft {
+  allowed: Array<string>;
+  modelProfile: string;
+  prompt: string;
+  owner?: string;
+  displayName?: string;
+  description?: string;
+  lifecycle?: AgentLifecycle;
+  promptFile?: string;
+  execution?: {
+    maxAgentsPerRequest?: number;
+    timeoutMs?: number;
+  };
+}
+
 export interface AgentHealth {
   agentId: string;
   lifecycle: AgentLifecycle;

@@ -29,6 +29,8 @@ export type {
   ChangeResult,
   ChangedFile,
   DraftError,
+  ManagerDetail,
+  ManagerDraft,
   McpAccessView,
   McpServer,
   NotConfigured,

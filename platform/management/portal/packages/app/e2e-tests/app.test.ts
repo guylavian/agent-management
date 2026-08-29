@@ -28,7 +28,7 @@ async function signIn(page: import('@playwright/test').Page, path: string) {
 
 test('the product sidebar renders instead of Backstage default chrome', async ({ page }) => {
   await signIn(page, '/');
-  for (const label of ['Overview', 'Agents', 'MCP Servers', 'Permissions', 'Runs']) {
+  for (const label of ['Overview', 'Agents', 'Manager', 'MCP Servers', 'Permissions', 'Runs']) {
     await expect(page.getByRole('link', { name: label, exact: true })).toBeVisible();
   }
 });
@@ -64,6 +64,36 @@ test('Edit agent opens the wizard prefilled from the agent', async ({ page }) =>
   // the name is the workload identity root: editable here would mean a new agent
   await expect(name).toHaveAttribute('readonly', '');
   await expect(page.getByText('Edit Active Directory Agent')).toBeVisible();
+});
+
+/**
+ * The Manager is not in `listSpecialists()`, so the Agents page could never show
+ * it — the one Agent deciding which specialist runs was the one an operator
+ * could not see. It has its own page because it has no identity or tool access
+ * to put in the Agents table's columns.
+ */
+test('the Manager has a page showing its routing table', async ({ page }) => {
+  await signIn(page, '/manager');
+  await expect(page.getByText('Routing table', { exact: true })).toBeVisible();
+
+  // the routing table, served by the runtime
+  for (const agent of ['active-directory', 'openshift', 'keycloak']) {
+    await expect(page.getByText(agent, { exact: true })).toBeVisible();
+  }
+  // it holds no workload credential, and the page says so rather than blanking it
+  await expect(page.getByText('the Manager calls no tool, so it holds no workload credential')).toBeVisible();
+});
+
+test('unrouting an agent is previewed as a named routing effect', async ({ page }) => {
+  await signIn(page, '/manager');
+  // uncheck openshift, then read what the runtime says merging would do
+  const row = page.locator('label').filter({ hasText: 'openshift' }).first();
+  await row.getByRole('checkbox').uncheck();
+  await expect(page.getByText('will be removed')).toBeVisible();
+
+  await page.getByText('Review & Propose', { exact: true }).click();
+  await page.getByRole('button', { name: 'Preview YAML' }).click();
+  await expect(page.getByText('Routing: openshift stops being reachable through the Manager')).toBeVisible();
 });
 
 test('the enabled toggle reflects state and cannot be clicked', async ({ page }) => {
