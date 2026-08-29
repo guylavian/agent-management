@@ -1,27 +1,47 @@
 # PoC status
 
-## Monorepo migration (current)
+## Current state
 
-| Check | State |
-|---|---|
-| Structural migration | **PASS** — `agent-engine/ orchestrator/ runtime-host/ portal/ contracts/ shared/ config/ deploy/` |
-| Full repository check | **PASS** — `npm run check`: 288 tests, 12 YAML checks, boundaries, generated freshness, 2 Helm charts |
-| Architectural boundaries | **PASS** — `agent-engine ✕→ orchestrator` and `orchestrator ✕→ agent-engine` proven at 0 imports; only `runtime-host` composes both |
-| One image, two roles | **PASS** — one image built from `deploy/runtime/Dockerfile` boots `mode: manager` and `mode: specialist` (verified by running it) |
-| In-process transport | **PASS** — manager + in-process specialists answer a real `/v1/query` end to end |
-| Canonical Agent source of truth | **PASS** — `config/agents/*.yaml`; the three `registry.yaml` variants are deleted |
-| Effective Manager catalog | **PASS** — derived from `config/agents` ∩ environment deployment state; a test proves a new Agent routes with no second registry edit |
-| Deployment overlays | **PASS** — allow-list schema, tested field-by-field against logical fields |
-| Model bindings | **PASS** — per environment; unresolved profile for an enabled Agent fails STARTUP (tested) |
-| Render pipeline | **PASS** — deterministic, committed, `check:generated` fails CI on any diff |
-| Argo CD | **PASS (static)** — ApplicationSet discovers rendered files; no CMP plugin. Not applied to a live cluster |
-| Backstage typecheck / test | **PASS** — `yarn tsc` clean, 1 test passing |
-| Backstage lint | **FAIL** — 16 pre-existing a11y / react-hooks / nested-ternary errors in `plugins/agent-management`; predate the migration, not silenced |
+| Check | State | Evidence |
+|---|---|---|
+| Full repository check | **PASS** | `npm run check` — 318 tests, 12 YAML checks, boundaries, generated freshness, 2 Helm charts |
+| Monorepo structure | **PASS** | `agent-engine/ orchestrator/ runtime-host/ portal/ contracts/ shared/ config/ deploy/` |
+| Architectural boundaries | **PASS** | `agent-engine ✕→ orchestrator` and `orchestrator ✕→ agent-engine` proven at 0 imports; only `runtime-host` composes both |
+| One image, two roles | **PASS** | one image from `deploy/runtime/Dockerfile` boots `mode: manager` and `mode: specialist` (run, not asserted) |
+| In-process transport | **PASS** | manager + in-process specialist answers `/v1/query` with real evidence; `bob` denied `AUTHZ_DENIED` |
+| HTTP transport | **PASS** | two real processes over TCP: manager :3100 → specialist :3110, real citation returned |
+| Canonical Agent source of truth | **PASS** | `config/agents/*.yaml`; the three `registry.yaml` variants are deleted |
+| Effective Manager catalog | **PASS** | derived from `config/agents` ∩ environment state; a test proves a new Agent routes with no second registry edit |
+| Deployment overlays | **PASS** | allow-list schema, tested field-by-field against logical fields |
+| Model bindings | **PASS** | per environment; unresolved profile for an enabled Agent fails STARTUP |
+| Render pipeline | **PASS** | deterministic, committed, `check:generated` fails on any diff |
+| Argo CD ApplicationSet | **PASS (static)** | discovers rendered files, no CMP plugin. Not applied to a live cluster |
+| Create Agent change-set | **PASS** | Agent + prompt + overlay generated, applied to a config copy and loaded by the real loader |
+| Backstage typecheck / lint / test / build | **PASS** | `yarn tsc`, `yarn lint:all`, 7 tests, `yarn build:all` — lint was red before this work |
+| Keycloak workload identities (real) | **PASS** | 9/9 against live Keycloak 26.6 — see below |
+| ToolHive access policy (real engine) | **PASS** | rendered Cedar policies evaluated by ToolHive's own authorizer |
+| Real PoC smoke | **16 PASS / 3 FAIL / 0 BLOCKED** | the 3 are `MODEL_RATE_LIMITED` in specialist spans, identical to the pre-migration baseline |
 
-Every existing security and runtime regression test still passes. The migration
-introduced no intentional runtime behaviour change; the two deliberate
-strengthenings are documented in the commits that made them (model-profile
-fail-closed startup, tool-policy enforcement moved from a test into config load).
+## What was verified against real infrastructure
+
+**Keycloak 26.6, live realm** (`npm run verify:keycloak` — 9 PASS, 0 FAIL):
+5 distinct confidential service-account clients for 5 Agents, none shared; no
+interactive or public flow on any of them; a scoped token carries exactly one
+ToolHive audience; no ToolHive audience at all without asking for the scope;
+**another Agent's audience scope is refused by Keycloak**; a disabled Agent can
+no longer obtain a token; the disabled identity is retained so its audit history
+stays attributable; re-enabling restores issuance. Reconciliation is idempotent
+(5 created, then 5 unchanged).
+
+**ToolHive 0.46.0, its own Cedar engine** (`npm run verify:toolhive-policy`):
+the rendered policies load; the granted Agent may call its tools; a *different*
+Agent workload may not; an ungranted tool is denied to everyone; a server with
+no grants denies everyone; a request without `azp` is denied rather than
+erroring.
+
+**Live gateway** (real PoC smoke A): real evidence returned through three
+ToolHive MCP tools under the new policies — 36 successful audit events against
+3 denials, all three unauthenticated probes rather than tool calls.
 
 ## Honest completion state
 
@@ -29,64 +49,45 @@ fail-closed startup, tool-policy enforcement moved from a test into config load)
 |---|---|
 | Distributed runtime implementation | **COMPLETE** (one image, per-agent Deployment, internal Agent API) |
 | Monorepo boundaries | **COMPLETE** (enforced by `check-boundaries` + `tests/boundaries.test.ts`) |
-| Mock integration tests | **PASS** — 288 tests + 12 YAML checks + chart lint/render |
+| Canonical config → render → Argo → Helm | **COMPLETE** and freshness-checked |
+| Create Agent GitOps generation | **COMPLETE** (Agent + prompt + overlay; prompt is persisted) |
+| Management plane owns mutations | **COMPLETE** — the runtime has no write endpoint and no Git credential |
+| Keycloak per-Agent workload identity | **COMPLETE and verified against a real realm** |
+| ToolHive per-Agent tool authorization | **COMPLETE for what 0.46 supports** — see the blocker below |
+| Backstage production auth | **IMPLEMENTED, MAPPING BLOCKED** — guest and allow-all are gone; the IdP group→role mapping needs a real enterprise IdP |
 | Tool-argument schema validation | **COMPLETE** (AJV, pre-ToolHive, backend never called on failure) |
 | Absolute deadline + cancellation | **COMPLETE** |
 | Manager `agents.allowed` enforcement | **COMPLETE** (all paths incl. bounded follow-up) |
-| Config-driven routing | **COMPLETE** (routing vocabulary lives on the Agent; onboarding is config-only) |
 | Deterministic multi-specialist fallback | **COMPLETE** |
 | Multi-turn (bounded follow-up) | **COMPLETE** |
 | Metrics + batched OTel | **COMPLETE** |
-| **End-to-end identity to ToolHive (Gate #1)** | **runtime path COMPLETE and tested with a mock authority; real enterprise token-exchange BLOCKED** |
+| **End-to-end identity to ToolHive (Gate #1)** | **runtime path COMPLETE and tested; real enterprise token-exchange BLOCKED** |
 | Real vLLM (Tier-S/Tier-L) integration | **PENDING** (no mirrored model endpoint) |
+| Real-model reliability | **UNVALIDATED** — see below |
 | Real RAG ACL integration | **OUT OF CURRENT POC** (Wiki MCP replaces baseline retrieval) |
-| Real ToolHive/MCP integration | **CODE COMPLETE / EXECUTION BLOCKED** |
-| Real-model reliability benchmark | **PENDING** (Track 2, `eval/real-benchmark.md`) |
-| Keycloak provisioning/reconciliation | **LIBRARY ONLY** — idempotent + tested, no entrypoint invokes it |
-| Workload-client token acquisition | **WIRED, NOT ACTIVE** — real PoC still uses `signed-jwt` |
-| GitOps pull requests | **WIRED, NOT CONFIGURED** — no Git provider set; reports `not-configured` |
+| Production-like load validation | **PENDING** |
 
-## What the mock numbers mean
+## Open blockers, stated as blockers
 
-`pass@1 = pass^8 = 0.983` and 0 tool-policy violations come from the **mock
-regression track** (deterministic model). They validate harness and runtime
-behaviour, **not** real model reliability. Real small-model routing/tool
-accuracy is UNVALIDATED until Track 2 runs against the pinned models.
+| Blocker | Why it is blocked |
+|---|---|
+| ToolHive live policy reconciliation | 0.46 reads `--authz-config` when a proxy STARTS and exposes no API to reconcile a running one. Applying a change means restarting that proxy. The desired state is rendered and verified; converging a live proxy is not implemented because it is not supported. |
+| Enterprise RFC 8693 token exchange | The Specialist → ToolHive credential path is coded and never falls back to unsigned identity, but has not run against an enterprise STS. The PoC uses `signed-jwt`. |
+| Backstage IdP group → platform role mapping | The permission policy is implemented and tested; which enterprise groups carry the role is configuration (`permission.agentManagement.adminGroups`) that needs a real IdP. Unset denies every write. |
+| Real-model reliability | `pass@1 = pass^8 = 0.983` comes from the **mock** regression track (deterministic model). It validates harness and runtime behaviour, not model reliability. Three real smoke cases currently fail on `MODEL_RATE_LIMITED` from the provider. |
+| Argo CD apply | The ApplicationSet is validated statically. No live cluster was available. |
 
 Gate #1 is **proven for the runtime trust path** — the effective human is
-carried by a signed, audience-bound delegated JWT and verified by ToolHive
-itself (no unsigned header); Alice is allowed and audited, Bob/Carol are denied
-with no backend call. It is **not** proven end-to-end against the enterprise IdP
-and real ToolHive; that remains an INTEGRATION BLOCKER.
-
-## Gate results (against mocks)
-
-| Gate | Status | Evidence |
-|---|---|---|
-| Full repository check | PASS | `npm run check` |
-| Architectural boundaries | PASS | `tests/boundaries.test.ts`, `scripts/check-boundaries.ts` |
-| AG-01 identity to ToolHive | PASS (mock authority) | `tests/gate1-toolhive-identity.test.ts`, `tests/gate1-e2e.test.ts` |
-| AG-02 unauthorized tool denied | PASS (mock) | denial before backend call |
-| AG-03 no mutating tool | PASS (mock) | approved catalog is read-only-verified + tool policy enforced at config load |
-| Tool-argument validation | PASS | `agent-engine/tests/arg-validator.test.ts` |
-| Absolute deadline / cancellation | PASS | `tests/deadline.test.ts` |
-| Manager allowlist | PASS | `orchestrator/tests/manager-allowlist.test.ts` |
-| Config-driven routing | PASS | `orchestrator/tests/router.test.ts`, `shared/config-loader/tests/agent-catalog.test.ts` |
-| Multi-specialist Tier-L fallback | PASS | `orchestrator/tests/fanout.test.ts` |
-| Render determinism + freshness | PASS | `tests/render-pipeline.test.ts`, `npm run check:generated` |
-| Mock eval (Track 1) | PASS | 60×8, pass@1/pass^8 0.983 |
-
-## Open integration blockers
-
-See `docs/INTEGRATION-POINTS.md`. Highest priority: enterprise RFC 8693 token
-exchange for the Specialist → ToolHive credential (the real path is coded but
-BLOCKED and never falls back to unsigned identity).
+carried by a signed, audience-bound delegated JWT verified by ToolHive itself
+(no unsigned header); Alice is allowed and audited, Bob/Carol denied with no
+backend call. It is **not** proven end-to-end against an enterprise IdP.
 
 ## Repository operation constraints
 
-The two-process HTTP smoke and autocannon profiles run only in CI/dev runners.
-HTTP-level behaviour is covered by `light-my-request` injection and the
-contract-faithful `InProcessSpecialistTransport`.
-
 The Backstage workspace requires Node 22/24 (`.nvmrc` pins 24.20.0). Installing
 it under Node 20 fails to build `better-sqlite3` and `cpu-features`.
+
+`npm run verify:toolhive-policy` needs the vendored ToolHive source
+(`scripts/prepare-real-poc.sh`) and a Go toolchain. It exits non-zero when
+either is missing rather than skipping, because a check that skips silently is
+how PASS starts meaning "not run".
