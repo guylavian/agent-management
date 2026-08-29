@@ -119,7 +119,23 @@ export class GitHubGitOpsPublisher implements GitOpsPublisher {
       });
     }
 
-    const pull = await this.#octokit.pulls.create({ owner, repo, title: input.title, head: input.branch, base: baseBranch, body: input.body });
+    // The branch name is derived from the agent, so proposing a second change to
+    // the same agent reuses it. createRef already treats that as an amendment;
+    // pulls.create has to agree, or the amendment fails at the last step with the
+    // provider's 422 ("a pull request already exists") reaching the browser.
+    // The files were just written to the branch, so the open PR already shows
+    // the new change — returning it is the truthful answer, not a consolation.
+    const pull = await this.#octokit.pulls
+      .create({ owner, repo, title: input.title, head: input.branch, base: baseBranch, body: input.body })
+      .catch(async (error: { status?: number }) => {
+        if (error.status !== 422) throw error;
+        const open = await this.#octokit.pulls.list({ owner, repo, head: `${owner}:${input.branch}`, state: 'open' });
+        const existing = open.data[0];
+        // 422 also covers "no commits between" — a draft identical to the base.
+        // There is no pull request to point at, so that stays an error.
+        if (existing === undefined) throw error;
+        return { data: { html_url: existing.html_url, number: existing.number } };
+      });
     return { status: 'created', url: pull.data.html_url, number: pull.data.number };
   }
 }
