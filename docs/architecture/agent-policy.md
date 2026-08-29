@@ -66,7 +66,7 @@ failure, not a silent privilege change.
 ## What is deliberately elsewhere
 
 Routing vocabulary — exact terms, entity patterns, capabilities, exclusions,
-service endpoints — lives in `agents/registry.yaml`, the separately validated
+service endpoints — lives on the Agent in `config/agents/<agent>.yaml`, alongside
 `AgentServiceRegistry` the Manager loads. Duplicating it into the Agent document
 would create drift between the Manager's view of an Agent and the Agent's own
 config. Semantic validation cross-checks the two: the Manager may not route to an
@@ -74,7 +74,7 @@ Agent whose lifecycle is not `active`.
 
 ## Tool classification
 
-The approved catalog (`policies/approved-tools.yaml`) admits only
+The approved catalog (`config/mcp-servers/<server>.yaml`) admits only
 `readOnlyVerified: true` tools. A tool absent from the catalog is **UNKNOWN**,
 never READ. The portal renders UNKNOWN explicitly and refuses to select it;
 `validateSemantics` rejects an Agent granting a tool the catalog does not list for

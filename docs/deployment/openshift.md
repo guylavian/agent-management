@@ -21,7 +21,7 @@ sre-agent-openshift              (mode: specialist, 2 replicas, HPA)
 sre-agent-network-observability  (mode: specialist, 4 replicas, HPA)
 ```
 
-Service DNS names must match `agents/registry.yaml` endpoints
+Service DNS names must match the `endpointTemplate` in `deploy/environments/<env>/environment.yaml`
 (`http://sre-agent-<name>.sre-assistant.svc.cluster.local`).
 
 Shared platform services stay in their own namespaces, labelled

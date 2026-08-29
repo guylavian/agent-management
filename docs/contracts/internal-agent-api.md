@@ -33,7 +33,7 @@ A specialist never calls another specialist. Cross-domain needs surface as
 | Content type | `application/json` |
 | Correlation | `x-request-id` header (mirror of body `requestId`) |
 | Tracing | W3C `traceparent`/`tracestate` headers, injected by the manager (`propagation.inject`) and extracted by the specialist (`withExtractedContext`) so one `sre.query` trace spans both processes |
-| Service resolution | manager resolves `agentId → endpoint` through the Agent Service Registry (`agents/registry.yaml`); unknown or `enabled: false` entries fail closed as `AGENT_UNAVAILABLE` |
+| Service resolution | manager resolves `agentId → endpoint` through the effective catalog (canonical Agents ∩ `deploy/environments/<env>`); unknown or not-enabled entries fail closed as `AGENT_UNAVAILABLE` |
 
 ## 4. Authentication — two credentials, both mandatory
 

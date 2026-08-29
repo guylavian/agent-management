@@ -1,3 +1,12 @@
+# Pinned project name. Compose derives it from the directory otherwise, so
+# moving this file (repo root -> deploy/local) would orphan the containers it
+# had already created and fail on the pinned container_names. Pinning it makes
+# the stack independent of where the file lives.
+name: sreagent
+# Volume paths are relative to THIS FILE's directory, because that is the Compose
+# project directory. They were repo-root-relative while this file lived at the
+# root; moving it silently repointed every one of them.
+
 # Local PoC infrastructure: Keycloak (dev) + Prometheus.
 # Reproducible with:  docker compose up -d
 # Ports are configurable via env (see docs/local-development.md); defaults below.
@@ -20,7 +29,7 @@ services:
       KC_EVENT_METRICS_USER_ENABLED: "true"
       KC_EVENT_METRICS_USER_TAGS: realm,idp,clientId
     volumes:
-      - ./deploy/local/keycloak/realm-sre-test.json:/opt/keycloak/data/import/realm-sre-test.json:ro
+      - ./keycloak/realm-sre-test.json:/opt/keycloak/data/import/realm-sre-test.json:ro
     ports:
       - "${KEYCLOAK_HTTP_PORT:-8080}:8080"      # application / OIDC
       - "${KEYCLOAK_MGMT_PORT:-9000}:9000"      # management: /health, /metrics
@@ -44,10 +53,10 @@ services:
       - --storage.tsdb.retention.time=6h
       - --web.enable-lifecycle
     volumes:
-      - ./deploy/local/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       # Host-backed TSDB: the Docker VM overlay is full on this local host, so
       # keep Prometheus data on the host disk instead of an anonymous volume.
-      - ./.real-poc/prom-data:/prometheus
+      - ../../.real-poc/prom-data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
     depends_on:
