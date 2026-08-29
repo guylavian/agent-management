@@ -119,6 +119,7 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `@types/chai` | `5.2.3` | MIT |
 | `@types/connect` | `3.4.38` | MIT |
 | `@types/deep-eql` | `4.0.2` | MIT |
+| `@types/diff` | `5.2.3` | MIT |
 | `@types/estree` | `1.0.9` | MIT |
 | `@types/express` | `5.0.6` | MIT |
 | `@types/express-serve-static-core` | `5.1.3` | MIT |
@@ -195,6 +196,7 @@ Generated from `package-lock.json` by `npm run gen:supply-chain`. Integrity hash
 | `delayed-stream` | `1.0.0` | MIT |
 | `depd` | `2.0.0` | MIT |
 | `detect-libc` | `2.1.2` | Apache-2.0 |
+| `diff` | `5.2.2` | BSD-3-Clause |
 | `dunder-proto` | `1.0.1` | MIT |
 | `ee-first` | `1.1.1` | MIT |
 | `emoji-regex` | `8.0.0` | MIT |
