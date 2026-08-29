@@ -57,7 +57,13 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
               </div>
               {/* reflects lifecycle; changing it is a pull request, not a click */}
               <Toggle on={value.enabled} label={value.enabled ? 'Enabled' : 'Disabled'} />
-              <Button variant="secondary" onClick={() => { window.location.href = '/create-agent'; }}>Edit</Button>
+              {/*
+                * "Edit" used to jump to the blank Create Agent wizard, which
+                * starts a NEW agent rather than editing this one. The prompt is
+                * the only part of an Agent the console can safely change today,
+                * so the button says so and goes there instead of implying more.
+                */}
+              <Button variant="secondary" onClick={() => setTab('Prompt')}>Edit prompt</Button>
             </div>
 
             <Tabs tabs={TABS} active={tab} onChange={setTab} />
