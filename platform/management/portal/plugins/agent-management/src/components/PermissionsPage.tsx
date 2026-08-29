@@ -38,7 +38,7 @@ export function PermissionsPage() {
               <DataTable columns={columns} head={['AGENT', ...value.mcps.map(mcp => mcp.toUpperCase())]}>
                 {value.rows.map(row => (
                   <DataRow key={row.agent} columns={columns}>
-                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{row.agent}</div>
+                    <div style={{ fontWeight: 500, fontSize: 13 }}>{row.agent}</div>
                     {row.cells.map(cell => (
                       <div
                         key={cell.mcp}
@@ -68,8 +68,11 @@ export function PermissionsPage() {
                   return (
                     <DataRow key={mcp} columns="1fr 3fr">
                       <Body>{mcp}</Body>
-                      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-                        {allowed.length === 0 ? <Muted size={12.5}>none</Muted> : allowed.map(row => <StatusPill tone="ok" dot={false} key={row.agent}>{row.agent}</StatusPill>)}
+                      {/* every name in this cell is allowed by definition, so
+                          colouring them green distinguished nothing; the matrix
+                          above is where allowed and denied actually contrast */}
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {allowed.length === 0 ? <Muted size={12.5}>none</Muted> : allowed.map(row => <Chip mono key={row.agent}>{row.agent}</Chip>)}
                       </div>
                     </DataRow>
                   );

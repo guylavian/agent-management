@@ -102,15 +102,14 @@ export function RunDetailPage({ runId }: { runId: string }) {
   );
 }
 
+/**
+ * The kind is printed in text beside this dot, so a distinct hue per kind was
+ * saying the same thing twice in a language with fewer words. Colour is kept
+ * only where it reports an OUTCOME an operator scans for.
+ */
 const KIND_COLOR: Record<string, string> = {
-  'manager.route': C.accent,
-  specialist: '#2f7fd1',
-  'workload.token': '#7c5cd6',
-  'authorization.check': C.faint,
-  'toolhive.call': C.amberBright,
   evidence: C.greenBright,
   'domain.escalation': C.redBright,
-  synthesis: C.text,
 };
 
 /**
@@ -129,7 +128,7 @@ function ExecutionGraph({ nodes }: { nodes: RunNode[] }) {
     <div key={node.id} style={{ marginLeft: depth ? 20 : 0, borderLeft: depth ? `2px solid ${C.rule}` : 'none', paddingLeft: depth ? 14 : 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
         <span style={{ width: 8, height: 8, borderRadius: 99, background: KIND_COLOR[node.kind] ?? C.dim, flex: 'none' }} />
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.4px', color: C.faint, minWidth: 132, textTransform: 'uppercase' }}>{node.kind}</span>
+        <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.4px', color: C.faint, minWidth: 132, textTransform: 'uppercase' }}>{node.kind}</span>
         <span style={{ fontSize: 13, color: C.text }}>{node.label}</span>
         {node.status !== 'ok' && <StatusPill tone={node.status === 'denied' ? 'danger' : 'warn'}>{node.status}</StatusPill>}
         {node.round === 2 && <StatusPill tone="warn" dot={false}>round 2</StatusPill>}

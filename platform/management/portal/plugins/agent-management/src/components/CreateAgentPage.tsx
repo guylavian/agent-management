@@ -9,20 +9,20 @@ import {
   DataTable,
   DefinitionList,
   Field,
+  FieldGrid,
   MONO,
   ModeBadge,
   Mono,
   Muted,
   Panel,
+  S,
+  Section,
   SectionTitle,
   StatusPill,
-  clickable,
   inputStyle,
   selectStyle,
 } from './common';
 import type { AgentDraft, ChangePreview } from '../api/types';
-
-const STEPS = ['Basics & Routing', 'Intelligence', 'Identity, Knowledge & Tools', 'Security & Runtime', 'Review & Create Change'] as const;
 
 const DEFAULT_LIMITS = {
   maxModelTurns: 6,
@@ -32,21 +32,51 @@ const DEFAULT_LIMITS = {
   maxContextTokens: 12000,
 };
 
-const TOOL_COLUMNS = '40px 2fr .7fr';
+const TOOL_COLUMNS = '28px 2fr .6fr';
 
 /**
- * Create Agent wizard (TDD §24–§30), and — given `agentId` — the edit wizard.
+ * The bounds the runtime schema actually enforces (agent-schema
+ * specialistExecutionSchema). Stated on the control rather than discovered by
+ * submitting: a rejected draft is a slower way to learn the same number.
+ */
+const LIMIT_BOUNDS: Record<string, { min: number; max: number; unit?: string }> = {
+  maxModelTurns: { min: 1, max: 10 },
+  maxToolCalls: { min: 1, max: 20 },
+  timeoutMs: { min: 1_000, max: 180_000, unit: 'ms' },
+  maxEvidenceItems: { min: 1, max: 128 },
+  maxContextTokens: { min: 1_000, max: 64_000, unit: 'tokens' },
+  maxEvidenceBytes: { min: 4_096, max: 4_194_304, unit: 'bytes' },
+  maxRawExcerptBytes: { min: 256, max: 65_536, unit: 'bytes' },
+};
+
+const EMPTY_ROUTING = { exactTerms: [], entityPatterns: [], ambiguousTerms: [], capabilities: [], exclusions: [] };
+
+/** Comma-separated list fields: routing vocabulary, roles, cross-domain grants. */
+const ROUTING_FIELDS: Array<[keyof typeof EMPTY_ROUTING, string, string]> = [
+  ['capabilities', 'Capabilities', 'What this agent can do. Used by the Manager to choose it.'],
+  ['exactTerms', 'Exact terms', 'Terms that route here unambiguously.'],
+  ['entityPatterns', 'Entity patterns', 'Identifier shapes this agent owns.'],
+  ['ambiguousTerms', 'Ambiguous terms', 'Terms that need more context before routing.'],
+  ['exclusions', 'Exclusions', 'Terms that must NOT route here.'],
+];
+
+/**
+ * Create Agent (TDD §24–§30), and — given `agentId` — the edit form.
  *
- * Editing is the same wizard prefilled from the Agent's detail view, because a
- * second "edit" form would be a second definition of what an Agent is, free to
- * drift from this one. The backend already treats a draft naming an existing
- * Agent as an update, so nothing here decides that.
+ * ONE page, not a wizard. An agent is a configuration document, and the person
+ * filling this in is reading a spec or an existing agent rather than being led
+ * somewhere: paging five screens hid the shape of what was being built, made
+ * fields impossible to compare, and put a Next button between an operator and
+ * the value they came to change.
+ *
+ * Editing is the same form prefilled, because a second form would be a second
+ * definition of what an Agent is and would be free to drift from this one. The
+ * backend already treats a draft naming an existing Agent as an update.
  */
 export function CreateAgentPage(props: { agentId?: string }) {
   const servers = useMcpServers();
   const actions = useAgentActions();
   const existing = useAgent(props.agentId ?? '');
-  const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<AgentDraft>({
     name: '',
     owner: '',
@@ -60,15 +90,13 @@ export function CreateAgentPage(props: { agentId?: string }) {
   const [prompt, setPrompt] = useState('');
   const [limits, setLimits] = useState(DEFAULT_LIMITS);
   const [loaded, setLoaded] = useState(false);
-
-  const [advanced, setAdvanced] = useState(false);
   const [preview, setPreview] = useState<ChangePreview | undefined>();
   const [issues, setIssues] = useState<string[]>([]);
   const [pr, setPr] = useState<{ url: string; status: string; reason?: string } | undefined>();
   const [busy, setBusy] = useState(false);
 
   /**
-   * Prefill once the Agent arrives. Every field the wizard can edit is filled
+   * Prefill once the Agent arrives. Every field the form can edit is filled
    * from the detail view — a field left at its blank default here is a field
    * the generated document would silently clear.
    */
@@ -96,6 +124,9 @@ export function CreateAgentPage(props: { agentId?: string }) {
   }, [props.agentId, existing.value, loaded]);
 
   const patch = (next: Partial<AgentDraft>) => setDraft(current => ({ ...current, ...next }));
+  const routing = { ...EMPTY_ROUTING, ...(draft.routing ?? {}) };
+  const patchRouting = (key: keyof typeof EMPTY_ROUTING, value: string) => patch({ routing: { ...routing, [key]: splitList(value) } });
+
   // the workload client id is derived, never typed: it must match what the runtime expects
   const clientId = draft.name ? `sre-agent-${draft.name}` : 'sre-agent-<agent-name>';
 
@@ -120,6 +151,7 @@ export function CreateAgentPage(props: { agentId?: string }) {
   const runPreview = async () => {
     setBusy(true);
     setIssues([]);
+    setPr(undefined);
     try {
       setPreview(await actions.preview(submission()));
     } catch (error) {
@@ -149,280 +181,227 @@ export function CreateAgentPage(props: { agentId?: string }) {
 
   if (editing && (existing.loading || existing.error)) {
     return (
-      <div style={{ padding: '26px 32px 40px 32px', maxWidth: 1060, margin: '0 auto', fontFamily: "'Figtree',Helvetica,Arial,sans-serif", color: C.text, fontSize: 14 }}>
+      <div style={{ padding: `${S.xl}px`, maxWidth: 1100, margin: '0 auto', fontFamily: "'Figtree',Helvetica,Arial,sans-serif", color: C.text, fontSize: 13 }}>
         <AsyncState loading={existing.loading} error={existing.error}>{null}</AsyncState>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: '26px 32px 40px 32px', maxWidth: 1060, margin: '0 auto', fontFamily: "'Figtree',Helvetica,Arial,sans-serif", color: C.text, fontSize: 14 }}>
+    <div style={{ padding: `${S.xl}px ${S.xl}px ${S.xxl}px ${S.xl}px`, maxWidth: 1100, margin: '0 auto', fontFamily: "'Figtree',Helvetica,Arial,sans-serif", color: C.text, fontSize: 13 }}>
       <Breadcrumb
         items={editing
           ? [{ label: 'Agents', onClick: () => { window.location.href = '/agents'; } }, { label: draft.displayName || draft.name, onClick: () => { window.location.href = `/agents/${props.agentId ?? ''}`; } }, { label: 'Edit' }]
           : [{ label: 'Agents', onClick: () => { window.location.href = '/agents'; } }, { label: 'Create agent' }]}
       />
-      <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.3px', marginBottom: 20 }}>{editing ? `Edit ${draft.displayName || draft.name}` : 'Create Agent'}</div>
+      <div style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.2px' }}>{editing ? `Edit ${draft.displayName || draft.name}` : 'Create agent'}</div>
+      <div style={{ fontSize: 13, color: C.muted, marginTop: S.xs }}>
+        {editing ? 'Changes are proposed as a pull request. Nothing reaches production until it is merged.' : 'A new agent is created with lifecycle draft and proposed as a pull request.'}
+      </div>
 
-      <Stepper step={step} onSelect={setStep} />
+      <Section title="General">
+        <FieldGrid>
+          {/* the name is the Agent's identity and the root of its workload
+              client id, so editing it would not rename this Agent — it would
+              propose a second one and leave the first behind */}
+          <Field label="Name" hint={editing ? 'Fixed. The workload client id derives from it, so renaming would create a second agent.' : 'Lowercase and hyphens. The workload client id derives from it.'}>
+            <input readOnly={editing} style={{ ...inputStyle, fontFamily: MONO, ...(editing ? { background: C.canvas, color: C.muted } : {}) }} value={draft.name} onChange={event => patch({ name: event.target.value })} placeholder="check-point" />
+          </Field>
+          <Field label="Display name">
+            <input style={inputStyle} value={draft.displayName} onChange={event => patch({ displayName: event.target.value })} placeholder="Check Point Agent" />
+          </Field>
+          <Field label="Owner">
+            <input style={inputStyle} value={draft.owner} onChange={event => patch({ owner: event.target.value })} placeholder="network-security" />
+          </Field>
+          <Field label="Description" hint="Optional. Shown in the agents directory.">
+            <input style={inputStyle} value={draft.description ?? ''} onChange={event => patch({ description: event.target.value })} />
+          </Field>
+        </FieldGrid>
+      </Section>
 
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 26 }}>
-        {step === 0 && (
-          <>
-            <StepHeading title="Basics & Routing" subtitle="Identity and ownership of the new specialist." />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 18px', maxWidth: 760 }}>
-              {/* the name is the Agent's identity and the root of its workload
-                  client id, so editing it would not rename this Agent — it would
-                  propose a second one and leave the first behind */}
-              <Field label="Agent name" hint={editing ? 'Fixed. The workload client id derives from it, so renaming would create a second Agent.' : 'Machine name · lowercase, hyphens. The workload client id is derived from it.'}>
-                <input readOnly={editing} style={{ ...inputStyle, fontFamily: MONO, padding: '9px 12px', fontSize: 13.5, ...(editing ? { background: '#f4f5fa', color: C.body } : {}) }} value={draft.name} onChange={event => patch({ name: event.target.value })} placeholder="check-point" />
-              </Field>
-              <Field label="Display name">
-                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5 }} value={draft.displayName} onChange={event => patch({ displayName: event.target.value })} placeholder="Check Point Agent" />
-              </Field>
-              <Field label="Owner / team">
-                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5 }} value={draft.owner} onChange={event => patch({ owner: event.target.value })} placeholder="network-security" />
-              </Field>
-              <Field label="Allowed cross-domain agents" hint="Comma separated. Escalation always returns through the Manager.">
-                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5 }} value={(draft.crossDomainAllowed ?? []).join(', ')} onChange={event => patch({ crossDomainAllowed: splitList(event.target.value) })} placeholder="observability" />
-              </Field>
-            </div>
-            <div style={{ marginTop: 18 }}>
-              <Muted size={12.5}>
-                A new agent is created with lifecycle <Mono>draft</Mono>. Routing vocabulary lives in the service registry and is set when the agent is registered with the Manager.
-              </Muted>
-            </div>
-          </>
-        )}
-
-        {step === 1 && (
-          <>
-            <StepHeading title="Intelligence" subtitle="Agents reference a model profile, never a hardcoded model." />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 18px', maxWidth: 760, marginBottom: 20 }}>
-              <Field label="Model profile">
-                <select style={{ ...selectStyle, padding: '9px 12px', fontSize: 13.5 }} value={draft.modelProfile} onChange={event => patch({ modelProfile: event.target.value })}>
-                  {['tool-caller', 'manager-router', 'synthesis'].map(profile => <option key={profile} value={profile}>{profile}</option>)}
-                </select>
-              </Field>
-              <Field label="Tier">
-                <select style={{ ...selectStyle, padding: '9px 12px', fontSize: 13.5 }} value={draft.modelTier} onChange={event => patch({ modelTier: event.target.value as 'small' | 'large' })}>
-                  <option value="small">small</option>
-                  <option value="large">large</option>
-                </select>
-              </Field>
-              <Field label="Resolved model">
-                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5, background: C.canvas, color: C.muted }} value="resolved by the runtime for this environment" readOnly />
-              </Field>
-              <Field label="Provider">
-                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5, background: C.canvas, color: C.muted }} value="configured per environment — no cloud coupling" readOnly />
-              </Field>
-            </div>
-            <Field label="System prompt" hint={`${prompt.trim() ? Math.ceil(prompt.length / 4) : 0} tokens (estimate) · saved to config/prompts/${draft.name || '<name>'}.md`}>
-              <textarea style={{ ...inputStyle, minHeight: 200, fontFamily: MONO, lineHeight: 1.55, resize: 'vertical' }} value={prompt} onChange={event => setPrompt(event.target.value)} />
+      <Section title="Routing" description="Vocabulary the Manager matches against a request to decide whether this agent should handle it. Comma separated.">
+        <FieldGrid>
+          {ROUTING_FIELDS.map(([key, label, hint]) => (
+            <Field key={key} label={label} hint={hint}>
+              <input style={inputStyle} value={routing[key].join(', ')} onChange={event => patchRouting(key, event.target.value)} />
             </Field>
-            {prompt.trim().length === 0 && (
-              <div style={{ marginTop: 10 }}><StatusPill tone="warn">A prompt file is required before the agent can start</StatusPill></div>
-            )}
-          </>
+          ))}
+          <Field label="Cross-domain agents" hint="Escalation always returns through the Manager.">
+            <input style={inputStyle} value={(draft.crossDomainAllowed ?? []).join(', ')} onChange={event => patch({ crossDomainAllowed: splitList(event.target.value) })} placeholder="observability" />
+          </Field>
+        </FieldGrid>
+      </Section>
+
+      <Section title="Model and prompt" description="Agents reference a model profile, never a hardcoded model.">
+        <FieldGrid>
+          <Field label="Model profile">
+            <select style={selectStyle} value={draft.modelProfile} onChange={event => patch({ modelProfile: event.target.value })}>
+              {['tool-caller', 'manager-router', 'synthesis'].map(profile => <option key={profile} value={profile}>{profile}</option>)}
+            </select>
+          </Field>
+          <Field label="Tier">
+            <select style={selectStyle} value={draft.modelTier} onChange={event => patch({ modelTier: event.target.value as 'small' | 'large' })}>
+              <option value="small">small</option>
+              <option value="large">large</option>
+            </select>
+          </Field>
+        </FieldGrid>
+        <div style={{ marginTop: S.md, marginBottom: S.lg }}>
+          <DefinitionList
+            items={[
+              ['Resolved model', <Muted key="r">resolved by the runtime for this environment</Muted>],
+              ['Provider', <Muted key="p">configured per environment, no cloud coupling</Muted>],
+            ]}
+          />
+        </div>
+        <Field label="System prompt" hint={`${prompt.trim() ? Math.ceil(prompt.length / 4) : 0} tokens (estimate), saved to config/prompts/${draft.name || '<name>'}.md`}>
+          <textarea style={{ ...inputStyle, width: '100%', minHeight: 240, fontFamily: MONO, fontSize: 12.5, lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box' }} value={prompt} onChange={event => setPrompt(event.target.value)} />
+        </Field>
+        {prompt.trim().length === 0 && (
+          <div style={{ marginTop: S.sm }}><StatusPill tone="warn">A prompt file is required before the agent can start</StatusPill></div>
         )}
+      </Section>
 
-        {step === 2 && (
-          <AsyncState loading={servers.loading} error={servers.error}>
-            <StepHeading title="Identity, Knowledge & Tools" subtitle="Every agent gets its own Keycloak workload client. Never a shared credential." />
-            <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, marginBottom: 18, background: C.canvas }}>
-              <DefinitionList
-                items={[
-                  ['Create dedicated Keycloak client', <StatusPill tone="ok" key="c">yes — one identity per agent</StatusPill>],
-                  ['Client ID', <Mono key="i">{clientId}</Mono>],
-                  ['Authentication', 'service account (confidential client)'],
-                  ['Token policy', 'short-lived, one MCP audience per token'],
-                ]}
-              />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {(servers.value ?? []).map(server => {
-                const selectedCount = draft.access.find(item => item.mcp === server.id)?.tools.length ?? 0;
-                return (
-                  <Panel
-                    key={server.id}
-                    padded={false}
-                    title={`${server.id} MCP`}
-                    action={<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Muted size={12}>aud {server.expectedAudience}</Muted>{selectedCount > 0 && <StatusPill tone="ok" dot={false}>{selectedCount} selected</StatusPill>}</div>}
-                  >
-                    <DataTable columns={TOOL_COLUMNS} head={['', 'TOOL', 'ACCESS']}>
-                      {server.tools.map(tool => {
-                        // UNKNOWN and WRITE are not selectable: fail closed
-                        const selectable = tool.classification === 'read';
-                        const checked = draft.access.find(item => item.mcp === server.id)?.tools.includes(tool.name) ?? false;
-                        return (
-                          <DataRow key={tool.name} columns={TOOL_COLUMNS}>
-                            <input type="checkbox" aria-label={`${server.id} ${tool.name}`} disabled={!selectable} checked={checked} onChange={() => toggleTool(server.id, tool.name)} />
-                            <div style={{ fontFamily: MONO, fontSize: 12.5, color: selectable ? C.bodySoft : C.dim }}>{tool.name}</div>
-                            <div><ModeBadge classification={tool.classification} /></div>
-                          </DataRow>
-                        );
-                      })}
-                    </DataTable>
-                  </Panel>
-                );
-              })}
-            </div>
-          </AsyncState>
-        )}
-
-        {step === 3 && (
-          <>
-            <StepHeading title="Security & Runtime" subtitle="Who may invoke this agent, and the budgets the runtime enforces." />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 18px', maxWidth: 760, marginBottom: 18 }}>
-              <Field label="Allowed human roles" hint="Comma separated; all are required (AND).">
-                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5 }} value={draft.requiredRoles.join(', ')} onChange={event => patch({ requiredRoles: splitList(event.target.value) })} />
-              </Field>
-              <Field label="Read-only enforcement">
-                <input style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5, background: C.canvas, color: C.muted }} value="enforced — write agents are not supported" readOnly />
-              </Field>
-            </div>
-
-            <SectionTitle>Effective MCP authorization</SectionTitle>
-            {draft.access.length === 0 ? (
-              <Muted>No MCP access selected.</Muted>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
-                {draft.access.map(entry => (
-                  <div key={entry.mcp} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <strong style={{ fontSize: 13 }}>{entry.mcp}</strong>
-                    <Mono>sre-toolhive:{entry.mcp}</Mono>
-                    <Muted size={12.5}>{entry.tools.join(', ')}</Muted>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <Button variant="secondary" onClick={() => setAdvanced(!advanced)}>{advanced ? 'Hide' : 'Show'} advanced settings</Button>
-            {advanced && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16, marginTop: 16 }}>
-                {Object.entries(limits).map(([key, val]) => (
-                  <Field key={key} label={key}>
-                    <input type="number" style={{ ...inputStyle, padding: '9px 12px', fontSize: 13.5 }} value={val} onChange={event => setLimits({ ...limits, [key]: Number(event.target.value) })} />
-                  </Field>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {step === 4 && (
-          <>
-            <StepHeading title="Review & Create Change" subtitle={`${editing ? 'Editing' : 'Creating'} an agent opens a pull request. Nothing reaches production until it is merged.`} />
-            <DefinitionList
-              items={[
-                ['Agent', draft.displayName || draft.name || '—'],
-                ['Owner', draft.owner || '—'],
-                ['Lifecycle', <Mono key="l">{draft.lifecycle ?? 'draft'}</Mono>],
-                ['Model profile', <Mono key="m">{draft.modelProfile}</Mono>],
-                ['Workload identity', <Mono key="w">{clientId}</Mono>],
-                ['Human roles', draft.requiredRoles.join(', ')],
-                ['Cross-domain', (draft.crossDomainAllowed ?? []).join(', ') || 'none'],
-                ['MCP resources', draft.access.map(entry => `${entry.mcp} (${entry.tools.length})`).join(', ') || 'none'],
-              ]}
-            />
-
-            <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
-              <Button onClick={runPreview} disabled={busy || waiting}>Preview YAML</Button>
-              {/* deliberately no Deploy button: production changes only through a merged PR */}
-              <Button variant="secondary" onClick={createPr} disabled={busy || waiting || !preview}>Create Pull Request</Button>
-            </div>
-
-            {issues.length > 0 && (
-              <div style={{ marginTop: 16, background: C.redSoft, border: `1px solid ${C.redSoft}`, borderRadius: 10, padding: 14 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 6 }}>This draft cannot be generated</div>
-                <ul style={{ margin: 0, paddingLeft: 18, color: C.red, fontSize: 12.5 }}>
-                  {issues.map(issue => <li key={issue}>{issue}</li>)}
-                </ul>
-              </div>
-            )}
-
-            {preview && (
-              <div style={{ marginTop: 18 }}>
-                {/* every file the pull request will contain — an Agent without its
-                    prompt and overlay is not a deployable change */}
-                <SectionTitle>Files in this change</SectionTitle>
-                {preview.files.map(file => (
-                  <div key={file.path} style={{ marginBottom: 14 }}>
-                    <div style={{ fontFamily: MONO, fontSize: 12.5, color: C.body, marginBottom: 6 }}>{file.path}</div>
-                    <pre style={{ background: '#1d2233', color: '#e8eaf5', padding: 18, borderRadius: 10, overflowX: 'auto', fontSize: 12.5, margin: 0, fontFamily: MONO, lineHeight: 1.6 }}>{file.contents}</pre>
-                  </div>
-                ))}
-                <div style={{ marginTop: 16 }}>
-                  <SectionTitle>Merging this change will</SectionTitle>
-                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: C.body, lineHeight: 1.8 }}>
-                    {preview.effects.map(effect => <li key={effect}>{effect}</li>)}
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            {pr && (
-              <div style={{ marginTop: 16 }}>
-                {pr.status === 'created' ? (
-                  <a href={pr.url} style={{ color: C.accent, fontWeight: 700 }}>{pr.url}</a>
-                ) : (
-                  <StatusPill tone="warn">Not configured: {pr.reason}</StatusPill>
-                )}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-        <Button variant="secondary" onClick={() => setStep(Math.max(0, step - 1))} disabled={step === 0}>Back</Button>
-        <Button onClick={() => setStep(Math.min(STEPS.length - 1, step + 1))} disabled={step === STEPS.length - 1}>Next</Button>
-      </div>
-    </div>
-  );
-}
-
-function StepHeading(props: { title: string; subtitle: string }) {
-  return (
-    <>
-      <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>{props.title}</div>
-      <div style={{ fontSize: 13, color: C.muted, marginBottom: 20 }}>{props.subtitle}</div>
-    </>
-  );
-}
-
-function Stepper(props: { step: number; onSelect: (step: number) => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 24 }}>
-      {STEPS.map((label, index) => {
-        const done = index < props.step;
-        const active = index === props.step;
-        return (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, cursor: 'pointer', flex: 'none' }} aria-label={`Go to step ${label}`} {...clickable(() => props.onSelect(index))}>
-              <div
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 99,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 12,
-                  fontWeight: 800,
-                  background: done || active ? C.accent : C.surface,
-                  color: done || active ? '#fff' : C.faint,
-                  border: `1.5px solid ${done || active ? C.accent : '#cdd2e0'}`,
-                }}
-              >
-                {done ? '✓' : index + 1}
-              </div>
-              <div style={{ fontSize: 11.5, fontWeight: active ? 700 : 600, color: active ? C.accent : C.faint, whiteSpace: 'nowrap' }}>{label}</div>
-            </div>
-            {index < STEPS.length - 1 && <div style={{ height: 2, flex: 1, background: done ? C.accent : C.border, margin: '0 8px', marginBottom: 18 }} />}
+      <Section title="Identity and access" description="Every agent gets its own Keycloak workload client. Never a shared credential.">
+        <div style={{ marginBottom: S.lg }}>
+          <DefinitionList
+            items={[
+              ['Workload client', <Mono key="i">{clientId}</Mono>],
+              ['Authentication', 'service account (confidential client)'],
+              ['Token policy', 'short-lived, one MCP audience per token'],
+            ]}
+          />
+        </div>
+        <AsyncState loading={servers.loading} error={servers.error}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: S.md }}>
+            {(servers.value ?? []).map(server => {
+              const selectedCount = draft.access.find(item => item.mcp === server.id)?.tools.length ?? 0;
+              return (
+                <Panel
+                  key={server.id}
+                  padded={false}
+                  title={server.id}
+                  action={
+                    <div style={{ display: 'flex', gap: S.md, alignItems: 'center' }}>
+                      <Muted size={12}>aud {server.expectedAudience}</Muted>
+                      <Muted size={12}>{selectedCount} of {server.tools.length} selected</Muted>
+                    </div>
+                  }
+                >
+                  <DataTable columns={TOOL_COLUMNS} head={['', 'Tool', 'Access']}>
+                    {server.tools.map(tool => {
+                      // UNKNOWN and WRITE are not selectable: fail closed
+                      const selectable = tool.classification === 'read';
+                      const checked = draft.access.find(item => item.mcp === server.id)?.tools.includes(tool.name) ?? false;
+                      return (
+                        <DataRow key={tool.name} columns={TOOL_COLUMNS}>
+                          <input type="checkbox" aria-label={`${server.id} ${tool.name}`} disabled={!selectable} checked={checked} onChange={() => toggleTool(server.id, tool.name)} />
+                          <div style={{ fontFamily: MONO, fontSize: 12, color: selectable ? C.bodySoft : C.dim }}>{tool.name}</div>
+                          <div><ModeBadge classification={tool.classification} /></div>
+                        </DataRow>
+                      );
+                    })}
+                  </DataTable>
+                </Panel>
+              );
+            })}
           </div>
-        );
-      })}
+        </AsyncState>
+      </Section>
+
+      <Section title="Runtime" description="Budgets the runtime enforces on every invocation. A run that exceeds one stops.">
+        {/*
+          * These used to sit behind a "Show advanced settings" button. They are
+          * the deadline and the fan-out bound of a production workload — on a
+          * page read by the engineer who owns that workload, they are not
+          * advanced, they are the point.
+          */}
+        <FieldGrid columns={3}>
+          {Object.entries(limits).map(([key, val]) => {
+            const bound = LIMIT_BOUNDS[key];
+            return (
+              <Field key={key} label={key} hint={bound ? `${bound.min.toLocaleString()}–${bound.max.toLocaleString()}${bound.unit ? ` ${bound.unit}` : ''}` : undefined}>
+                <input
+                  type="number"
+                  style={inputStyle}
+                  {...(bound ? { min: bound.min, max: bound.max } : {})}
+                  value={val}
+                  onChange={event => setLimits({ ...limits, [key]: Number(event.target.value) })}
+                />
+              </Field>
+            );
+          })}
+        </FieldGrid>
+      </Section>
+
+      <Section title="Security">
+        <FieldGrid>
+          <Field label="Allowed human roles" hint="Comma separated. All are required (AND).">
+            <input style={inputStyle} value={draft.requiredRoles.join(', ')} onChange={event => patch({ requiredRoles: splitList(event.target.value) })} />
+          </Field>
+          <Field label="Read-only enforcement" hint="Write agents are not supported by the runtime.">
+            <input style={{ ...inputStyle, background: C.canvas, color: C.muted }} value="enforced" readOnly />
+          </Field>
+        </FieldGrid>
+
+        <div style={{ marginTop: S.lg }}>
+          <SectionTitle>Effective MCP authorization</SectionTitle>
+          {draft.access.length === 0 ? (
+            <Muted>No MCP access selected.</Muted>
+          ) : (
+            <DefinitionList
+              items={draft.access.map(entry => [
+                entry.mcp,
+                <span key={entry.mcp} style={{ display: 'flex', gap: S.md, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                  <Mono>sre-toolhive:{entry.mcp}</Mono>
+                  <Muted size={12}>{entry.tools.join(', ')}</Muted>
+                </span>,
+              ])}
+            />
+          )}
+        </div>
+      </Section>
+
+      <div style={{ display: 'flex', gap: S.sm, alignItems: 'center', marginTop: S.xl, paddingTop: S.lg, borderTop: `1px solid ${C.rule}` }}>
+        <Button onClick={runPreview} disabled={busy || waiting}>Review changes</Button>
+        {/* deliberately no Deploy button: production changes only through a merged PR */}
+        <Button variant="secondary" onClick={createPr} disabled={busy || waiting || !preview}>Create pull request</Button>
+        {preview && <Muted size={12}>{preview.files.length} file{preview.files.length === 1 ? '' : 's'} on branch <Mono>{preview.branch}</Mono></Muted>}
+      </div>
+
+      {issues.length > 0 && (
+        <div style={{ marginTop: S.lg, background: C.redSoft, border: `1px solid ${C.redBright}`, borderRadius: 3, padding: S.md }}>
+          <div style={{ fontSize: 12.5, fontWeight: 500, color: C.red, marginBottom: S.xs }}>This draft cannot be generated</div>
+          <ul style={{ margin: 0, paddingLeft: S.lg, color: C.red, fontSize: 12.5 }}>
+            {issues.map(issue => <li key={issue}>{issue}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {preview && (
+        <Section title="Change set" description={`${preview.title}. Review every file before opening the pull request.`}>
+          {preview.files.map(file => (
+            <div key={file.path} style={{ marginBottom: S.md }}>
+              <div style={{ fontFamily: MONO, fontSize: 12, color: C.body, marginBottom: S.xs }}>{file.path}</div>
+              <pre style={{ background: C.canvas, border: `1px solid ${C.rule}`, color: C.text, padding: S.md, borderRadius: 3, overflowX: 'auto', fontSize: 12, margin: 0, fontFamily: MONO, lineHeight: 1.6 }}>{file.contents}</pre>
+            </div>
+          ))}
+          <SectionTitle>Merging this change will</SectionTitle>
+          <ul style={{ margin: 0, paddingLeft: S.lg, fontSize: 12.5, color: C.body, lineHeight: 1.8 }}>
+            {preview.effects.map(effect => <li key={effect}>{effect}</li>)}
+          </ul>
+        </Section>
+      )}
+
+      {pr && (
+        <div style={{ marginTop: S.lg }}>
+          {pr.status === 'created' ? (
+            <a href={pr.url} style={{ color: C.accent, fontSize: 13 }}>{pr.url}</a>
+          ) : (
+            <StatusPill tone="warn">Not configured: {pr.reason}</StatusPill>
+          )}
+        </div>
+      )}
     </div>
   );
 }

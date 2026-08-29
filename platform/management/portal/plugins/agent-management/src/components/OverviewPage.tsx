@@ -7,15 +7,13 @@ import {
   DataRow,
   DataTable,
   LifecycleBadge,
-  MonoAvatar,
+  MONO,
   Muted,
   Page,
   PageHeader,
   Panel,
   StatCard,
   StatGrid,
-  avatarColor,
-  initials,
 } from './common';
 
 const COLUMNS = '2.4fr 1fr 1.2fr 1.2fr .55fr 1fr .8fr';
@@ -43,30 +41,33 @@ export function OverviewPage() {
     <Page>
       <PageHeader
         title="Overview"
-        subtitle="Control plane for the SRE platform's domain-specialist agents"
-        action={<Button onClick={() => go('/create-agent')}>+ Create Agent</Button>}
+        subtitle="Domain-specialist agents, their access and their runs"
+        action={<Button onClick={() => go('/create-agent')}>Create agent</Button>}
       />
       <AsyncState loading={agents.loading} error={agents.error}>
         <StatGrid columns={6}>
-          <StatCard label="Total Agents" value={list.length} sub={`across ${teams.size} team${teams.size === 1 ? '' : 's'}`} dot={C.accent} />
+          {/* a dot ONLY where it encodes a health state: the three lifecycle
+              counts. Total, runs and servers are quantities, not conditions, and
+              colouring them made the strip read as six unrelated signals. */}
+          <StatCard label="Agents" value={list.length} sub={`across ${teams.size} team${teams.size === 1 ? '' : 's'}`} />
           <StatCard label="Active" value={active.length} sub="routable by the Manager" dot={C.greenBright} />
           <StatCard label="Draft / decommissioning" value={pending.length} sub={pending.map(a => a.id).join(', ') || 'none'} dot={C.amberBright} />
           <StatCard label="Disabled" value={disabled.length} sub="no workload token issued" dot={C.redBright} />
-          <StatCard label="Recorded runs" value={runs.error ? '—' : (runs.value?.length ?? 0)} sub="current runtime process" dot={C.teal} />
-          <StatCard label="MCP Servers" value={servers.error ? '—' : (servers.value?.length ?? 0)} sub="behind ToolHive" dot={C.dim} />
+          <StatCard label="Recorded runs" value={runs.error ? '—' : (runs.value?.length ?? 0)} sub="current runtime process" />
+          <StatCard label="MCP servers" value={servers.error ? '—' : (servers.value?.length ?? 0)} sub="behind ToolHive" />
         </StatGrid>
 
         <Panel
           title="Agent health"
           padded={false}
-          action={<Button variant="link" onClick={() => go('/agents')}>View all agents →</Button>}
+          action={<Button variant="link" onClick={() => go('/agents')}>View all agents</Button>}
         >
-          <DataTable columns={COLUMNS} head={['AGENT', 'STATUS', 'OWNER', 'MODEL PROFILE', 'MCPS', 'LAST ACTIVITY', 'WORKLOAD']}>
+          <DataTable columns={COLUMNS} head={['Agent', 'Status', 'Owner', 'Model profile', 'MCPs', 'Last activity', 'Workload']}>
             {list.map(agent => (
               <DataRow key={agent.id} columns={COLUMNS} onClick={() => go(`/agents/${agent.id}`)}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
-                  <MonoAvatar label={initials(agent.id)} color={avatarColor(agent.id)} />
-                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{agent.displayName}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, fontSize: 13 }}>{agent.displayName}</div>
+                  <div style={{ fontSize: 12, fontFamily: MONO, color: C.faint }}>{agent.id}</div>
                 </div>
                 <div><LifecycleBadge lifecycle={agent.lifecycle} /></div>
                 <Body>{agent.owner}</Body>

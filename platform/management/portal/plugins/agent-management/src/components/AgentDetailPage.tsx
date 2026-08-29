@@ -15,7 +15,6 @@ import {
   LifecycleBadge,
   ModeBadge,
   Mono,
-  MonoAvatar,
   Muted,
   Page,
   Panel,
@@ -25,8 +24,6 @@ import {
   StatusPill,
   Tabs,
   Toggle,
-  avatarColor,
-  initials,
   lifecycleTone,
   runStatusTone,
 } from './common';
@@ -45,15 +42,14 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
       <AsyncState loading={loading} error={error}>
         {value && (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
-              <MonoAvatar label={initials(value.id)} color={avatarColor(value.id)} size={44} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: '-0.3px' }}>{value.displayName}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.2px' }}>{value.displayName}</div>
                   <StatusPill tone={lifecycleTone(value.lifecycle)}>{value.lifecycle}</StatusPill>
                   <Chip mono>{value.modelProfile}</Chip>
                 </div>
-                <div style={{ fontSize: 13, color: C.muted, marginTop: 3 }}>Owner: {value.owner} · workload {value.identity.clientId}</div>
+                <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4 }}>{value.id} · owner {value.owner} · workload {value.identity.clientId}</div>
               </div>
               {/* what Git DECLARES, not what is running: changing it is a pull
                   request, not a click, and it says nothing about reachability */}
@@ -140,9 +136,11 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
           </Panel>
           <Panel>
             <SectionTitle>Connected MCPs</SectionTitle>
+            {/* names, not health: a green dot per MCP said "these are healthy",
+                which this view has not asked anything to find out */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {agent.access.filter(entry => entry.allowed).map(entry => (
-                <StatusPill tone="ok" key={entry.mcp}>{entry.mcp}</StatusPill>
+                <Chip mono key={entry.mcp}>{entry.mcp}</Chip>
               ))}
             </div>
             <div style={{ marginTop: 14 }}>
@@ -182,13 +180,13 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
 }
 
 const primaryButton = (disabled: boolean): React.CSSProperties => ({
-  padding: '7px 14px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700,
-  background: disabled ? '#c9cddb' : '#4f5be7', color: '#fff', cursor: disabled ? 'default' : 'pointer',
+  padding: '6px 16px', borderRadius: 3, border: 'none', fontSize: 13, fontWeight: 500,
+  background: disabled ? C.borderStrong : C.accent, color: C.surface, cursor: disabled ? 'default' : 'pointer',
 });
 
 const secondaryButton: React.CSSProperties = {
-  padding: '7px 14px', borderRadius: 8, border: '1px solid #d7dae6', fontSize: 13,
-  fontWeight: 600, background: '#fff', color: '#4a5170', cursor: 'pointer',
+  padding: '6px 16px', borderRadius: 3, border: `1px solid ${C.borderInput}`, fontSize: 13,
+  fontWeight: 500, background: C.surface, color: C.body, cursor: 'pointer',
 };
 
 /**
@@ -244,17 +242,18 @@ function PromptTab({ agent }: { agent: AgentDetail }) {
             value={draft}
             onChange={event => setDraft(event.target.value)}
             spellCheck={false}
+            aria-label="System prompt"
             style={{
-              width: '100%', minHeight: 340, padding: 12, borderRadius: 8,
-              border: '1px solid #d7dae6', background: '#fff', color: '#1d2233',
+              width: '100%', minHeight: 320, padding: 12, borderRadius: 3,
+              border: `1px solid ${C.borderInput}`, background: C.surface, color: C.text,
               font: "13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace", resize: 'vertical',
             }}
           />
         ) : (
           <pre
             style={{
-              margin: 0, padding: 14, borderRadius: 8, background: '#f7f8fb',
-              border: '1px solid #eceef4', color: '#1d2233', whiteSpace: 'pre-wrap',
+              margin: 0, padding: 16, borderRadius: 3, background: C.canvas,
+              border: `1px solid ${C.rule}`, color: C.text, whiteSpace: 'pre-wrap',
               wordBreak: 'break-word', font: "13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace",
             }}
           >
@@ -282,7 +281,7 @@ function PromptTab({ agent }: { agent: AgentDetail }) {
       </div>
 
       {outcome && (
-        <div style={{ marginTop: 12, fontSize: 13, color: outcome.kind === 'ok' ? '#19a15e' : '#c2374f' }}>
+        <div style={{ marginTop: 12, fontSize: 13, color: outcome.kind === 'ok' ? C.green : C.red }}>
           {outcome.message}{' '}
           {outcome.url && <a href={outcome.url} target="_blank" rel="noreferrer">View pull request</a>}
         </div>

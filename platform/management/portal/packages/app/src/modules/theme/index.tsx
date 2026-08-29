@@ -24,12 +24,16 @@ const agentOpsTheme = createUnifiedTheme({
     htmlFontSize: 16,
     // spread Backstage's defaults so only the family and weight are overridden;
     // the heading scale and spacing stay whatever the platform ships
-    h1: { ...defaultTypography.h1, fontFamily: UI_FONT, fontWeight: 800 },
-    h2: { ...defaultTypography.h2, fontFamily: UI_FONT, fontWeight: 800 },
-    h3: { ...defaultTypography.h3, fontFamily: UI_FONT, fontWeight: 700 },
-    h4: { ...defaultTypography.h4, fontFamily: UI_FONT, fontWeight: 700 },
-    h5: { ...defaultTypography.h5, fontFamily: UI_FONT, fontWeight: 700 },
-    h6: { ...defaultTypography.h6, fontFamily: UI_FONT, fontWeight: 700 },
+    //
+    // 600 throughout rather than 800/700: hierarchy on a configuration screen
+    // comes from size, rules and position, and heavy headings on every panel
+    // flatten that hierarchy instead of creating it.
+    h1: { ...defaultTypography.h1, fontFamily: UI_FONT, fontWeight: 600 },
+    h2: { ...defaultTypography.h2, fontFamily: UI_FONT, fontWeight: 600 },
+    h3: { ...defaultTypography.h3, fontFamily: UI_FONT, fontWeight: 600 },
+    h4: { ...defaultTypography.h4, fontFamily: UI_FONT, fontWeight: 600 },
+    h5: { ...defaultTypography.h5, fontFamily: UI_FONT, fontWeight: 600 },
+    h6: { ...defaultTypography.h6, fontFamily: UI_FONT, fontWeight: 600 },
   },
 });
 

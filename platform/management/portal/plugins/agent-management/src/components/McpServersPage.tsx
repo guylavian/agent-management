@@ -37,7 +37,7 @@ export function McpServersPage() {
             <DataTable columns={COLUMNS} head={['NAME', 'TOOLHIVE PROXY', 'EXPECTED AUDIENCE', 'AGENTS', 'TOOLS', 'READ-ONLY']}>
               {servers.map(server => (
                 <DataRow key={server.id} columns={COLUMNS} onClick={() => setSelected(server.id)}>
-                  <div style={{ fontWeight: 700, fontSize: 13.5, color: C.accent }}>{server.id}</div>
+                  <div style={{ fontWeight: 500, fontSize: 13, color: C.accent }}>{server.id}</div>
                   {/* an unconfigured proxy is stated, not blanked */}
                   <div>{server.toolhiveEndpoint ? <Mono>{server.toolhiveEndpoint}</Mono> : <StatusPill tone="warn">not configured here</StatusPill>}</div>
                   <Muted mono>{server.expectedAudience}</Muted>
@@ -65,13 +65,13 @@ export function McpServersPage() {
                   ]}
                 />
                 <div>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: C.body, marginBottom: 8 }}>Allowed workload identities</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 500, color: C.body, marginBottom: 8 }}>Allowed workload identities</div>
                   <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
                     {detail.agents.length === 0 ? <Muted size={12.5}>none</Muted> : detail.agents.map(agent => <Chip key={agent} mono>sre-agent-{agent}</Chip>)}
                   </div>
                 </div>
               </div>
-              <div style={{ marginTop: 18, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ marginTop: 16, borderTop: `1px solid ${C.rule}` }}>
                 <DataTable columns={TOOL_COLUMNS} head={['TOOL', 'CLASSIFICATION']}>
                   {detail.tools.map(tool => (
                     <DataRow key={tool.name} columns={TOOL_COLUMNS}>

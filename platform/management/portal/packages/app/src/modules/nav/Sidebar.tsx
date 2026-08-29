@@ -11,30 +11,30 @@ import { Link, useLocation } from 'react-router-dom';
  */
 
 const C = {
-  accent: '#4f5be7',
-  accentSoft: '#eef0fd',
+  accent: '#1f5fb5',
+  accentSoft: '#eaf1fa',
   surface: '#ffffff',
-  border: '#e6e8f0',
-  rule: '#eceef4',
-  text: '#1d2233',
-  body: '#4a5170',
-  faint: '#8b93a7',
+  border: '#d5d9e0',
+  rule: '#e4e7ec',
+  text: '#1c2128',
+  body: '#39404a',
+  faint: '#7c848f',
 };
 
-interface NavEntry {
-  label: string;
-  to: string;
-  glyph: { background: string; borderRadius: number; transform?: string };
-}
-
-const NAV: NavEntry[] = [
-  { label: 'Overview', to: '/', glyph: { background: '#4f5be7', borderRadius: 2 } },
-  { label: 'Agents', to: '/agents', glyph: { background: '#0e9384', borderRadius: 99 } },
-  { label: 'Manager', to: '/manager', glyph: { background: '#c2410c', borderRadius: 99 } },
-  { label: 'MCP Servers', to: '/mcp-servers', glyph: { background: '#e2a306', borderRadius: 2 } },
-  { label: 'Permissions', to: '/permissions', glyph: { background: '#7c5cd6', borderRadius: 99 } },
-  { label: 'Runs', to: '/runs', glyph: { background: '#19a15e', borderRadius: 2, transform: 'rotate(45deg)' } },
-  { label: 'Catalog', to: '/catalog', glyph: { background: '#8b93a7', borderRadius: 2 } },
+/**
+ * Destinations only. Each entry used to carry its own colour, which made the
+ * rail read as seven unrelated products: colour was doing decoration, not
+ * telling an operator anything. Selection is the only state the nav has, so it
+ * is the only thing that changes appearance.
+ */
+const NAV: Array<{ label: string; to: string }> = [
+  { label: 'Overview', to: '/' },
+  { label: 'Agents', to: '/agents' },
+  { label: 'Manager', to: '/manager' },
+  { label: 'MCP Servers', to: '/mcp-servers' },
+  { label: 'Permissions', to: '/permissions' },
+  { label: 'Runs', to: '/runs' },
+  { label: 'Catalog', to: '/catalog' },
 ];
 
 function isActive(pathname: string, to: string): boolean {
@@ -67,17 +67,11 @@ function SidebarContentComponent() {
         fontSize: 14,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '18px 16px 14px 16px' }}>
-        <div style={{ width: 28, height: 28, borderRadius: 8, background: C.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
-          <div style={{ width: 10, height: 10, background: C.surface, borderRadius: 2, transform: 'rotate(45deg)' }} />
-        </div>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: '-0.2px' }}>AgentOps</div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: C.faint, letterSpacing: '.4px' }}>SRE PLATFORM</div>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', padding: '16px 16px 12px 16px' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '-0.1px' }}>Agent Management</div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 10px', flex: 1, overflowY: 'auto' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '4px 8px', flex: 1, overflowY: 'auto' }}>
         {NAV.map(entry => {
           const active = isActive(pathname, entry.to);
           return (
@@ -87,35 +81,35 @@ function SidebarContentComponent() {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 11,
-                padding: '8px 12px',
-                borderRadius: 8,
-                fontSize: 13.5,
-                fontWeight: active ? 700 : 500,
-                color: active ? C.accent : C.body,
+                gap: 8,
+                padding: '5px 8px',
+                borderRadius: 3,
+                fontSize: 13,
+                fontWeight: active ? 600 : 400,
+                color: active ? C.text : C.body,
                 background: active ? C.accentSoft : 'transparent',
+                // the selected row is marked on its leading edge rather than by
+                // weight alone, so selection survives being scanned peripherally
+                boxShadow: active ? `inset 2px 0 0 ${C.accent}` : 'none',
                 textDecoration: 'none',
                 userSelect: 'none',
               }}
             >
-              <span style={{ width: 9, height: 9, flex: 'none', ...entry.glyph }} />
               <span>{entry.label}</span>
             </Link>
           );
         })}
       </div>
 
-      <div style={{ padding: '12px 14px', borderTop: `1px solid ${C.rule}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 99, background: '#e7f0ec', color: '#12794a' }}>
-          <span style={{ width: 6, height: 6, borderRadius: 99, background: '#19a15e' }} />
-          Read-only platform
-        </span>
-        <Link to="/settings" style={{ display: 'flex', alignItems: 'center', gap: 9, textDecoration: 'none', color: C.text }}>
-          <span style={{ width: 26, height: 26, borderRadius: 99, background: C.accent, color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>SR</span>
-          <span>
-            <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700 }}>Settings</span>
-            <span style={{ display: 'block', fontSize: 11, color: C.faint }}>Profile &amp; sign-out</span>
-          </span>
+      {/*
+        * The "Read-only platform" badge that used to sit here was a constant:
+        * it never changed, could not be acted on, and occupied the position an
+        * operator checks for state. The read-only posture is a property of each
+        * agent and is shown per agent, where it can actually differ.
+        */}
+      <div style={{ padding: '8px', borderTop: `1px solid ${C.rule}` }}>
+        <Link to="/settings" style={{ display: 'block', padding: '5px 8px', borderRadius: 3, fontSize: 13, textDecoration: 'none', color: C.body }}>
+          Settings
         </Link>
       </div>
     </div>

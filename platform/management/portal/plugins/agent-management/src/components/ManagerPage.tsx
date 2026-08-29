@@ -20,8 +20,9 @@ import {
   StatusPill,
   Tabs,
   inputStyle,
+  lifecycleTone,
 } from './common';
-import type { ChangePreview, ManagerDetail, ManagerDraft } from '../api/types';
+import type { AgentLifecycle, ChangePreview, ManagerDetail, ManagerDraft } from '../api/types';
 
 const TABS = ['Routing', 'Prompt', 'Review & Propose'] as const;
 
@@ -130,6 +131,7 @@ export function ManagerPage() {
                   value={draft.prompt}
                   onChange={event => patch({ prompt: event.target.value })}
                   spellCheck={false}
+                  aria-label="Manager system prompt"
                   style={{ ...inputStyle, width: '100%', minHeight: 380, fontFamily: MONO, fontSize: 12.5, lineHeight: 1.7, padding: 14, resize: 'vertical' }}
                 />
               </Panel>
@@ -160,12 +162,12 @@ function Header({ manager }: { manager: ManagerDetail }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: '-0.3px' }}>{manager.displayName ?? 'Manager'}</div>
-            <StatusPill tone="info">{manager.lifecycle}</StatusPill>
+            <div style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.2px' }}>{manager.displayName ?? 'Manager'}</div>
+            <StatusPill tone={lifecycleTone(manager.lifecycle as AgentLifecycle)}>{manager.lifecycle}</StatusPill>
             <Chip mono>{manager.modelProfile}</Chip>
           </div>
-          <div style={{ fontSize: 13, color: C.muted, marginTop: 3 }}>
-            Owner: {manager.owner} · routes to {manager.allowed.length} specialist{manager.allowed.length === 1 ? '' : 's'}
+          <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4 }}>
+            {manager.id} · owner {manager.owner} · routes to {manager.allowed.length} specialist{manager.allowed.length === 1 ? '' : 's'}
           </div>
         </div>
       </div>
@@ -289,8 +291,8 @@ function ReviewTab(props: {
       </div>
 
       {props.issues.length > 0 && (
-        <div style={{ marginTop: 16, background: C.redSoft, border: `1px solid ${C.redSoft}`, borderRadius: 10, padding: 14 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 6 }}>This change cannot be generated</div>
+        <div style={{ marginTop: 16, background: C.redSoft, border: `1px solid ${C.redBright}`, borderRadius: 3, padding: 12 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 500, color: C.red, marginBottom: 4 }}>This change cannot be generated</div>
           <ul style={{ margin: 0, paddingLeft: 18, color: C.red, fontSize: 12.5 }}>
             {props.issues.map(issue => <li key={issue}>{issue}</li>)}
           </ul>
@@ -303,7 +305,7 @@ function ReviewTab(props: {
           {props.preview.files.map(file => (
             <div key={file.path} style={{ marginBottom: 14 }}>
               <div style={{ fontFamily: MONO, fontSize: 12.5, color: C.body, marginBottom: 6 }}>{file.path}</div>
-              <pre style={{ background: '#1d2233', color: '#e8eaf5', padding: 18, borderRadius: 10, overflowX: 'auto', fontSize: 12.5, margin: 0, fontFamily: MONO, lineHeight: 1.6 }}>{file.contents}</pre>
+              <pre style={{ background: C.canvas, border: `1px solid ${C.rule}`, color: C.text, padding: 12, borderRadius: 3, overflowX: 'auto', fontSize: 12, margin: 0, fontFamily: MONO, lineHeight: 1.6 }}>{file.contents}</pre>
             </div>
           ))}
           <div style={{ marginTop: 16 }}>
@@ -318,7 +320,7 @@ function ReviewTab(props: {
       {props.pr && (
         <div style={{ marginTop: 16 }}>
           {props.pr.status === 'created' && props.pr.url ? (
-            <a href={props.pr.url} style={{ color: C.accent, fontWeight: 700 }}>{props.pr.url}</a>
+            <a href={props.pr.url} style={{ color: C.accent, fontSize: 13 }}>{props.pr.url}</a>
           ) : (
             <StatusPill tone="warn">Not configured: {props.pr.reason}</StatusPill>
           )}
