@@ -1,10 +1,14 @@
 # PoC status
 
+All commands run from `platform/` — the Git root is a shell holding
+`.claude/`, `.woodpecker/` and `platform/` only.
+
 ## Current state
 
 | Check | State | Evidence |
 |---|---|---|
-| Full repository check | **PASS** | `npm run check` — 318 tests, 12 YAML checks, boundaries, generated freshness, 2 Helm charts |
+| Repository layout | **PASS** | Git root is directories-only; `platform/` is the single npm workspace root |
+| Full repository check | **PASS** | `cd platform && npm run check` — 320 tests, 12 YAML checks, boundaries, generated freshness, 2 Helm charts |
 | Monorepo structure | **PASS** | `agent-engine/ orchestrator/ runtime-host/ portal/ contracts/ shared/ config/ deploy/` |
 | Architectural boundaries | **PASS** | `agent-engine ✕→ orchestrator` and `orchestrator ✕→ agent-engine` proven at 0 imports; only `runtime-host` composes both |
 | One image, two roles | **PASS** | one image from `deploy/runtime/Dockerfile` boots `mode: manager` and `mode: specialist` (run, not asserted) |
@@ -20,7 +24,7 @@
 | Backstage typecheck / lint / test / build | **PASS** | `yarn tsc`, `yarn lint:all`, 7 tests, `yarn build:all` — lint was red before this work |
 | Keycloak workload identities (real) | **PASS** | 9/9 against live Keycloak 26.6 — see below |
 | ToolHive access policy (real engine) | **PASS** | rendered Cedar policies evaluated by ToolHive's own authorizer |
-| Real PoC smoke | **16 PASS / 3 FAIL / 0 BLOCKED** | the 3 are `MODEL_RATE_LIMITED` in specialist spans, identical to the pre-migration baseline |
+| Real PoC smoke | **17 PASS / 2 FAIL / 0 BLOCKED** | rebuilt from scratch on the new layout; the 2 are `MODEL_RATE_LIMITED` in specialist spans |
 
 ## What was verified against real infrastructure
 
@@ -39,9 +43,9 @@ Agent workload may not; an ungranted tool is denied to everyone; a server with
 no grants denies everyone; a request without `azp` is denied rather than
 erroring.
 
-**Live gateway** (real PoC smoke A): real evidence returned through three
-ToolHive MCP tools under the new policies — 36 successful audit events against
-3 denials, all three unauthenticated probes rather than tool calls.
+**Live gateway** (real PoC smoke A and B): real evidence returned through
+ToolHive MCP tools under the rendered policies — 108 successful audit events
+against 8 denials, all of them unauthenticated probes rather than tool calls.
 
 ## Honest completion state
 
@@ -88,6 +92,18 @@ The Backstage workspace requires Node 22/24 (`.nvmrc` pins 24.20.0). Installing
 it under Node 20 fails to build `better-sqlite3` and `cpu-features`.
 
 `npm run verify:toolhive-policy` needs the vendored ToolHive source
-(`scripts/prepare-real-poc.sh`) and a Go toolchain. It exits non-zero when
+(`engineering/tools/prepare-real-poc.sh`) and a Go toolchain. It exits non-zero when
 either is missing rather than skipping, because a check that skips silently is
 how PASS starts meaning "not run".
+
+## Local PoC state
+
+`platform/.real-poc/` is derived, gitignored state: vendored ToolHive and
+prometheus-mcp sources, their built binaries, Keycloak H2 data, Prometheus TSDB,
+generated keys, logs and pids. It was destroyed during the layout cleanup and
+rebuilt from scratch — `prepare-real-poc.sh`, `start-real-poc.sh`,
+`reconcile:keycloak` — which restored everything except local Prometheus scrape
+history, which is not reproducible and was lost.
+
+That it rebuilds completely is the reason it is not committed. Nothing under
+`platform/config`, `platform/deploy` or any tracked path was affected.
