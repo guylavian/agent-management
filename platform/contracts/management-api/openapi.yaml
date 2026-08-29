@@ -717,6 +717,60 @@ components:
             upload: { type: string, description: base64 image bytes, validated by the runtime. }
             fit: { type: string, enum: [cover, contain] }
 
+    DiffLine:
+      type: object
+      additionalProperties: false
+      required: [kind, text]
+      properties:
+        kind: { type: string, enum: [context, add, remove] }
+        before: { type: integer, description: Line number in the file before the change; absent on an addition. }
+        after: { type: integer, description: Line number in the file after the change; absent on a removal. }
+        text: { type: string }
+
+    DiffHunk:
+      type: object
+      additionalProperties: false
+      required: [beforeStart, beforeLines, afterStart, afterLines, header, lines]
+      properties:
+        beforeStart: { type: integer }
+        beforeLines: { type: integer }
+        afterStart: { type: integer }
+        afterLines: { type: integer }
+        header: { type: string, description: "Git-style @@ -a,b +c,d @@." }
+        lines:
+          type: array
+          items: { $ref: "#/components/schemas/DiffLine" }
+
+    FileDiff:
+      type: object
+      additionalProperties: false
+      description: >-
+        One file in a change-set, compared against what is currently on disk.
+        Computed by the runtime, which is the only process that can see the
+        working tree; the portal renders it and computes nothing.
+      required: [path, status, additions, deletions, hunks, binary]
+      properties:
+        path: { type: string }
+        status: { type: string, enum: [added, modified, deleted, unchanged] }
+        additions: { type: integer }
+        deletions: { type: integer }
+        hunks:
+          type: array
+          items: { $ref: "#/components/schemas/DiffHunk" }
+        binary: { type: boolean, description: No line diff is meaningful; the file is still part of the change. }
+
+    ChangeSetDiff:
+      type: object
+      additionalProperties: false
+      required: [files, additions, deletions, changed]
+      properties:
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/FileDiff" }
+        additions: { type: integer }
+        deletions: { type: integer }
+        changed: { type: integer, description: Files that actually changed; an unchanged file is listed but not counted. }
+
     ChangedFile:
       type: object
       additionalProperties: false
@@ -743,6 +797,7 @@ components:
           type: array
           description: Every file in the change-set — Agent, prompt and deployment overlay.
           items: { $ref: "#/components/schemas/ChangedFile" }
+        diff: { $ref: "#/components/schemas/ChangeSetDiff" }
 
     ChangeResult:
       type: object

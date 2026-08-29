@@ -27,6 +27,7 @@ import {
 } from './common';
 import type { AgentDraft, ChangePreview } from '../api/types';
 import { AgentVisual } from './AgentVisual';
+import { ChangeSetDiff } from './ChangeSetDiff';
 
 const DEFAULT_LIMITS = {
   maxModelTurns: 6,
@@ -448,17 +449,23 @@ export function CreateAgentPage(props: { agentId?: string }) {
       )}
 
       {preview && (
-        <Section icon="general" title="Change set" description={`${preview.title}. Review every file before opening the pull request.`}>
-          {preview.files.map(file => (
-            <div key={file.path} style={{ marginBottom: S.md }}>
-              <div style={{ fontFamily: MONO, fontSize: 12, color: C.body, marginBottom: S.xs }}>{file.path}</div>
-              <pre style={{ background: C.canvas, border: `1px solid ${C.rule}`, color: C.text, padding: S.md, borderRadius: R.control, overflowX: 'auto', fontSize: 12, margin: 0, fontFamily: MONO, lineHeight: 1.6 }}>{file.contents}</pre>
-            </div>
-          ))}
-          <SectionTitle>Merging this change will</SectionTitle>
+        <Section icon="general" title="Change set" description={`${preview.title}. Review every change before opening the pull request.`}>
+          {/*
+            * The diff, not the resulting files. Merging one of these is how an
+            * agent's tool access actually changes, so what a reviewer needs to
+            * see is what MOVED — not ninety lines of unchanged YAML with two
+            * edits somewhere inside them.
+            */}
+          {preview.diff === undefined
+            ? <Muted>This runtime did not return a diff for the change-set.</Muted>
+            : <ChangeSetDiff diff={preview.diff} />}
+
+          <div style={{ marginTop: S.xl }}>
+            <SectionTitle>Merging this change will</SectionTitle>
           <ul style={{ margin: 0, paddingLeft: S.lg, fontSize: 12.5, color: C.body, lineHeight: 1.8 }}>
             {preview.effects.map(effect => <li key={effect}>{effect}</li>)}
-          </ul>
+            </ul>
+          </div>
         </Section>
       )}
 

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Router, type Request, type Response } from "express";
-import type { AgentRegistry, AppConfig } from "@sre/config";
+import { DEPLOY_ROOT, type AgentRegistry, type AppConfig } from "@sre/config";
 import type { ModelClient } from "@sre/llm";
 import {
   agentDetail,
@@ -10,6 +10,7 @@ import {
   AvatarError,
   BUILT_IN_ICONS,
   CONTENT_TYPE,
+  diffFile,
   draftSystemPrompt,
   isManagedAvatarPath,
   managerDetail,
@@ -20,8 +21,10 @@ import {
   proposePromptChange,
   PromptAssistError,
   safeContext,
+  summarise,
   validateAvatar,
   type AgentDraft,
+  type ChangeSetDiff,
   type ManagerDraft,
   type RunStore,
 } from "./index.ts";
@@ -132,7 +135,7 @@ export function managementRouter(deps: ManagementDeps): Router {
   router.post("/agents/preview", (request: Request, response: Response) => {
     try {
       const { change, generated } = proposeAgentChange({ draft: request.body as AgentDraft, requestedBy: request.identity?.subject ?? "unknown", update: deps.registry.getSpecialist((request.body as AgentDraft)?.name ?? "") !== undefined });
-      response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: generated.files });
+      response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: generated.files, diff: diffAgainstDisk(generated.files) });
     } catch (error) {
       respondDraftError(response, error);
     }
@@ -150,7 +153,7 @@ export function managementRouter(deps: ManagementDeps): Router {
       const prompt = (request.body as { prompt?: unknown })?.prompt;
       if (typeof prompt !== "string") throw new AgentDraftError(["prompt: a system prompt string is required"]);
       const change = proposePromptChange({ agent, prompt, requestedBy: request.identity?.subject ?? "unknown" });
-      response.json({ path: change.files[0]?.path, yaml: change.files[0]?.contents, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: change.files });
+      response.json({ path: change.files[0]?.path, yaml: change.files[0]?.contents, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: change.files, diff: diffAgainstDisk(change.files) });
     } catch (error) {
       respondDraftError(response, error);
     }
@@ -259,13 +262,53 @@ export function managementRouter(deps: ManagementDeps): Router {
   router.post("/manager/preview", (request: Request, response: Response) => {
     try {
       const { change, generated } = proposeManagerChange({ draft: request.body as ManagerDraft, current: deps.registry.manager, requestedBy: request.identity?.subject ?? "unknown" });
-      response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: generated.files });
+      response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: generated.files, diff: diffAgainstDisk(generated.files) });
     } catch (error) {
       respondDraftError(response, error);
     }
   });
 
   return router;
+}
+
+/**
+ * Compare every proposed file against what is on disk right now.
+ *
+ * The comparison happens here because only this process can see the working
+ * tree. A file that is not there is an ADDITION rather than a diff against
+ * emptiness, so creating an agent does not read as a hundred changed lines.
+ *
+ * A read failure is treated as "not there": failing a preview because of a
+ * permissions problem would block a review over something the reviewer cannot
+ * act on, and the change-set is still perfectly reviewable as an addition.
+ */
+/**
+ * A change-set path is relative to the REPOSITORY, and the runtime does not run
+ * at its root.
+ *
+ * `config/` and `assets/` sit beside the process; `deploy/` is a sibling of it,
+ * which is why the loader already carries DEPLOY_ROOT. Resolving everything
+ * from the working directory reported existing deployment overlays as new
+ * files — a reviewer would have seen "Added +11 −0" for a file that has been
+ * in Git for months.
+ */
+function resolveChangePath(path: string): string {
+  if (path.startsWith("deploy/")) return join(process.cwd(), DEPLOY_ROOT, path.slice("deploy/".length));
+  return join(process.cwd(), path);
+}
+
+function diffAgainstDisk(files: readonly { path: string; contents: string; encoding?: "base64" }[]): ChangeSetDiff {
+  return summarise(
+    files.map((file) => {
+      let current: string | undefined;
+      try {
+        current = readFileSync(resolveChangePath(file.path), "utf8");
+      } catch {
+        current = undefined;
+      }
+      return diffFile(file.path, current, file.contents, file.encoding === "base64");
+    }),
+  );
 }
 
 function respondDraftError(response: Response, error: unknown): void {

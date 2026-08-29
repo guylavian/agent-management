@@ -51,6 +51,7 @@
     "validate:tracked": "node --import tsx tools/check-tracked-files.ts"
   },
   "devDependencies": {
+    "@types/diff": "^5.2.3",
     "@types/express": "5.0.6",
     "@types/node": "24.13.3",
     "@types/pg": "8.21.0",

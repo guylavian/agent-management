@@ -295,6 +295,47 @@ export interface AgentDraft {
   } | null;
 }
 
+export interface DiffLine {
+  kind: "context" | "add" | "remove";
+  /** Line number in the file before the change; absent on an addition. */
+  before?: number;
+  /** Line number in the file after the change; absent on a removal. */
+  after?: number;
+  text: string;
+}
+
+export interface DiffHunk {
+  beforeStart: number;
+  beforeLines: number;
+  afterStart: number;
+  afterLines: number;
+  /** Git-style @@ -a,b +c,d @@. */
+  header: string;
+  lines: Array<DiffLine>;
+}
+
+/**
+ * One file in a change-set, compared against what is currently on disk. Computed by the runtime, which is the only process that can see the working tree; the portal renders it and computes nothing.
+ */
+
+export interface FileDiff {
+  path: string;
+  status: "added" | "modified" | "deleted" | "unchanged";
+  additions: number;
+  deletions: number;
+  hunks: Array<DiffHunk>;
+  /** No line diff is meaningful; the file is still part of the change. */
+  binary: boolean;
+}
+
+export interface ChangeSetDiff {
+  files: Array<FileDiff>;
+  additions: number;
+  deletions: number;
+  /** Files that actually changed; an unchanged file is listed but not counted. */
+  changed: number;
+}
+
 export interface ChangedFile {
   path: string;
   contents: string;
@@ -313,6 +354,7 @@ export interface ChangePreview {
   effects: Array<string>;
   /** Every file in the change-set — Agent, prompt and deployment overlay. */
   files: Array<ChangedFile>;
+  diff?: ChangeSetDiff;
 }
 
 /**

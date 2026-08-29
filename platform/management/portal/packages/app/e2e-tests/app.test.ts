@@ -166,6 +166,35 @@ test('editing an agent drafts against that agent, and does not save', async ({ p
   await expect(page.getByRole('button', { name: 'Create pull request' })).toBeDisabled();
 });
 
+/**
+ * The change-set shows a diff, not the resulting files.
+ *
+ * Merging one of these is how an agent's tool access actually changes, so what
+ * a reviewer needs is what MOVED — the previous preview printed whole files and
+ * left them to find two edits inside ninety unchanged lines.
+ */
+test('Review changes shows a git-style diff of what changed', async ({ page }) => {
+  test.setTimeout(120_000);
+  await signIn(page, '/agents/active-directory/edit');
+
+  // a real edit, so there is something to see
+  await page.getByLabel('Allowed human roles').fill('infra-read, platform-read');
+  await page.getByRole('button', { name: 'Review changes' }).click();
+
+  await expect(page.getByText(/files? changed/u)).toBeVisible({ timeout: 60_000 });
+
+  // the file that actually changed is listed with its counts
+  const row = page.getByRole('button', { name: /config\/agents\/active-directory\.yaml/u });
+  await expect(row).toBeVisible();
+
+  // and the diff shows the change with a hunk header, not the whole document
+  await expect(page.getByText(/^@@ -\d+,\d+ \+\d+,\d+ @@$/u).first()).toBeVisible();
+  await expect(page.getByText('platform-read', { exact: false }).first()).toBeVisible();
+
+  // opening a preview must not have written anything
+  await expect(page.getByRole('button', { name: 'Create pull request' })).toBeEnabled();
+});
+
 test('the enabled toggle reflects state and cannot be clicked', async ({ page }) => {
   await signIn(page, '/agents/active-directory');
   const toggle = page.getByTitle('Reflects what Git declares, not what is running. Changing it is a pull request, not a click.');
