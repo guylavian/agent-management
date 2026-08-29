@@ -275,6 +275,7 @@ set moves between runs.
 | Sidebar sections Models / Evaluations / Deployments / Teams | NOT IMPLEMENTED — spec §18 lists 10, six are present |
 | Enabled/Disabled toggle on Agent detail | READ-ONLY — shows what Git declares; disabled, with `aria-readonly` and a tooltip saying a change is a pull request. Lifecycle, routability and reachability are three separate cards, so `enabled` no longer reads as liveness |
 | Edit button | IMPLEMENTED — `/agents/:id/edit` opens the create wizard prefilled from the Agent; the runtime renders it as an "Update" change-set. Proven lossless: all five shipping Agents regenerate a byte-identical document, asserted by a unit round-trip test and confirmed against the live manager |
+| Manager deployment overlay | NOT EDITABLE — `/manager` edits the canonical document (routing table, execution, prompt). Replicas and resources live in `deploy/environments/<env>/manager.yaml` and are a per-environment decision, deliberately outside the change-set |
 | Editing a grant the approved catalog does not list | GUARDED, NOT SUPPORTED — the detail view intersects grants with the catalog, so such a grant would be silently dropped by an edit. It is already dead at runtime, and a test now fails the build rather than letting the portal delete it |
 | Portal image | NOT BUILT — Helm chart references `registry.internal/sre-agent-portal:0.1.0`; no Dockerfile for the portal yet |
 | Workload-client token path | WIRED — real PoC still uses `signed-jwt` |
