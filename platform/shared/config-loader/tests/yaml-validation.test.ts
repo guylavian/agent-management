@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { parse as parseYaml, parseAllDocuments } from "yaml";
 import { describe, expect, it } from "vitest";
 import { agentDocumentSchema, assertNoSecretMaterial } from "@sre/agent-schema";
-import { accessTools, CONFIG_PATHS, ConfigValidationError, DEPLOY_ROOT, loadAgentRegistry, loadAppConfig, loadApprovedCatalog, loadModelProfiles, loadToolPolicy, renderedAgentValuesSchema, validateSemantics } from "../src/index.ts";
+import { accessTools, CONFIG_PATHS, ConfigValidationError, DEPLOY_ROOT, deployEnvironmentDir, loadAgentRegistry, loadDeploymentEnvironment, loadAppConfig, loadApprovedCatalog, loadModelProfiles, loadToolPolicy, renderedAgentValuesSchema, validateSemantics } from "../src/index.ts";
 
 describe("startup configuration", () => {
   it("loads all specialist YAML agents and approved tools", () => {
@@ -146,7 +146,14 @@ describe("startup configuration", () => {
   it("renders one values file per ENABLED agent and none for the rest", () => {
     // absence is how "do not deploy this here" reaches the ApplicationSet,
     // which discovers files rather than reading an enablement list
-    const poc = readdirSync(`${DEPLOY_ROOT}/environments/poc/rendered/agents`).sort();
-    expect(poc).toEqual(["keycloak.yaml", "manager.yaml", "observability.yaml"]);
+    // Derived from the overlays rather than listed: a literal list fails whenever
+    // an environment enables or disables an agent, which is a routine deployment
+    // change, and teaches whoever hits it to edit the list instead of the claim.
+    for (const environment of ["poc", "local", "production"]) {
+      const rendered = readdirSync(`${DEPLOY_ROOT}/environments/${environment}/rendered/agents`).sort();
+      const overlays = loadDeploymentEnvironment(deployEnvironmentDir(environment)).overlays;
+      const expected = [...overlays.values()].filter((overlay) => overlay.enabled).map((overlay) => `${overlay.agentId}.yaml`);
+      expect(rendered, environment).toEqual([...expected, "manager.yaml"].sort());
+    }
   });
 });

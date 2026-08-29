@@ -26,7 +26,7 @@ for name in "${required[@]}"; do
 done
 
 docker info >/dev/null
-test -x "$bin/thv" && test -x "$bin/prometheus-mcp" || "$root/tools/prepare-real-poc.sh"
+test -x "$bin/thv" && test -x "$bin/prometheus-mcp" && test -x "$bin/kubernetes-mcp" || "$root/tools/prepare-real-poc.sh"
 "$root/tools/gen-keycloak-cert.sh"
 chmod +x "$root/tools/gen-manager-cert.sh"; "$root/tools/gen-manager-cert.sh"
 docker compose --env-file "$env_file" -f "$repo/deploy/local/compose.yaml" -f "$repo/deploy/local/keycloak/tls.override.yml" up -d
@@ -81,20 +81,18 @@ start_background prometheus-mcp env \
   --mcp.tools=label_values --mcp.tools=series --mcp.tools=list_targets --mcp.tools=healthy \
   --mcp.tools=ready --mcp.tools=runtime_info --mcp.tools=build_info
 
-# The Kubernetes MCP (containers/kubernetes-mcp-server) is approved and its
-# ToolHive policy is rendered, but it is NOT started here. Its only consumer is
-# the openshift agent, which this environment does not enable — so its poc
-# policy is the default forbid and a proxy would deny every call. Enabling the
-# agent here would also pull in its openshift and splunk MCPs, which have no
-# local backend; an unmapped server has no endpoint to resolve and fails at
-# connect. Exercise it in `local`, where the openshift agent runs:
-#
-#   platform/.real-poc/bin/kubernetes-mcp --read-only --disable-destructive --port 8203
-#   thv run http://127.0.0.1:8203/mcp --name sre-poc-kubernetes --proxy-port 8304 \
-#     --authz-config deploy/environments/local/rendered/toolhive/kubernetes.authz.yaml ...
+# containers/kubernetes-mcp-server against whatever cluster the kubeconfig names.
+# --read-only and --disable-destructive are belt and braces: the approved catalog
+# cannot express a write, ToolHive's Cedar policy permits only the nine read
+# tools, and the server refuses too. Three independent refusals, none of which
+# relies on the model behaving.
+start_background kubernetes-mcp env \
+  KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}" \
+  "$bin/kubernetes-mcp" --read-only --disable-destructive --port 8203
 
 wait_http http://127.0.0.1:8201/mcp "Keycloak MCP"
 wait_http http://127.0.0.1:8202/mcp "Prometheus MCP"
+wait_http http://127.0.0.1:8203/mcp "Kubernetes MCP"
 
 common_env=(
   SRE_ENV=real-poc SRE_CLIENT_OIDC=real SRE_CLIENT_LLM=real SRE_CLIENT_TOOLHIVE=real
@@ -107,7 +105,7 @@ common_env=(
   SRE_INTERNAL_OIDC_JWKS_URI="http://127.0.0.1:${KEYCLOAK_HTTP_PORT:-8080}/realms/${KEYCLOAK_REALM:-sre-test}/protocol/openid-connect/certs"
   SRE_LLM_BASE_URL="$SRE_LLM_BASE_URL" SRE_MODEL_MANAGER="$SRE_MODEL_MANAGER"
   SRE_MODEL_TOOL_CALLER="$SRE_MODEL_TOOL_CALLER" SRE_MODEL_SYNTHESIS="$SRE_MODEL_SYNTHESIS"
-  SRE_TOOLHIVE_ENDPOINTS_JSON='{"keycloak":"http://127.0.0.1:8301/mcp","prometheus":"http://127.0.0.1:8302/mcp","wiki":"http://127.0.0.1:8303/mcp"}'
+  SRE_TOOLHIVE_ENDPOINTS_JSON='{"keycloak":"http://127.0.0.1:8301/mcp","prometheus":"http://127.0.0.1:8302/mcp","wiki":"http://127.0.0.1:8303/mcp","kubernetes":"http://127.0.0.1:8304/mcp"}'
   SRE_TOOL_CREDENTIAL_STRATEGY=signed-jwt SRE_TOOL_CREDENTIAL_ISSUER=http://127.0.0.1:3000
   SRE_TOOL_CREDENTIAL_PRIVATE_KEY_FILE="$state/delegation-private.pem"
   SRE_DELEGATION_ISSUER=http://127.0.0.1:3000 SRE_DELEGATION_PRIVATE_KEY_FILE="$state/delegation-private.pem"
@@ -126,8 +124,9 @@ start_runtime() {
 }
 
 # The Manager runs the CANONICAL manager Agent. Its effective catalog is bounded to
-# keycloak+observability by deploy/environments/poc, not by a second manager document:
-# the other three agents are canonical but not enabled in this environment.
+# keycloak+observability+openshift by deploy/environments/poc, not by a second manager
+# document: active-directory and network-observability are canonical but not enabled
+# here, because neither has a real MCP backend on this machine.
 #
 # Manager also serves its internal JWKS over loopback HTTPS (:3443) because ToolHive's
 # JWKS-fetch client requires an https scheme. The mkcert-signed cert is trusted by the
@@ -136,6 +135,10 @@ start_runtime manager 3000 config/agents/manager.yaml \
   SRE_INTERNAL_TLS_CERT_FILE="$state/manager-tls.crt" SRE_INTERNAL_TLS_KEY_FILE="$state/manager-tls.key" SRE_INTERNAL_TLS_PORT=3443
 start_runtime keycloak-agent 3101 config/agents/keycloak.yaml
 start_runtime observability-agent 3102 config/agents/observability.yaml
+# openshift reads the local cluster through the Kubernetes MCP. Its openshift and
+# splunk MCPs have no local backend; tool discovery is allSettled, so they
+# contribute no tools rather than failing the request.
+start_runtime openshift-agent 3103 config/agents/openshift.yaml
 
 # the gateway policy is derived from the canonical Agent config, so it is
 # re-rendered here rather than trusted to be current on disk
@@ -172,5 +175,7 @@ run_proxy http://127.0.0.1:8201/mcp sre-poc-keycloak 8301 sre-toolhive:keycloak 
 run_proxy http://127.0.0.1:8202/mcp sre-poc-prometheus 8302 sre-toolhive:prometheus \
   query,range_query,metric_metadata,label_names,label_values,series,list_targets,healthy,ready,runtime_info,build_info prometheus
 run_proxy "$LLM_WIKI_MCP_ENDPOINT" sre-poc-wiki 8303 sre-toolhive:wiki wiki_search,wiki_read_page,wiki_route wiki
+run_proxy http://127.0.0.1:8203/mcp sre-poc-kubernetes 8304 sre-toolhive:kubernetes \
+  pods_list,pods_get,pods_log,pods_top,events_list,namespaces_list,nodes_top,resources_list,resources_get kubernetes
 
 echo "Real PoC started. Run: $root/tools/verify-real-poc.sh"

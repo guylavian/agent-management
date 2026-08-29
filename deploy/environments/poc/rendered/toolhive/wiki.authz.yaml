@@ -6,6 +6,7 @@
 # MCP server: wiki
 #   keycloak (sre-agent-keycloak) -> 3 tool(s), aud sre-toolhive:wiki
 #   observability (sre-agent-observability) -> 3 tool(s), aud sre-toolhive:wiki
+#   openshift (sre-agent-openshift) -> 2 tool(s), aud sre-toolhive:wiki
 version: "1.0"
 type: cedarv1
 cedar:
@@ -16,4 +17,6 @@ cedar:
     - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
     - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_route") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
     - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_read_page") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"wiki_search") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
   entities_json: "[]"

@@ -5,6 +5,7 @@
 #
 # MCP server: prometheus
 #   observability (sre-agent-observability) -> 11 tool(s), aud sre-toolhive:prometheus
+#   openshift (sre-agent-openshift) -> 1 tool(s), aud sre-toolhive:prometheus
 version: "1.0"
 type: cedarv1
 cedar:
@@ -20,4 +21,5 @@ cedar:
     - 'permit(principal, action == Action::"call_tool", resource == Tool::"ready") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
     - 'permit(principal, action == Action::"call_tool", resource == Tool::"runtime_info") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
     - 'permit(principal, action == Action::"call_tool", resource == Tool::"series") when { principal has claim_azp && principal.claim_azp == "sre-agent-observability" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"query_cluster_metrics") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
   entities_json: "[]"

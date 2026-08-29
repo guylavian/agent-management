@@ -77,7 +77,7 @@ describe("effective agent catalog", () => {
     // canonical, so a discovered domain naming it reads as "not deployed" rather than "unknown"
     expect(catalog.resolve("active-directory")).toBeDefined();
     expect(catalog.resolve("active-directory")?.enabled).toBe(false);
-    expect(catalog.listEnabled("lab").map((agent) => agent.agentId).sort()).toEqual(["keycloak", "observability"]);
+    expect(catalog.listEnabled("lab").map((agent) => agent.agentId).sort()).toEqual(["keycloak", "observability", "openshift"]);
   });
 
   it("rejects a deployment overlay with no canonical Agent behind it", () => {

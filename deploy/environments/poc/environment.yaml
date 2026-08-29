@@ -2,7 +2,10 @@ apiVersion: sre.ai/v1alpha1
 kind: DeploymentEnvironment
 environment: poc
 # Real local PoC (engineering/tools/start-real-poc.sh): loopback processes against real
-# Keycloak, Prometheus and ToolHive. Only the two agents with real MCP backends are
-# enabled here, which is what bounds the Manager's effective catalog to those two.
+# Keycloak, Prometheus and ToolHive. Only the agents with a real MCP backend are
+# enabled here, which is what bounds the Manager's effective catalog. openshift
+# joined them when the Kubernetes MCP was approved: it reads the local cluster
+# through kubeconfig. Its openshift and splunk MCPs have no local backend, and
+# discovery is allSettled, so those contribute no tools rather than failing.
 namespace: sre-assistant
 endpointTemplate: http://sre-agent-{agentId}.{namespace}.svc.cluster.local

@@ -67,9 +67,10 @@ describe("ToolHive access policy", () => {
    * An unloadable policy is not a denial, it is an outage.
    */
   it("explicitly forbids everything on a server no Agent may reach here", () => {
-    // openshift is canonical but not deployed in the PoC environment
-    expect(policiesFor("poc", "openshift")).toEqual(["forbid(principal, action, resource);"]);
-    expect(loadDeploymentEnvironment(deployEnvironmentDir("poc")).overlays.get("openshift")?.enabled).toBe(false);
+    // active-directory is canonical but not deployed in the PoC environment, so
+    // the only Agent that may reach its MCP server contributes no permit
+    expect(policiesFor("poc", "active-directory")).toEqual(["forbid(principal, action, resource);"]);
+    expect(loadDeploymentEnvironment(deployEnvironmentDir("poc")).overlays.get("active-directory")?.enabled).toBe(false);
   });
 
   /**
@@ -91,7 +92,7 @@ describe("ToolHive access policy", () => {
   it("drops an Agent that is not deployed in the environment", () => {
     const poc = grantsByServer("poc");
     const wikiAgents = (poc.get("wiki") ?? []).map((grant) => grant.agentId).sort();
-    expect(wikiAgents).toEqual(["keycloak", "observability"]);
+    expect(wikiAgents).toEqual(["keycloak", "observability", "openshift"]);
     // the same Agents that the Manager's effective catalog will route to
     expect((poc.get("network") ?? [])).toEqual([]);
   });

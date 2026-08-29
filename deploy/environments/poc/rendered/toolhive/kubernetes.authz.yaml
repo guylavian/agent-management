@@ -4,11 +4,18 @@
 # permit below is refused by the gateway, and a disabled Agent has none.
 #
 # MCP server: kubernetes
-# No Agent is granted access to this server in this environment: the
-# policy below forbids everything explicitly.
+#   openshift (sre-agent-openshift) -> 9 tool(s), aud sre-toolhive:kubernetes
 version: "1.0"
 type: cedarv1
 cedar:
   policies:
-    - 'forbid(principal, action, resource);'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"events_list") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"namespaces_list") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"nodes_top") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"pods_get") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"pods_list") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"pods_log") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"pods_top") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"resources_get") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"resources_list") when { principal has claim_azp && principal.claim_azp == "sre-agent-openshift" };'
   entities_json: "[]"
