@@ -8,10 +8,10 @@ coverage/
 *.log
 .DS_Store
 
-# derived local state: engineering/eval writes results, and the real PoC keeps
+# derived local state: eval writes run results, and the real PoC keeps
 # its whole workspace (vendored sources, keycloak/prometheus data, pids, keys)
 # under .real-poc so it is reproducible rather than committed
-engineering/eval/results/
+eval/results/
 .real-poc/
 
 # real credentials for the local PoC; only the .example templates are committed
@@ -30,5 +30,9 @@ management/portal/.yarn/cache
 management/portal/.yarn/install-state.gz
 management/portal/node_modules
 
-# source archives produced on demand
-sre-agent-platform-source.zip
+# source archives — produced on demand, written OUTSIDE the repository so no
+# root-level rule is needed for them
+*.zip
+*.tar
+*.tar.gz
+*.tgz
