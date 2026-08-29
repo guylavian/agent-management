@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
+import { CONFIG_PATHS, loadAgentRegistry, toRepoPath } from "@sre/config";
 import { generateManagerChange, managerDetail, managerDraftToDocument, proposeManagerChange, type ManagerDraft } from "@sre/runtime-host";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
@@ -64,7 +64,7 @@ describe("the Manager round-trips through a draft without losing anything", () =
 
   it("regenerates the prompt file the Manager actually loaded", () => {
     const files = generateManagerChange(draftFromDetail()).files;
-    expect(files.map(file => file.path)).toEqual(["config/agents/manager.yaml", registry.manager.spec.prompt.systemFile]);
+    expect(files.map(file => file.path)).toEqual(["platform/config/agents/manager.yaml", toRepoPath(registry.manager.spec.prompt.systemFile)]);
     expect(files[1]?.contents).toContain(registry.manager.systemPrompt.trim());
   });
 

@@ -13,6 +13,32 @@ import { z } from "zod";
  */
 export const DEPLOY_ROOT = "../deploy";
 
+/**
+ * Where the runtime sits inside the configuration repository.
+ *
+ * The runtime reads `config/agents/...` relative to itself, but that file is
+ * `platform/config/agents/...` in Git. A change-set is committed to the
+ * REPOSITORY, so its paths have to be repository-relative or a pull request
+ * creates new files at the root and leaves the real ones untouched — a green
+ * PR that changes nothing the runtime reads.
+ *
+ * `deploy/` is already repository-relative, which is what DEPLOY_ROOT exists
+ * to express from the other direction.
+ */
+export const REPO_PREFIX = "platform";
+
+/** A runtime-relative path as it is addressed in the repository. */
+export function toRepoPath(path: string): string {
+  return path.startsWith("deploy/") ? path : `${REPO_PREFIX}/${path}`;
+}
+
+/** The inverse: a repository path as this process addresses it on disk. */
+export function fromRepoPath(path: string): string {
+  if (path.startsWith(`${REPO_PREFIX}/`)) return path.slice(REPO_PREFIX.length + 1);
+  if (path.startsWith("deploy/")) return `${DEPLOY_ROOT}/${path.slice("deploy/".length)}`;
+  return path;
+}
+
 export function deployEnvironmentDir(environment: string): string {
   return `${DEPLOY_ROOT}/environments/${environment}`;
 }

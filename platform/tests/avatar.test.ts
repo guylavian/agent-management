@@ -1,5 +1,6 @@
 import { deflateSync } from "node:zlib";
 import { CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
+import { toRepoPath } from "@sre/config";
 import { agentDetail, avatarAssetPath, AvatarError, BUILT_IN_ICONS, generateAgentChange, isManagedAvatarPath, MAX_AVATAR_BYTES, validateAvatar, type AgentDraft } from "@sre/runtime-host";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
@@ -122,7 +123,7 @@ describe("the asset path is derived, never taken from the upload", () => {
 
   it("recognises only paths this platform manages", () => {
     expect(isManagedAvatarPath("assets/agents/keycloak.png")).toBe(true);
-    for (const outside of ["assets/agents/../../secret.png", "/etc/passwd", "config/agents/keycloak.yaml", "assets/agents/keycloak.svg", "https://example.com/a.png"]) {
+    for (const outside of ["assets/agents/../../secret.png", "/etc/passwd", "platform/config/agents/keycloak.yaml", "assets/agents/keycloak.svg", "https://example.com/a.png"]) {
       expect(isManagedAvatarPath(outside)).toBe(false);
     }
   });
@@ -154,27 +155,30 @@ describe("the change-set carries the document and the image together", () => {
     const draft = { ...base(), avatar: { upload: png(128, 128).toString("base64"), fit: "cover" as const } };
     const change = generateAgentChange(draft);
 
-    const asset = change.files.find(file => file.path.startsWith("assets/"));
-    expect(asset?.path).toBe(`assets/agents/${draft.name}.png`);
+    const asset = change.files.find(file => file.path.startsWith("platform/assets/"));
+    expect(asset?.path).toBe(`platform/assets/agents/${draft.name}.png`);
     // the publisher base64s utf-8 text on the way out, which would mangle bytes;
     // the encoding travels with the file so it does not have to guess
     expect(asset?.encoding).toBe("base64");
 
+    // the DOCUMENT keeps a runtime-relative reference — that is what the runtime
+    // resolves — while the change-set names the same file as Git addresses it
     const document = parseYaml(change.yaml) as { metadata: { avatar?: { asset: string; fit: string } } };
-    expect(document.metadata.avatar).toEqual({ asset: asset?.path, fit: "cover" });
+    expect(document.metadata.avatar).toEqual({ asset: `assets/agents/${draft.name}.png`, fit: "cover" });
+    expect(asset?.path).toBe(toRepoPath(document.metadata.avatar?.asset as string));
   });
 
   it("references a built-in icon without adding a file", () => {
     const icon = BUILT_IN_ICONS[0] as { asset: string };
     const change = generateAgentChange({ ...base(), avatar: { asset: icon.asset, fit: "contain" } });
-    expect(change.files.some(file => file.path.startsWith("assets/"))).toBe(false);
+    expect(change.files.some(file => file.path.startsWith("platform/assets/"))).toBe(false);
     expect((parseYaml(change.yaml) as { metadata: { avatar?: unknown } }).metadata.avatar).toEqual({ asset: icon.asset, fit: "contain" });
   });
 
   it("removes the avatar when the draft says null, leaving initials behind", () => {
     const change = generateAgentChange({ ...base(), avatar: null });
     expect((parseYaml(change.yaml) as { metadata: { avatar?: unknown } }).metadata.avatar).toBeUndefined();
-    expect(change.files.some(file => file.path.startsWith("assets/"))).toBe(false);
+    expect(change.files.some(file => file.path.startsWith("platform/assets/"))).toBe(false);
   });
 
   it("leaves an agent with no avatar exactly as it was", () => {
@@ -183,7 +187,7 @@ describe("the change-set carries the document and the image together", () => {
   });
 
   it("refuses a draft pointing anywhere outside the managed directories", () => {
-    for (const hostile of ["config/agents/keycloak.yaml", "../../../etc/passwd", "https://example.com/logo.png", "assets/agents/x.svg"]) {
+    for (const hostile of ["platform/config/agents/keycloak.yaml", "../../../etc/passwd", "https://example.com/logo.png", "assets/agents/x.svg"]) {
       expect(() => generateAgentChange({ ...base(), avatar: { asset: hostile } })).toThrow();
     }
   });

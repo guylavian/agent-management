@@ -1,8 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agentDocumentSchema } from "@sre/agent-schema";
-import { agentDeploymentOverlaySchema, buildAgentCatalog, CONFIG_PATHS, DEPLOY_ROOT, deployEnvironmentDir, loadAgentRegistry, loadDeploymentEnvironment } from "@sre/config";
+import { agentDeploymentOverlaySchema, buildAgentCatalog, CONFIG_PATHS, DEPLOY_ROOT, deployEnvironmentDir, loadAgentRegistry, loadDeploymentEnvironment, toRepoPath } from "@sre/config";
 import { agentDetail, generateAgentChange, proposeAgentChange, proposePromptChange, type AgentDraft } from "@sre/runtime-host";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
@@ -44,10 +45,31 @@ describe("Create Agent", () => {
   it("produces exactly the three source files a deployable Agent needs", () => {
     const change = generateAgentChange(draft, "production");
     expect(change.files.map((file) => file.path)).toEqual([
-      "config/agents/network-security.yaml",
-      "config/prompts/network-security.md",
+      "platform/config/agents/network-security.yaml",
+      "platform/config/prompts/network-security.md",
       "deploy/environments/production/agents/network-security.yaml",
     ]);
+  });
+
+  /**
+   * A change-set is committed to the REPOSITORY, and the runtime does not run
+   * at its root: what the runtime calls `config/agents/x.yaml` is
+   * `platform/config/agents/x.yaml` in Git.
+   *
+   * This was wrong, and the failure mode was quiet — a pull request would have
+   * created new files at the repository root, left the real ones untouched, and
+   * reported success. Every file in every change-set is checked against what
+   * Git actually tracks.
+   */
+  it("names every file the way the repository addresses it, not the way the runtime does", () => {
+    const tracked = execFileSync("git", ["ls-files"], { cwd: `${process.cwd()}/..`, encoding: "utf8" }).split("\n");
+    for (const file of generateAgentChange({ ...draft, name: "active-directory" }, "production").files) {
+      expect(file.path).not.toMatch(/^config\//u);
+      // the sibling of an existing tracked file must itself be tracked, or the
+      // change-set is writing somewhere the repository does not keep this kind
+      const directory = file.path.slice(0, file.path.lastIndexOf("/"));
+      expect(tracked.some(entry => entry.startsWith(`${directory}/`)), `${directory} is not a directory this repository tracks`).toBe(true);
+    }
   });
 
   it("persists the prompt the operator typed", () => {
@@ -91,7 +113,10 @@ describe("Create Agent", () => {
       cpSync("config", join(root, "platform/config"), { recursive: true });
       cpSync(`${DEPLOY_ROOT}/environments`, join(root, "deploy/environments"), { recursive: true });
       for (const file of change.files) {
-        const target = join(root, file.path.startsWith("deploy/") ? file.path : `platform/${file.path}`);
+        // change-set paths are already repository-relative, so the sandbox
+        // takes them verbatim; it used to prefix platform/ itself, compensating
+        // for a generator that emitted runtime-relative paths
+        const target = join(root, file.path);
         mkdirSync(target.slice(0, target.lastIndexOf("/")), { recursive: true });
         writeFileSync(target, file.contents, "utf8");
       }
@@ -151,9 +176,12 @@ describe("Propose a prompt change", () => {
   it("touches only the prompt file and leaves the Agent document alone", () => {
     const change = proposePromptChange({ agent, prompt: "New investigative guidance.", requestedBy: "alice" });
     expect(change.files).toHaveLength(1);
-    expect(change.files[0]?.path).toBe(agent.spec.prompt.systemFile);
-    expect(change.files[0]?.path).toMatch(/^config\/prompts\//u);
-    expect(change.files.some((file) => file.path.startsWith("config/agents/"))).toBe(false);
+    // the document keeps a RUNTIME-relative reference, because that is what the
+    // runtime resolves; the change-set names the same file as the REPOSITORY
+    // addresses it, because that is what gets committed
+    expect(change.files[0]?.path).toBe(toRepoPath(agent.spec.prompt.systemFile));
+    expect(change.files[0]?.path).toMatch(/^platform\/config\/prompts\//u);
+    expect(change.files.some((file) => file.path.startsWith("platform/config/agents/"))).toBe(false);
     expect(change.files.some((file) => file.path.startsWith("deploy/"))).toBe(false);
   });
 
@@ -166,7 +194,7 @@ describe("Propose a prompt change", () => {
     const change = proposePromptChange({ agent, prompt: "x", requestedBy: "carol" });
     expect(change.body).toContain("carol");
     expect(change.body).toContain(agent.spec.prompt.systemFile);
-    expect(change.effects).toEqual(expect.arrayContaining([`update ${agent.spec.prompt.systemFile}`]));
+    expect(change.effects).toEqual(expect.arrayContaining([`update ${toRepoPath(agent.spec.prompt.systemFile)}`]));
   });
 
   it("refuses an empty prompt rather than generating a file the runtime would reject", () => {

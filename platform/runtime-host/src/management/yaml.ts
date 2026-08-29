@@ -1,5 +1,5 @@
 import { agentDocumentSchema, assertNoSecretMaterial, toolHiveAudience, workloadClientId, type AgentDocument, type AgentLifecycle } from "@sre/agent-schema";
-import type { SpecialistAgentConfig } from "@sre/config";
+import { toRepoPath, type SpecialistAgentConfig } from "@sre/config";
 import { avatarAssetPath, isManagedAvatarPath, validateAvatar, AvatarError, type AvatarFit } from "./avatar.ts";
 
 /**
@@ -189,14 +189,17 @@ export function generateAgentChange(draft: AgentDraft, targetEnvironment: string
   const uploadFile: GeneratedFile | undefined =
     draft.avatar?.upload === undefined || document.metadata.avatar === undefined
       ? undefined
-      : { path: document.metadata.avatar.asset, contents: Buffer.from(decodeUpload(draft.avatar.upload)).toString("base64"), encoding: "base64" };
+      : { path: toRepoPath(document.metadata.avatar.asset), contents: Buffer.from(decodeUpload(draft.avatar.upload)).toString("base64"), encoding: "base64" };
   return {
     path,
     yaml,
     document,
+    // REPOSITORY-relative: a change-set is committed to Git, where the runtime's
+    // own `config/` is `platform/config/`. The document's internal references
+    // stay runtime-relative, because that is what the runtime resolves.
     files: [
-      { path, contents: yaml },
-      { path: spec.prompt.systemFile, contents: renderPrompt(draft, document) },
+      { path: toRepoPath(path), contents: yaml },
+      { path: toRepoPath(spec.prompt.systemFile), contents: renderPrompt(draft, document) },
       { path: `deploy/environments/${targetEnvironment}/agents/${name}.yaml`, contents: renderDeploymentOverlay(name, spec.lifecycle === "active") },
       // an uploaded avatar rides in the SAME change-set as the document that
       // references it, so a merged pull request can never leave the console
@@ -390,8 +393,8 @@ export function proposePromptChange(options: { agent: SpecialistAgentConfig; pro
   return {
     branch: `agent/${name}-prompt`,
     title: `Update the ${name} agent system prompt`,
-    files: [{ path, contents: `# ${title}\n\n${body}\n` }],
-    effects: [`update ${path}`, "Runtime: specialist reloads the prompt on next deploy", "Argo CD: sync after merge"],
+    files: [{ path: toRepoPath(path), contents: `# ${title}\n\n${body}\n` }],
+    effects: [`update ${toRepoPath(path)}`, "Runtime: specialist reloads the prompt on next deploy", "Argo CD: sync after merge"],
     body: [
       `Update the system prompt for the \`${name}\` SRE specialist agent.`,
       "",

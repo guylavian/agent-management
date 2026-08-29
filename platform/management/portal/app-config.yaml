@@ -195,6 +195,14 @@ scaffolder:
 # Read-only management API of the SRE runtime (execution plane). The portal
 # never talks to ToolHive or an MCP directly.
 sreAgent:
+  # Where a change-set becomes a pull request. Owner and repo are not secrets —
+  # they name a repository — so they live here; the credential does not, and is
+  # read from Backstage's own GitHub integration above.
+  gitops:
+    owner: guylavian
+    repo: agent-management
+    baseBranch: main
+
   managementApi:
     baseUrl: ${SRE_MANAGEMENT_API_URL}
     # Runtime tokens are short-lived. The portal mints and refreshes its own

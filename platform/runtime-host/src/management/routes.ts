@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Router, type Request, type Response } from "express";
-import { DEPLOY_ROOT, type AgentRegistry, type AppConfig } from "@sre/config";
+import { fromRepoPath, type AgentRegistry, type AppConfig } from "@sre/config";
 import type { ModelClient } from "@sre/llm";
 import {
   agentDetail,
@@ -283,18 +283,12 @@ export function managementRouter(deps: ManagementDeps): Router {
  * act on, and the change-set is still perfectly reviewable as an addition.
  */
 /**
- * A change-set path is relative to the REPOSITORY, and the runtime does not run
- * at its root.
- *
- * `config/` and `assets/` sit beside the process; `deploy/` is a sibling of it,
- * which is why the loader already carries DEPLOY_ROOT. Resolving everything
- * from the working directory reported existing deployment overlays as new
- * files — a reviewer would have seen "Added +11 −0" for a file that has been
- * in Git for months.
+ * A change-set path is relative to the REPOSITORY; the runtime does not run at
+ * its root. `fromRepoPath` is the single inverse of the mapping the generator
+ * applies, so the diff can never disagree with what will be committed.
  */
 function resolveChangePath(path: string): string {
-  if (path.startsWith("deploy/")) return join(process.cwd(), DEPLOY_ROOT, path.slice("deploy/".length));
-  return join(process.cwd(), path);
+  return join(process.cwd(), fromRepoPath(path));
 }
 
 function diffAgainstDisk(files: readonly { path: string; contents: string; encoding?: "base64" }[]): ChangeSetDiff {

@@ -1,5 +1,5 @@
 import { agentDocumentSchema, assertNoSecretMaterial, type AgentDocument, type AgentLifecycle } from "@sre/agent-schema";
-import type { ManagerAgentConfig } from "@sre/config";
+import { toRepoPath, type ManagerAgentConfig } from "@sre/config";
 import { AgentDraftError, type GeneratedFile, type ProposedChange } from "./yaml.ts";
 
 /**
@@ -132,9 +132,10 @@ export function generateManagerChange(draft: ManagerDraft): GeneratedManagerChan
     path,
     yaml,
     document,
+    // repository-relative, as everywhere a change-set names a file
     files: [
-      { path, contents: yaml },
-      { path: spec.prompt.systemFile, contents: `# ${document.metadata.displayName ?? "Manager"}\n\n${body}\n` },
+      { path: toRepoPath(path), contents: yaml },
+      { path: toRepoPath(spec.prompt.systemFile), contents: `# ${document.metadata.displayName ?? "Manager"}\n\n${body}\n` },
     ],
   };
 }
