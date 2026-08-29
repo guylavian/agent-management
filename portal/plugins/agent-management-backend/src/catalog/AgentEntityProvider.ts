@@ -4,7 +4,14 @@ import type { LoggerService, SchedulerService } from '@backstage/backend-plugin-
 import type { RuntimeManagementClient } from '../services/RuntimeManagementClient';
 
 // generated from contracts/management-api/openapi.yaml — never hand-declared
-import type { AgentDetail, AgentSummary } from '../api/generated-types';
+import type { AgentDetail, AgentSummary, McpAccessView } from '../api/generated-types';
+
+/**
+ * What the catalog projection actually needs. Detail fetches can fail per agent,
+ * and a partly-known agent still belongs in the catalog — so this is narrowed to
+ * the fields used here rather than pretending a summary is a full AgentDetail.
+ */
+type CatalogAgent = AgentSummary & { access: McpAccessView[]; crossDomainAllowed: string[] };
 
 /**
  * Derives Backstage catalog entities from the canonical Agent definitions
@@ -53,12 +60,13 @@ export class AgentEntityProvider implements EntityProvider {
   async refresh(): Promise<void> {
     if (this.#connection === undefined) throw new Error('provider is not connected');
     const { agents } = await this.runtime.get<{ agents: AgentSummary[] }>('/management/agents');
-    const details = await Promise.all(
+    const details: CatalogAgent[] = await Promise.all(
       agents.map(async agent => {
         try {
           return await this.runtime.get<AgentDetail>(`/management/agents/${encodeURIComponent(agent.id)}`);
         } catch {
-          return { ...agent, access: [], crossDomainAllowed: [] } as AgentDetail;
+          // the agent exists but its detail is unavailable; record what is known
+          return { ...agent, access: [], crossDomainAllowed: [] };
         }
       }),
     );
@@ -75,7 +83,7 @@ export class AgentEntityProvider implements EntityProvider {
     });
   }
 
-  #agentEntity(agent: AgentDetail): Entity {
+  #agentEntity(agent: CatalogAgent): Entity {
     return {
       apiVersion: 'backstage.io/v1alpha1',
       kind: 'Component',

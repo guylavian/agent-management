@@ -13,7 +13,6 @@ import {
   ModeBadge,
   Mono,
   Muted,
-  Page,
   Panel,
   SectionTitle,
   StatusPill,

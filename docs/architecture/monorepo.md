@@ -1,95 +1,206 @@
 # Monorepo layout
 
-One repository, three top-level zones that mirror the architecture's planes.
+One repository, four code components, two dependency-neutral zones, and a strict
+separation between what the platform IS and where it RUNS.
 
 ```
 /
-├── contracts/
-│   └── agent-schema/          THE canonical Agent definition — depends on nothing
+├── agent-engine/        the generic Specialist Agent engine
+├── orchestrator/        the Manager — routing, fan-out, follow-up, synthesis
+├── runtime-host/        THE COMPOSITION ROOT — process, HTTP, transports, DI
+├── portal/              Backstage management plane (own Yarn workspace)
 │
-├── runtime/                   EXECUTION PLANE (authoritative)
-│   ├── app/                   Manager + Specialist runtime (Express)
-│   ├── packages/              auth, mcp, runtime, routing, evidence, config,
-│   │                          llm, session, telemetry, agent-client,
-│   │                          agent-protocol, agent-registry
-│   └── deploy/                Helm chart + one values file per logical agent
+├── contracts/           schemas and protocols; depends on nothing internal
+│   ├── agent-schema/    THE canonical Agent definition
+│   ├── agent-protocol/  Manager↔Specialist wire protocol + SpecialistTransport
+│   ├── evidence/        Evidence, SpecialistResult, DomainHandoff
+│   └── management-api/  OpenAPI contract + generated types for both planes
 │
-├── management/                MANAGEMENT PLANE (a console, never authoritative)
-│   ├── portal/                Backstage app (own yarn workspace)
-│   ├── packages/              management-api, keycloak-provisioning
-│   └── deploy/portal/         Helm chart for the portal
+├── shared/              implementation used by two or more components
+│   └── auth/  config-loader/  llm/  redaction/  telemetry/
 │
-├── agents/  prompts/  policies/   configuration — the source of truth
-├── infra/  scripts/  eval/  docs/
+├── config/              LOGICAL platform definition — the source of truth
+│   └── agents/  prompts/  mcp-servers/  model-profiles/  policies/
+│
+├── deploy/              DESIRED STATE — where things run
+│   ├── runtime/         one Dockerfile, one Helm chart
+│   ├── portal/          portal image + chart
+│   ├── environments/    per-environment enablement, bindings, rendered values
+│   ├── schemas/         generated JSON Schema for deployment artifacts
+│   ├── argocd/          ApplicationSet
+│   ├── local/           compose, local Keycloak, local Prometheus
+│   └── supply-chain/    machine-consumed package inventory
+│
+└── scripts/  tests/  eval/  docs/  .woodpecker/
 ```
 
-## Why one repository
-
-The Agent schema is canonical (TDD §5). Splitting the planes into separate
-repositories would turn `contracts/agent-schema` into a versioned cross-repo
-dependency, and the moment the two versions differ the portal can preview a
-configuration the runtime would reject — exactly the drift the architecture
-forbids. It would also break the single `npm run check` and complicate the
-real-PoC scripts, which orchestrate both planes together.
-
-So the planes are separated by **directory and enforced dependency direction**,
-not by repository.
-
-## The enforced boundary
+## The dependency graph
 
 ```
-management/*  ──►  contracts/*  ◄──  runtime/*
+runtime-host ──► agent-engine ──┐
+     │      └──► orchestrator ──┤
+     └───────────────────────►  shared ──► contracts ──► (nothing internal)
 ```
 
-`npm run validate:boundaries` (part of `npm run check`) fails the build on:
+Two edges are deliberately absent, and they matter more than the ones present:
 
-- management **source** importing any `runtime/packages/*` package — the console
-  must never become a second place where authorization is decided.
-  Management **tests** may import the runtime config loader, so projections are
-  asserted against the same documents the runtime enforces rather than fixtures.
-- the runtime importing `keycloak-provisioning` — request handling must not be
-  coupled to the Keycloak Admin API (TDD §31). Provisioning is a
-  configuration-path concern; runtime token acquisition is a separate one.
-- `contracts/*` importing either plane — that is what keeps it a contract.
+| Forbidden | Why |
+|---|---|
+| `agent-engine ✕→ orchestrator` | A specialist that could reach routing or fan-out could reach another specialist. Specialist-to-specialist communication is a red line. |
+| `orchestrator ✕→ agent-engine` | Local dev runs both in one process. If the orchestrator could call the engine directly, the transport boundary would collapse the first time someone took the shortcut. |
 
-The runtime **does** depend on `management-api`, and that is intended: the
-read-only management API is a projection of runtime state, so it is served by
-the process that holds that state. `management-api` itself depends only on the
-contract.
+`npm run validate:boundaries` enforces the whole graph and
+`tests/boundaries.test.ts` asserts those two edges by name, so the rule is
+visible rather than implied by the absence of a violation. The check resolves
+zones from package NAMES, not directory names, because the two deliberately
+differ (`shared/config-loader` publishes `@sre/config`).
+
+## The composition root
+
+`runtime-host` is the only layer allowed to see both engines. It reads the role
+and agent configuration, builds every dependency fail-closed, mounts the
+orchestrator for the Manager and the engine for a Specialist, and injects one of
+two transports:
+
+```
+orchestrator ──► SpecialistTransport            (contracts/agent-protocol)
+                        ▲                ▲
+   HttpSpecialistTransport            InProcessSpecialistTransport
+        (runtime-host/src/transport)      (runtime-host/src/transport)
+                                                 │
+                                          agent-engine
+```
+
+The orchestrator never learns which one it got. The in-process adapter runs the
+real engine behind the same admission semantics as the HTTP specialist server —
+protocol size limits, delegated-identity verification, deadline expiry, question
+redaction — so `SRE_CLIENT_AGENT=inprocess` is a transport swap, not a second
+code path with weaker rules.
+
+That adapter is the reason this layer exists. Putting it next to the code that
+uses it would have been the natural place, and would have broken the boundary.
+
+## One image, one chart, two roles
+
+`agent-engine`, `orchestrator` and `runtime-host` are separate source components
+but a **single release unit**:
+
+```
+agent-engine + orchestrator + runtime-host
+                  ↓
+           ONE runtime image
+                  ↓
+   ROLE=manager   |   ROLE=specialist, AGENT_ID=keycloak
+```
+
+Separate images would let the Manager and a Specialist drift to different
+versions of the protocol they share. If a future driver genuinely requires
+separate images, that is a decision to take deliberately, not to arrive at.
+
+## Logical definition vs. deployed state
+
+```
+config/agents/<agent>.yaml            deploy/environments/<env>/agents/<agent>.yaml
+  identity, routing, capabilities,      enabled, replicas, resources,
+  tool access, prompt, limits,          serviceAccount, endpoint override
+  cross-domain policy
+        └───────────────┬──────────────────────────┘
+                        ▼
+           the Manager's EFFECTIVE catalog
+```
+
+The overlay schema is an **allow-list** (`additionalProperties: false`). It
+cannot carry routing, capabilities, prompt, access, tools, owner or cross-domain
+policy — those are properties of the Agent, and an overlay that could restate
+them would be a second source of truth.
+
+There is no routing registry. Onboarding an Agent is a `config/agents` file plus
+an overlay, and a test asserts that a new canonical Agent becomes routable
+without editing any other logical source.
+
+## config → render → Argo → Helm
+
+```
+config/agents/<agent>.yaml   config/prompts/<agent>.md
+deploy/environments/<env>/agents/<agent>.yaml
+deploy/environments/<env>/model-bindings.yaml
+        ↓  scripts/render-agent-deployment.ts   (validate, resolve, fail closed)
+deploy/environments/<env>/rendered/agents/<agent>.yaml
+        ↓  deploy/argocd/applicationsets/runtime.yaml    (discovers files)
+deploy/runtime/helm  →  one Deployment per enabled Agent
+```
+
+Argo consumes configuration that is **already rendered**. There is deliberately
+no Argo config management plugin: rendering inside the cluster would let the
+committed state and the deployed state diverge with no reviewable diff.
+
+A disabled Agent renders nothing. Absence is how "do not deploy this here"
+reaches the cluster, because the ApplicationSet discovers files rather than
+reading an enablement list.
+
+Endpoints resolve by convention —
+`http://sre-agent-{agentId}.{namespace}.svc.cluster.local` — owned by the Helm
+chart and declared per environment. No Kubernetes API discovery or watch. An
+environment that cannot follow the convention (compose service names, loopback
+PoC ports) uses the documented per-agent `endpoint` override.
+
+## Generated artifacts
+
+Every generated artifact is **committed and CI-verified**. `npm run check` runs
+`check:generated`, which regenerates everything and fails on any diff.
+
+| Artifact | Generated from |
+|---|---|
+| `contracts/agent-schema/generated/agent.schema.json` | the Zod Agent schema |
+| `deploy/schemas/*.schema.json` | the Zod overlay / bindings / rendered-values schemas |
+| `contracts/management-api/generated/types.ts` | `contracts/management-api/openapi.yaml` |
+| `portal/plugins/*/src/api/generated-types.ts` | the same OpenAPI document |
+| `deploy/environments/*/rendered/agents/*.yaml` | config + overlay + model bindings |
+| `deploy/supply-chain/npm/npm-packages.md` | `package-lock.json` |
+
+This matters most for the air-gapped operational model, where the committed
+render is what actually ships.
 
 ## Two toolchains
 
-`management/portal` is a self-contained Backstage yarn workspace: yarn 4,
-Node 22/24, React, its own build pipeline. The runtime is npm workspaces, ESM
-TypeScript executed directly with `.ts` specifiers and `noEmit`. Merging them
-would force one side onto the other's toolchain, so the portal is:
+`portal/` is a self-contained Backstage Yarn 4 workspace: React, its own build
+pipeline, its own tsconfig. Merging it into the root npm workspaces would force
+one toolchain onto the other for no benefit, so it is:
 
-- excluded from the root `workspaces` globs
-- excluded from the root `tsconfig.json` and from root lint
+- excluded from the root `workspaces` globs, `tsconfig.json` and root lint
 - checked by its own `yarn tsc` via `npm run check:portal`
+- pinned to Node 22/24; the repo's `.nvmrc` (24.20.0) is what its native
+  dependencies build against
 
-Backstage plugins live at `management/portal/plugins/*` because yarn workspaces
-cannot reference paths outside their project root.
+The portal imports no TypeScript source from the npm workspace. It consumes the
+management API over HTTP, with types generated from the shared OpenAPI contract
+and checked into its own workspace.
 
-## How the two planes share one Agent model
+## Why one repository
 
-The portal does **not** import `contracts/agent-schema`. It consumes the
-runtime's read-only `/management` API, which returns projections computed from
-the canonical schema. Draft validation and YAML rendering also run server-side,
-so "Preview YAML" is produced by the same schema the runtime loads at startup.
+The Agent schema is canonical. Splitting the planes into separate repositories
+would turn `contracts/agent-schema` into a versioned cross-repo dependency, and
+the moment the versions differ the portal can preview a configuration the runtime
+would reject — exactly the drift the architecture forbids. It would also break
+the single `npm run check` and complicate the real-PoC scripts, which orchestrate
+both planes together.
+
+So the components are separated by **directory and enforced dependency
+direction**, not by repository.
 
 ## Commands
 
 ```bash
-npm install            # contracts + runtime + management packages
+npm install            # contracts + shared + the three code components
 npm run install:portal # Backstage (yarn, requires Node 22/24 + corepack)
 
 npm run dev:runtime    # manager + in-process specialists
 npm run dev:portal     # Backstage app :3010, backend :7007
 
-npm run check          # typecheck, lint, boundaries, tests, YAML, both Helm charts
+npm run check          # typecheck, lint, boundaries, tests, YAML,
+                       # generated freshness, both Helm charts
 npm run check:portal   # Backstage typecheck
-npm run build          # runtime typecheck + portal bundles
+npm run render:deploy  # re-render every environment
 ```
 
 `npm run check` is the one command that validates the monorepo.
