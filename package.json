@@ -43,7 +43,9 @@
     "gen:all": "npm run gen:schema && npm run gen:management-api && npm run gen:supply-chain && npm run render:deploy && npm run render:toolhive",
     "check:generated": "npm run gen:all && git diff --exit-code -- contracts/agent-schema/generated contracts/management-api/generated portal/plugins/agent-management/src/api/generated-types.ts portal/plugins/agent-management-backend/src/api/generated-types.ts deploy/schemas deploy/environments/*/rendered deploy/supply-chain",
     "gen:management-api": "node --import tsx scripts/gen-management-api-types.ts",
-    "render:toolhive": "node --import tsx scripts/render-toolhive-authz.ts"
+    "render:toolhive": "node --import tsx scripts/render-toolhive-authz.ts",
+    "reconcile:keycloak": "node --import tsx scripts/reconcile-keycloak.ts",
+    "verify:keycloak": "node --import tsx scripts/verify-keycloak-identities.ts"
   },
   "devDependencies": {
     "@types/express": "5.0.6",
