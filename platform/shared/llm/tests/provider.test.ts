@@ -36,6 +36,25 @@ describe("Groq / OpenAI-compatible provider", () => {
     expect(calls[0]?.url).toBe("https://api.groq.com/openai/v1/chat/completions");
   });
 
+  /**
+   * Routing determinism is only real if the number reaches the provider. The
+   * profile declaring temperature 0 and the client dropping it would look
+   * identical from config, and the difference would only show as routes that
+   * wobble between identical questions.
+   */
+  it("sends the profile's declared temperature, including an explicit zero", async () => {
+    const { fetch: f, calls } = stubFetch(200, textResult);
+    await withFetch(f, () => new RealOpenAiCompatibleClient(GROQ, { modelMap, temperatureMap: { "manager-router": 0 } }).chat({ model: "manager-router", messages: [] }));
+    // a truthiness check would drop 0, which is the one value that matters here
+    expect(sentBody(calls).temperature).toBe(0);
+  });
+
+  it("omits temperature for a profile that declares none, leaving the provider default", async () => {
+    const { fetch: f, calls } = stubFetch(200, textResult);
+    await withFetch(f, () => new RealOpenAiCompatibleClient(GROQ, { modelMap, temperatureMap: { "manager-router": 0 } }).chat({ model: "tool-caller", messages: [] }));
+    expect(sentBody(calls)).not.toHaveProperty("temperature");
+  });
+
   it("2. passes the API key as a Bearer token", async () => {
     const { fetch: f, calls } = stubFetch(200, textResult);
     await withFetch(f, () => new RealOpenAiCompatibleClient(GROQ, { apiKey: "gsk_test", modelMap }).chat({ model: "tool-caller", messages: [] }));
