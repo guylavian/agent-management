@@ -12,7 +12,18 @@ describe("startup configuration", () => {
     // wiki is a shared MCP tool on the specialists, not a standalone agent
     expect(accessTools(registry.getSpecialist("active-directory")!.spec)).toContain("wiki_search");
     expect(registry.getSpecialist("active-directory")?.spec.execution.maxEvidenceBytes).toBe(262_144);
-    expect(registry.catalog.tools).toHaveLength(39);
+    // The catalog is every per-server file flattened, so assert THAT rather than
+    // a total. A literal count here fails on any routine tool approval, which
+    // teaches whoever hits it to bump the number without reading the assertion.
+    const serverFiles = readdirSync(CONFIG_PATHS.mcpServersDir).filter((file) => file.endsWith(".yaml"));
+    const declared = serverFiles.flatMap((file) => {
+      const document = parseYaml(readFileSync(`${CONFIG_PATHS.mcpServersDir}/${file}`, "utf8")) as { metadata: { serverId: string }; tools: unknown[] };
+      return document.tools.map(() => document.metadata.serverId);
+    });
+    expect(registry.catalog.tools).toHaveLength(declared.length);
+    expect(new Set(registry.catalog.tools.map((tool) => tool.serverId))).toEqual(new Set(declared));
+    // fail-closed: a mutating tool cannot be in the catalog at all
+    expect(registry.catalog.tools.every((tool) => tool.readOnlyVerified)).toBe(true);
     expect(accessTools(registry.getSpecialist("active-directory")!.spec)).not.toContain("keycloak_health");
     expect(accessTools(registry.getSpecialist("keycloak")!.spec)).toContain("keycloak_health");
     expect(accessTools(registry.getSpecialist("observability")!.spec)).toContain("query");

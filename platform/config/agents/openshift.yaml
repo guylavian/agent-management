@@ -19,6 +19,9 @@ spec:
     - mcp: openshift
       audience: sre-toolhive:openshift
       tools: [get_pod_status, list_namespace_events, get_route_status, get_deployment_status]
+    - mcp: kubernetes
+      audience: sre-toolhive:kubernetes
+      tools: [pods_list, pods_get, pods_log, pods_top, events_list, namespaces_list, nodes_top, resources_list, resources_get]
     - mcp: prometheus
       audience: sre-toolhive:prometheus
       tools: [query_cluster_metrics]

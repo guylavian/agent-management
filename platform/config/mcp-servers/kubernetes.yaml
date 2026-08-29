@@ -1,0 +1,38 @@
+apiVersion: sre.ai/v1alpha1
+kind: McpServer
+metadata:
+  serverId: kubernetes
+  owner: paas
+  description: "Kubernetes read-only MCP (containers/kubernetes-mcp-server): pods, workloads, nodes, events and arbitrary resource reads."
+# Upstream: https://github.com/containers/kubernetes-mcp-server
+#
+# That server ships mutating and EXECUTING tools — pods_delete, pods_exec,
+# pods_run, resources_create_or_update, resources_delete, resources_scale,
+# helm_install, helm_uninstall, and the tekton_*/vm_* toolsets. None of them can
+# be approved here: `readOnlyVerified` is `z.literal(true)`, so this file has no
+# way to express a write. The tools below are the read-only subset, and the
+# proxy must additionally run the server with `--read-only --disable-destructive`
+# so the refusal does not depend on this list alone.
+#
+# Deliberately NOT approved even though they are reads:
+#   configuration_view      — renders kubeconfig, which carries client
+#                             certificates and bearer tokens
+#   configuration_contexts_list, targets_list
+#                           — cluster topology disclosure with no diagnostic value
+#   nodes_log               — node-level journal: high volume, low signal, and
+#                             the widest blast radius of any read here
+tools:
+  # workload state
+  - { toolName: pods_list, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { toolName: pods_get, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once, evidenceKind: config }
+  # container logs are the point of an incident tool; redaction runs before any
+  # of this reaches model context
+  - { toolName: pods_log, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 15000, retryPolicy: none, evidenceKind: telemetry }
+  - { toolName: pods_top, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once, evidenceKind: telemetry }
+  # cluster state
+  - { toolName: events_list, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once, evidenceKind: telemetry }
+  - { toolName: namespaces_list, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once, evidenceKind: config }
+  - { toolName: nodes_top, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 5000, retryPolicy: transient-once, evidenceKind: telemetry }
+  # generic resource reads: one tool instead of a per-kind tool per resource
+  - { toolName: resources_list, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }
+  - { toolName: resources_get, readOnlyVerified: true, owner: paas, environments: [prod, dr, lab], timeoutMs: 8000, retryPolicy: transient-once, evidenceKind: config }

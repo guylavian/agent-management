@@ -10,6 +10,7 @@ mkdir -p "$src" "$bin"
 
 prometheus_mcp_version="${PROMETHEUS_MCP_VERSION:-v0.18.0}"
 toolhive_version="${TOOLHIVE_VERSION:-v0.46.0}"
+kubernetes_mcp_version="${KUBERNETES_MCP_VERSION:-v0.1.0}"
 
 clone_pinned() {
   local url="$1" version="$2" target="$3"
@@ -24,6 +25,7 @@ clone_pinned() {
 
 clone_pinned https://github.com/prometheus/prometheus-mcp.git "$prometheus_mcp_version" "$src/prometheus-mcp"
 clone_pinned https://github.com/stacklok/toolhive.git "$toolhive_version" "$src/toolhive"
+clone_pinned https://github.com/containers/kubernetes-mcp-server.git "$kubernetes_mcp_version" "$src/kubernetes-mcp"
 
 (
   cd "$src/prometheus-mcp"
@@ -34,6 +36,11 @@ clone_pinned https://github.com/stacklok/toolhive.git "$toolhive_version" "$src/
   cd "$src/toolhive"
   GOTOOLCHAIN=auto go build -trimpath -o "$bin/thv" ./cmd/thv
 )
+(
+  cd "$src/kubernetes-mcp"
+  GOTOOLCHAIN=auto go build -trimpath -o "$bin/kubernetes-mcp" ./cmd/kubernetes-mcp-server
+)
 
 "$bin/prometheus-mcp" --version
 "$bin/thv" version
+"$bin/kubernetes-mcp" --version
