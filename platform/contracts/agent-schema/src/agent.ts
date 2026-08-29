@@ -411,6 +411,16 @@ export const modelProfilesSchema = z
             id: z.string().min(1),
             tier: z.enum(["small", "large"]),
             description: z.string().min(1).max(500),
+            /**
+             * Sampling temperature for this profile. Declared here rather than
+             * at a call site because determinism is a property of what the
+             * profile is FOR: a routing decision should not vary between two
+             * identical questions, while synthesis may.
+             *
+             * Omitted leaves the provider default, so a profile that has not
+             * thought about it does not silently get 0.
+             */
+            temperature: z.number().min(0).max(2).optional(),
           })
           .strict(),
       )

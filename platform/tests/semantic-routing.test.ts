@@ -1,3 +1,4 @@
+import { readFileSync, readdirSync } from "node:fs";
 import { loadAgentInstance, loadEffectiveAgentCatalog, CONFIG_PATHS, deployEnvironmentDir, type ManagerAgentConfig } from "@sre/config";
 import { MockModelClient, type ChatRequest, type ChatResponse, type ModelClient } from "@sre/llm";
 import { ManagerRouter } from "@sre/orchestrator";
@@ -73,14 +74,16 @@ describe("no answer the model can give widens what may run", () => {
 
   it("refuses an agent that was not offered, however confident the model is", async () => {
     const model = new Recorder({ ...route(["openshift"]), confidence: 1 });
+    // openshift exists but was not offered to this caller, so the refusal says
+    // DISABLED_AGENT rather than pretending the name is unknown
     await expect(new ManagerRouter(model, registry, manager).selectAgents("q", ["active-directory"], {}))
-      .rejects.toMatchObject({ code: "ROUTE_INVALID" });
+      .rejects.toMatchObject({ code: "DISABLED_AGENT" });
   });
 
   it("refuses an agent that does not exist", async () => {
     const model = new Recorder(route(["not-a-real-agent"]));
     await expect(new ManagerRouter(model, registry, manager).selectAgents("q", ["active-directory"], {}))
-      .rejects.toMatchObject({ code: "ROUTE_INVALID" });
+      .rejects.toMatchObject({ code: "UNKNOWN_AGENT" });
   });
 
   it("refuses more specialists than the Manager's own fan-out bound", async () => {
@@ -123,7 +126,7 @@ describe("abstention is an answer, not a failure", () => {
   it("holds alternates to the same offered set as routes", async () => {
     const model = new Recorder({ routes: [], confidence: 0.2, alternates: ["openshift"], abstain: true });
     await expect(new ManagerRouter(model, registry, manager).selectAgents("q", ["active-directory"], {}))
-      .rejects.toMatchObject({ code: "ROUTE_INVALID" });
+      .rejects.toMatchObject({ code: "DISABLED_AGENT" });
   });
 });
 
@@ -156,5 +159,24 @@ describe("routing needs no vocabulary maintenance", () => {
     const decision = await new ManagerRouter(model, registry, manager).selectAgents("nobody in the Tel Aviv office can sign in", offered, {});
     // the old keyword stage would have matched nothing in that sentence
     expect(decision.routes.map(route => route.agent)).toEqual(["active-directory"]);
+  });
+
+  /**
+   * A structural guard, because the tempting fix for a mis-route is always the
+   * same: special-case it. One `if (question.includes(...))` in this module and
+   * routing is no longer semantic — it is semantic EXCEPT for the cases someone
+   * decided in code, which is the worst of both and invisible from the outside.
+   *
+   * The routing module may not name a specialist at all. Every agent it knows
+   * arrives from the catalog at runtime.
+   */
+  it("names no specialist anywhere in the routing module", () => {
+    const specialists = registry.listEnabled().map(agent => agent.agentId);
+    expect(specialists.length).toBeGreaterThan(0);
+    const dir = "orchestrator/src/routing";
+    for (const file of readdirSync(dir).filter(name => name.endsWith(".ts"))) {
+      const source = readFileSync(`${dir}/${file}`, "utf8");
+      for (const id of specialists) expect(source, `${file} names ${id}`).not.toContain(id);
+    }
   });
 });

@@ -9,6 +9,9 @@ profiles:
   - id: manager-router
     tier: small
     description: Manager routing decisions — small, fast, structured-output constrained.
+    # Routing is a classification, not a composition. The same question must
+    # reach the same specialist twice, so this profile does not sample.
+    temperature: 0
   - id: tool-caller
     tier: small
     description: Specialist investigation loop — native tool calling, bounded turns.

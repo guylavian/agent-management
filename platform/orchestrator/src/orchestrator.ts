@@ -2,7 +2,7 @@ import { AgentTransportError, type AgentExecutionRequest, type SpecialistTranspo
 import type { AgentCatalog } from "@sre/config";
 import type { DelegatedIdentityIssuer } from "@sre/auth";
 import type { ManagerAgentConfig } from "@sre/config";
-import type { Evidence, RuntimeError, SpecialistResult } from "@sre/evidence";
+import type { Evidence, RuntimeError, RuntimeErrorCode, SpecialistResult } from "@sre/evidence";
 import { reduceEvidence } from "./synthesis/index.ts";
 import { redactText } from "@sre/redaction";
 import type { ModelClient } from "@sre/llm";
@@ -10,7 +10,7 @@ import { classifyIntent, extractEntities, ManagerRouter, resolveAbstentionFanout
 import { incrementMetric, withSpan } from "@sre/telemetry";
 import { planFollowup, followupRejectionEvidence } from "./followup/followup.ts";
 import { deterministicMultiSpecialistResponse, deterministicResponseBuilder, shouldEscalate, synthesizeResponse } from "./synthesis/index.ts";
-import type { AssistantResponse, ExecutionContext, UserRequest } from "./types.ts";
+import type { AssistantResponse, ExecutionContext, RoutingTrace, UserRequest } from "./types.ts";
 
 export interface RuntimeDependencies {
   manager: ManagerAgentConfig;
@@ -22,6 +22,12 @@ export interface RuntimeDependencies {
   requestDeadlineMs: number;
   defaultEnvironment: string;
   onResults?: (results: SpecialistResult[]) => void;
+  /**
+   * Reported once per request, including on the paths that return early.
+   * Best-effort observability: it must never change the answer, so callers
+   * are expected to swallow their own failures.
+   */
+  onRouting?: (trace: RoutingTrace) => void;
 }
 
 export async function executeRequest(req: UserRequest, deps: RuntimeDependencies): Promise<AssistantResponse> {
@@ -40,6 +46,22 @@ export async function executeRequest(req: UserRequest, deps: RuntimeDependencies
 
 async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies, deadline: number, signal: AbortSignal): Promise<AssistantResponse> {
   const modelSafeQuestion = redactText(req.question).value;
+  /*
+   * Filled in as the request proceeds and reported in the `finally` below, so
+   * that the paths which return early — nothing authorized, routing rejected,
+   * the deadline blown — are recorded too. Those are precisely the runs an
+   * operator most wants to look at, and an emit-before-each-return would
+   * eventually miss one.
+   */
+  const trace: RoutingTrace = { question: modelSafeQuestion, offered: [], selected: [], refused: [], abstained: false };
+  try {
+    return await route(req, deps, deadline, signal, modelSafeQuestion, trace);
+  } finally {
+    try { deps.onRouting?.(trace); } catch { /* observability must not change the answer */ }
+  }
+}
+
+async function route(req: UserRequest, deps: RuntimeDependencies, deadline: number, signal: AbortSignal, modelSafeQuestion: string, trace: RoutingTrace): Promise<AssistantResponse> {
   const environment = req.environment ?? deps.defaultEnvironment;
   const configured = new Set(deps.manager.spec.agents.allowed);
   const enabledAllowed = deps.registry.listEnabled(environment).filter((agent) => configured.has(agent.agentId));
@@ -61,7 +83,11 @@ async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies
    * below still decides whether they may run.
    */
   const entities = extractEntities(req.question);
-  if (authorizedCandidates.length === 0) return authorizationDenied(req.identity.requestId);
+  trace.offered = allAgentIds;
+  if (authorizedCandidates.length === 0) {
+    trace.refused = allAgentIds.map((agent) => ({ agent, reason: "AUTHZ_DENIED" }));
+    return authorizationDenied(req.identity.requestId);
+  }
   let routing: ManagerDecision;
   try {
     incrementMetric("sre_manager_invocations_total");
@@ -78,8 +104,9 @@ async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies
      * descriptions are not secrets — they are on the console's front page.
      */
     routing = await withSpan("manager.route.llm", { "request.id": req.identity.requestId, environment }, () => new ManagerRouter(deps.model, deps.registry, deps.manager).selectAgents(modelSafeQuestion, allAgentIds, entities, signal));
-  } catch {
-    return signal.aborted ? requestTimeout(req.identity.requestId) : routeInvalid(req.identity.requestId);
+  } catch (error) {
+    if (signal.aborted) return requestTimeout(req.identity.requestId);
+    return routingFailure(req.identity.requestId, error);
   }
 
   const intent = classifyIntent(req.question, routing.reasonCodes);
@@ -93,15 +120,20 @@ async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies
     signal,
   };
   let requestedRoutes = routing.routes;
+  trace.abstained = routing.abstain;
   if (routing.abstain) {
     incrementMetric("sre_manager_abstentions_total");
     const ambiguityFanout = resolveAbstentionFanout(routing, authorizedCandidates, deps.manager.spec.execution.maxAgentsPerRequest);
     if (ambiguityFanout.length === 0) return clarification(ctx.requestId);
     requestedRoutes = ambiguityFanout.map((agent) => ({ agent, task: defaultTask }));
   }
+  trace.selected = requestedRoutes.map((route) => ({ agent: route.agent, task: route.task, ...(route.rationale ? { rationale: route.rationale } : {}) }));
   const authorizedSet = new Set(deps.registry.filterAuthorized(requestedRoutes.map((route) => route.agent), ctx.identity.roles, ctx.environment));
   const authorizedRoutes = requestedRoutes.filter((route) => authorizedSet.has(route.agent));
   const authorizedAgents = authorizedRoutes.map((route) => route.agent);
+  // recorded whether or not anything survived: a selection the caller may not
+  // have is the single most useful thing this trace can show
+  trace.refused = requestedRoutes.filter((route) => !authorizedSet.has(route.agent)).map((route) => ({ agent: route.agent, reason: "AUTHZ_DENIED" }));
   if (authorizedRoutes.length === 0) return authorizationDenied(ctx.requestId);
 
   const settled = await withSpan("manager.fanout", { "request.id": ctx.requestId, "agent.count": authorizedRoutes.length }, () => Promise.allSettled(
@@ -124,6 +156,7 @@ async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies
   if (followup.request !== undefined) {
     incrementMetric("sre_round2_total");
     const request = followup.request;
+    trace.followup = { agent: request.agentId, reason: request.handoff.reasonCode };
     try {
       results.push(await withSpan(`agent.${request.agentId}.execute`, { "request.id": ctx.requestId, "round.number": 2, "agent.id": request.agentId }, () => executeAgent(request.agentId, ctx, deps, signal, request.handoff)));
     } catch (error) {
@@ -224,8 +257,41 @@ function authorizationDenied(requestId: string): AssistantResponse {
   return { requestId, answer: "You are not authorized to access the requested specialist.", citations: [], evidenceGaps: [{ source: "authorization", reason: "AUTHZ_DENIED" }], degraded: true, metadata: { routedAgents: [], tierLUsed: false }, error: { code: "AUTHZ_DENIED", message: "Access denied", retryable: false } };
 }
 
-function routeInvalid(requestId: string): AssistantResponse {
-  return { requestId, answer: "The request could not be routed safely.", citations: [], evidenceGaps: [{ source: "routing", reason: "ROUTE_INVALID" }], degraded: true, metadata: { routedAgents: [], tierLUsed: false }, error: { code: "ROUTE_INVALID", message: "Routing failed", retryable: false } };
+/**
+ * Why routing failed, not merely that it did.
+ *
+ * Everything used to collapse into ROUTE_INVALID, so a prompt regression, a
+ * hallucinated agent, an agent this environment does not deploy and the model
+ * provider being down were one code on the console. They have different fixes
+ * and only one of them is worth retrying.
+ *
+ * The MESSAGE stays generic for every case. The code is the diagnostic, and it
+ * names nothing a caller could not already read off the console's front page.
+ */
+const ROUTING_FAILURES: Record<string, { message: string; retryable: boolean }> = {
+  MANAGER_OUTPUT_INVALID: { message: "The Manager returned an unusable routing decision", retryable: true },
+  UNKNOWN_AGENT: { message: "Routing named a specialist that does not exist", retryable: false },
+  DISABLED_AGENT: { message: "Routing named a specialist this environment does not run", retryable: false },
+  MODEL_UNAVAILABLE: { message: "The routing model is unavailable", retryable: true },
+  MODEL_RATE_LIMITED: { message: "The routing model is rate limited", retryable: true },
+  MODEL_TIMEOUT: { message: "The routing model timed out", retryable: true },
+  ROUTE_INVALID: { message: "Routing failed", retryable: false },
+};
+
+function routingFailure(requestId: string, error: unknown): AssistantResponse {
+  const raw = typeof error === "object" && error !== null && "code" in error ? String((error as { code: unknown }).code) : "";
+  const code = (raw in ROUTING_FAILURES ? raw : "ROUTE_INVALID") as RuntimeErrorCode;
+  const { message, retryable } = ROUTING_FAILURES[code] as { message: string; retryable: boolean };
+  incrementMetric("sre_routing_failures_total");
+  return {
+    requestId,
+    answer: "The request could not be routed safely.",
+    citations: [],
+    evidenceGaps: [{ source: "routing", reason: code }],
+    degraded: true,
+    metadata: { routedAgents: [], tierLUsed: false },
+    error: { code, message, retryable },
+  };
 }
 
 function noEvidence(requestId: string, authorizedAgents: string[]): AssistantResponse {

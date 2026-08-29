@@ -39,7 +39,11 @@ describe("T3 routing execution edge cases", () => {
     model.enqueue({ content: JSON.stringify({ routes: [{ agent: "unknown", task: "x" }], confidence: 1, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
     const deps = runtime(model);
     const response = await executeRequest({ question: "certificate issue", identity: { subject: "alice", groups: [], roles: ["infra-read"], requestId: "req-invalid" } }, deps);
-    expect(response.error?.code).toBe("ROUTE_INVALID");
+    // the code survives the orchestrator rather than collapsing: a hallucinated
+    // agent and a model outage had the same code, and only one is worth a retry
+    expect(response.error?.code).toBe("UNKNOWN_AGENT");
+    expect(response.error?.retryable).toBe(false);
+    expect(response.evidenceGaps?.[0]).toMatchObject({ source: "routing", reason: "UNKNOWN_AGENT" });
     expect((deps.agentClient as MockSpecialistTransport).calls).toHaveLength(0);
   });
 

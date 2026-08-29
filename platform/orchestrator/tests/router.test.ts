@@ -122,7 +122,7 @@ describe("Manager", () => {
   it("rejects unknown or unauthorized agent IDs", async () => {
     const model = new MockModelClient();
     model.enqueue({ content: JSON.stringify({ routes: [{ agent: "unknown", task: "x" }], confidence: 1, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
-    await expect(new ManagerRouter(model, registry, manager).selectAgents("unknown", ids, {})).rejects.toMatchObject({ code: "ROUTE_INVALID" });
+    await expect(new ManagerRouter(model, registry, manager).selectAgents("unknown", ids, {})).rejects.toMatchObject({ code: "UNKNOWN_AGENT" });
   });
 
   /**
@@ -142,7 +142,7 @@ describe("Manager", () => {
     model.enqueue({ content: JSON.stringify({ routes: [{ agent: "keycloak", task: "Check the realm." }], confidence: 1, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
     await expect(
       new ManagerRouter(model, localRegistry, manager).selectAgents("realm question", [...ids, "keycloak"], {}),
-    ).rejects.toMatchObject({ code: "ROUTE_INVALID" });
+    ).rejects.toMatchObject({ code: "DISABLED_AGENT" });
   });
 
   it("does not offer a disabled agent in the first place", async () => {

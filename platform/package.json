@@ -37,6 +37,7 @@
     "gen:eval-cases": "node --import tsx tools/gen-eval-cases.ts",
     "check": "npm run typecheck && npm run lint && npm run validate:boundaries && npm run validate:tracked && npm run test && npm run check:engine && npm run validate:yaml && npm run check:generated && npm run validate:deploy",
     "eval": "node --import tsx eval/run.ts",
+    "eval:routing": "node --import tsx eval/routing-stability.ts",
     "load": "node --import tsx eval/load/run-load.ts",
     "render:deploy": "node --import tsx tools/render-agent-deployment.ts",
     "gen:all": "npm run gen:schema && npm run gen:management-api && npm run gen:supply-chain && npm run render:deploy && npm run render:toolhive",

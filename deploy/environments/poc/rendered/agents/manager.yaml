@@ -18,4 +18,4 @@ resources:
 modelEnv:
   SRE_MODEL_MANAGER: "openai/gpt-oss-20b"
   SRE_MODEL_SYNTHESIS: "openai/gpt-oss-20b"
-promptSha256: b6426bb804900ca544b99a10dd02be5fdcb4388027242daf7a50633406573c98
+promptSha256: 6cf082df2d2e3d1bf2446de22dbf623888105008865900643a56b286ef5f712f

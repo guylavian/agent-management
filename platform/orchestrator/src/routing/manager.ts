@@ -7,11 +7,18 @@ const jsonSchema = {
   title: "ManagerDecision",
   type: "object",
   additionalProperties: false,
-  // Strict OpenAI-compatible providers (including Groq) require every
-  // property declared by a response-format schema to appear in `required`.
-  // Optional semantics are represented by empty arrays in the model response
-  // and remain optional in the runtime/Zod domain type for compatibility.
-  required: ["routes", "confidence", "alternates", "abstain", "reasonCodes"],
+  // Strict OpenAI-compatible providers (including Groq) require every property
+  // declared here to appear in `required`, so a field cannot be "optional" in
+  // this schema — it is either demanded of the model or absent from it. That
+  // makes every property a cost: more tokens to emit and one more thing to get
+  // wrong before the response validates at all.
+  //
+  // `confidence` used to be here and nothing read it. Each field below has a
+  // consumer: `alternates` feeds resolveAbstentionFanout, `reasonCodes` feeds
+  // classifyIntent, `rationale` is recorded on the run trace. The Zod schema
+  // stays permissive about `confidence` so a producer that still sends one is
+  // not rejected at the boundary.
+  required: ["routes", "alternates", "abstain", "reasonCodes"],
   properties: {
     routes: {
       type: "array",
@@ -24,19 +31,18 @@ const jsonSchema = {
           // The RECEIVING schema accepts 2000 (managerRouteSchema), because a
           // long task is valid; what is not survivable is generating one. A
           // model that spends its completion budget writing four paragraphs of
-          // task never emits `confidence`/`abstain`, and a strict provider
-          // rejects the whole response — the request then fails as
-          // ROUTE_INVALID with nothing routed, which is what happened. Bound
-          // what may be GENERATED, and stay permissive about what may arrive.
+          // task never emits `abstain`, and a strict provider rejects the whole
+          // response — the request then fails with nothing routed, which is
+          // what happened. Bound what may be GENERATED, and stay permissive
+          // about what may arrive.
           task: { type: "string", minLength: 1, maxLength: 400, description: "One or two sentences: what this specialist should investigate. Not a plan." },
           rationale: { type: "string", maxLength: 300, description: "One sentence: why this specialist for this request." },
         },
       },
     },
-    confidence: { type: "number", minimum: 0, maximum: 1 },
-    alternates: { type: "array", items: { type: "string" } },
-    abstain: { type: "boolean" },
-    reasonCodes: { type: "array", items: { type: "string" } },
+    alternates: { type: "array", items: { type: "string" }, description: "Specialists to consult if abstaining because two or more fit equally. Empty otherwise." },
+    abstain: { type: "boolean", description: "True when no specialist clearly owns the request. Then routes is empty." },
+    reasonCodes: { type: "array", items: { type: "string" }, description: "Short machine tags for why, e.g. causal-question. Empty when unremarkable." },
   },
 } satisfies Record<string, unknown>;
 
@@ -66,10 +72,28 @@ export class ManagerRouter {
     // is enabled ∩ authorized, so it is the only honest thing to check against.
     const offered = new Set(descriptors.map((agent) => agent.id));
     const response = await this.#model.chat({ model: this.#manager.spec.model.profile, messages: [{ role: "system", content: this.#manager.systemPrompt }, { role: "user", content: JSON.stringify({ question, trustedEntities: entities, authorizedSpecialists: descriptors }) }], guidedJsonSchema: jsonSchema, signal });
-    const decision = managerDecisionSchema.parse(JSON.parse(response.content ?? ""));
+
+    // A response that is not the agreed shape is a MANAGER problem, and saying so
+    // separates a prompt or schema regression from an agent that does not exist.
+    let decision: ManagerDecision;
+    try {
+      decision = managerDecisionSchema.parse(JSON.parse(response.content ?? ""));
+    } catch {
+      throw Object.assign(new Error("Manager returned an unusable decision"), { code: "MANAGER_OUTPUT_INVALID" });
+    }
+
     const agents = decision.routes.map((route) => route.agent);
     const alternates = decision.alternates ?? [];
-    if ([...agents, ...alternates].some((id) => !offered.has(id))) throw Object.assign(new Error("Manager selected an unavailable agent"), { code: "ROUTE_INVALID" });
+    for (const id of [...agents, ...alternates]) {
+      if (offered.has(id)) continue;
+      // Distinguishing these is the whole point: an agent this environment does
+      // not run is a DEPLOYMENT fact and a fixable one, while a name that exists
+      // nowhere means the model invented it. Both are refused identically.
+      const known = this.#registry.resolve(id) !== undefined;
+      throw known
+        ? Object.assign(new Error("Manager selected an agent this environment does not run"), { code: "DISABLED_AGENT" })
+        : Object.assign(new Error("Manager selected an agent that does not exist"), { code: "UNKNOWN_AGENT" });
+    }
     if (new Set(agents).size !== agents.length || new Set(alternates).size !== alternates.length || agents.length > this.#manager.spec.execution.maxAgentsPerRequest || alternates.length > this.#manager.spec.execution.maxAgentsPerRequest) throw Object.assign(new Error("Manager selection violates bounds"), { code: "ROUTE_INVALID" });
     return decision;
   }

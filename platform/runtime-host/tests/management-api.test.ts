@@ -181,7 +181,10 @@ describe("run store and execution graph", () => {
       needsDomain: ["observability"],
       evidence: [
         { id: "ev-1", kind: "config", system: "keycloak", tool: "list_clients", status: "ok" },
-        { id: "ev-2", kind: "missing", system: "prometheus", tool: "query", status: "failed" },
+        // a refused call, exactly as the engine records one: TOOL_DENIED → "denied".
+        // This fixture said "failed" and the graph agreed with it, so a refusal
+        // and a provider error were indistinguishable in the trace.
+        { id: "ev-2", kind: "missing", system: "prometheus", tool: "query", status: "denied" },
       ],
     },
     { agentId: "observability", status: "partial", evidence: [{ id: "ev-3", kind: "telemetry", system: "prometheus", tool: "query", status: "ok" }] },
@@ -229,7 +232,19 @@ describe("run store and execution graph", () => {
     const run = record();
     expect(run.toolCalls).toBe(3);
     expect(run.deniedToolCalls).toBe(1);
-    expect(run.nodes.find((node) => node.kind === "toolhive.call" && node.mcp === "prometheus" && node.status === "denied")).toBeDefined();
+    expect(run.nodes.find((node) => node.kind === "authorization.check" && node.mcp === "prometheus" && node.status === "denied")).toBeDefined();
+  });
+
+  it("shows a refused call as an intent that was never executed", () => {
+    const run = record();
+    const request = run.nodes.find((node) => node.kind === "tool.request" && node.mcp === "prometheus");
+    // the agent asked...
+    expect(request).toBeDefined();
+    // ...the runtime refused...
+    expect(run.nodes.find((node) => node.kind === "authorization.check" && node.parentId === request?.id)?.status).toBe("denied");
+    // ...and nothing was dispatched. The absence of this node IS the claim that
+    // the call never reached a provider, so it is asserted rather than implied.
+    expect(run.nodes.some((node) => node.kind === "toolhive.call" && node.mcp === "prometheus" && node.agentId === "keycloak")).toBe(false);
   });
 
   it("never carries answer text, reasoning or tool payloads", () => {

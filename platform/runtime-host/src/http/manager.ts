@@ -1,5 +1,5 @@
 import { subjectHash } from "@sre/auth";
-import { executeRequest, extractEntities, type AssistantResponse, type BoundedSessionContext } from "@sre/orchestrator";
+import { executeRequest, extractEntities, type AssistantResponse, type BoundedSessionContext, type RoutingTrace } from "@sre/orchestrator";
 import { MockOidcClient } from "@sre/auth";
 import { incrementMetric, observeInflight, withSpan } from "@sre/telemetry";
 import type { Express } from "express";
@@ -16,7 +16,7 @@ const bodySchema = z.object({ question: z.string().min(1).max(8_000), environmen
  * to affect the response: a management-plane bookkeeping failure must not turn
  * a successful investigation into an error.
  */
-function recordRun(deps: ManagerDependencies, input: { requestId: string; identity: { subject: string }; environment: string; startedAt: Date; result: AssistantResponse; specialistResults: SpecialistResultLike[] }): void {
+function recordRun(deps: ManagerDependencies, input: { requestId: string; identity: { subject: string }; environment: string; startedAt: Date; result: AssistantResponse; specialistResults: SpecialistResultLike[]; routing?: RoutingTrace }): void {
   try {
     const specialists = deps.managementRegistry;
     deps.runs.record(buildRunRecord({
@@ -32,10 +32,29 @@ function recordRun(deps: ManagerDependencies, input: { requestId: string; identi
       status: input.result.error ? "failed" : input.result.degraded ? "partial" : "complete",
       evidenceCount: input.result.citations.length,
       synthesized: input.result.metadata.tierLUsed,
+      ...(input.routing ? { routing: input.routing } : {}),
+      ...(outcomeReason(input.result) ? { outcomeReason: outcomeReason(input.result) as string } : {}),
     }));
   } catch {
     // deliberately swallowed; the run history is observability, not the answer
   }
+}
+
+/**
+ * Why the run ended as it did, in the taxonomy's own words.
+ *
+ * A degraded answer is the case operators actually chase, and "degraded: true"
+ * on its own sends them to the logs. The gap reasons already name the cause —
+ * a rate-limited model, an unreachable MCP, a refused route — so the trace can
+ * say it. These are error codes and source names, never provider detail.
+ */
+function outcomeReason(result: AssistantResponse): string | undefined {
+  if (result.error !== undefined) return `${result.error.code}: ${result.error.message}`;
+  if (!result.degraded) return undefined;
+  const gaps = result.evidenceGaps.map((gap) => `${gap.source}: ${gap.reason}`);
+  // no gap recorded is not the same as no reason: the specialists' own outcomes
+  // still explain it, so leave this undefined and let the trace derive it there
+  return gaps.length === 0 ? undefined : `degraded — ${gaps.join("; ")}`;
 }
 
 
@@ -66,6 +85,7 @@ export function registerManagerRoutes(app: Express, deps: ManagerDependencies): 
       const environment = bodyResult.data.environment ?? deps.config.defaultEnvironment;
       const startedAt = new Date();
       let specialistResults: SpecialistResultLike[] = [];
+      let routing: RoutingTrace | undefined;
       const result = await withSpan("sre.query", { "request.id": requestId, "user.subject_hash": subjectHash(identity.subject), environment }, () => executeRequest(
         { question: bodyResult.data.question, environment: bodyResult.data.environment, identity, ...(conversation ? { conversation } : {}) },
         {
@@ -78,9 +98,10 @@ export function registerManagerRoutes(app: Express, deps: ManagerDependencies): 
           requestDeadlineMs: deps.config.requestDeadlineMs,
           defaultEnvironment: deps.config.defaultEnvironment,
           onResults: (results) => { specialistResults = results as SpecialistResultLike[]; },
+          onRouting: (trace) => { routing = trace; },
         },
       ));
-      recordRun(deps, { requestId, identity, environment, startedAt, result, specialistResults });
+      recordRun(deps, { requestId, identity, environment, startedAt, result, specialistResults, ...(routing ? { routing } : {}) });
       if (bodyResult.data.sessionId !== undefined) {
         await deps.sessionStore.put(mergeSessionEntities(session, authenticated.subject, bodyResult.data.sessionId, bodyResult.data.question, requestId));
       }

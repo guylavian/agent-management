@@ -19,6 +19,8 @@ export interface ChatRequest {
   tools?: ToolSchema[];
   guidedJsonSchema?: Record<string, unknown>;
   maxTokens?: number;
+  /** overrides the profile's declared temperature; normally left unset */
+  temperature?: number;
   signal?: AbortSignal;
 }
 
@@ -174,6 +176,8 @@ export interface RealModelClientOptions {
   apiKey?: string;
   /** maps logical profile (manager-router, tool-caller, tier-l-synthesis) → served model id */
   modelMap?: Record<string, string>;
+  /** per-profile sampling temperature from config/model-profiles; absent leaves the provider default */
+  temperatureMap?: Record<string, number>;
   /** prepended system message (e.g. "/no_think" for local qwen3); usually unset for Groq */
   systemSuffix?: string;
 }
@@ -211,12 +215,15 @@ export class RealOpenAiCompatibleClient implements ModelClient {
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
     const suffixMessages: ChatMessage[] = this.#options.systemSuffix ? [{ role: "system", content: this.#options.systemSuffix }] : [];
+    const temperature = request.temperature ?? this.#options.temperatureMap?.[request.model];
     const body = {
       model: this.#options.modelMap?.[request.model] ?? request.model,
       messages: [...suffixMessages, ...request.messages].map(serializeMessage),
       ...(request.tools ? { tools: request.tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })), tool_choice: "auto" } : {}),
       ...(request.guidedJsonSchema ? { response_format: { type: "json_schema", json_schema: { name: "structured_output", schema: request.guidedJsonSchema, strict: true } } } : {}),
       ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
+      // an explicit 0 must survive, so this tests for undefined rather than truthiness
+      ...(temperature === undefined ? {} : { temperature }),
     };
     const response = await fetch(this.#endpoint(), {
       method: "POST",

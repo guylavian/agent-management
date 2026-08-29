@@ -24,6 +24,7 @@ import {
   loadApprovedCatalog,
   loadDeploymentEnvironment,
   loadEffectiveAgentCatalog,
+  loadModelProfiles,
   ConfigValidationError,
   type AgentCatalog,
   type AgentRegistry,
@@ -171,7 +172,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       identityIssuer,
       model,
       promptAssistModel: buildPromptAssistModel(config, model),
-      synthesisModel: config.clients.llm === "mock" ? model : config.llm.baseUrl ? model : new RealOpenAiCompatibleClient(config.llm.tierLUrl as string, { modelMap: buildModelMap(config, config.llm.tierLModel ?? config.llm.model), ...(config.llm.systemSuffix ? { systemSuffix: config.llm.systemSuffix } : {}) }),
+      synthesisModel: config.clients.llm === "mock" ? model : config.llm.baseUrl ? model : new RealOpenAiCompatibleClient(config.llm.tierLUrl as string, { modelMap: buildModelMap(config, config.llm.tierLModel ?? config.llm.model), temperatureMap: buildTemperatureMap(config), ...(config.llm.systemSuffix ? { systemSuffix: config.llm.systemSuffix } : {}) }),
       oidc: config.clients.oidc === "mock" ? new MockOidcClient(config.oidc) : new RealOidcClient(config.oidc),
       sessionStore: config.clients.postgres === "mock" ? new MockSessionStore() : config.clients.postgres === "disabled" ? new DisabledSessionStore() : new PostgresSessionStore(config.postgres.connectionString as string),
       ...(delegationPublicKey ? { delegationPublicJwk: { ...createPublicKey(delegationPublicKey).export({ format: "jwk" }), kid: "sre-real-poc", use: "sig", alg: "RS256" } } : {}),
@@ -281,6 +282,19 @@ function buildPromptAssistModel(config: AppConfig, shared: ModelClient): ModelCl
   });
 }
 
+/**
+ * Per-profile sampling temperature, read from the SAME document that declares
+ * the profiles. A profile that omits it leaves the provider default, so this
+ * cannot quietly pin a temperature nobody asked for.
+ */
+export function buildTemperatureMap(config: AppConfig): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const profile of loadModelProfiles(config.modelProfilesFile).profiles) {
+    if (profile.temperature !== undefined) map[profile.id] = profile.temperature;
+  }
+  return map;
+}
+
 export function buildModelMap(config: AppConfig, fallback?: string): Record<string, string> {
   const map: Record<string, string> = {};
   const manager = config.llm.managerModel ?? fallback;
@@ -310,6 +324,7 @@ function buildRealModel(config: AppConfig): RealOpenAiCompatibleClient {
   return new RealOpenAiCompatibleClient(baseUrl, {
     ...(config.llm.apiKey ? { apiKey: config.llm.apiKey } : {}),
     modelMap: buildModelMap(config, config.llm.model),
+    temperatureMap: buildTemperatureMap(config),
     ...(config.llm.systemSuffix ? { systemSuffix: config.llm.systemSuffix } : {}),
   });
 }

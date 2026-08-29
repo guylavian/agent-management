@@ -105,6 +105,8 @@ export function buildRunRecord(input: BuildRunInput): RunRecord {
   let deniedToolCalls = 0;
 
   const push = (node: RunNode) => { nodes.push(node); };
+  /** every specialist that did not conclude, for the run's own explanation */
+  const unresolved: string[] = [];
   const routing = input.routing;
   const question = routing?.question;
   const taskFor = new Map((routing?.selected ?? []).map((route) => [route.agent, route]));
@@ -309,6 +311,7 @@ export function buildRunRecord(input: BuildRunInput): RunRecord {
     }
 
     const outcome = agentOutcome(result);
+    if (outcome.status !== "ok") unresolved.push(`${result.agentId} ${outcome.label}`);
     push({
       id: `${specialistId}.result`,
       kind: "agent.result",
@@ -364,7 +367,14 @@ export function buildRunRecord(input: BuildRunInput): RunRecord {
     startedAt: startedAtIso,
     durationMs: input.durationMs,
     actor: "runtime",
-    ...(input.outcomeReason ? { detail: input.outcomeReason } : {}),
+    /*
+     * Why the run ended this way, in descending order of directness: the
+     * reason the response reported, else what the specialists themselves
+     * concluded. A degraded run with no recorded gap still has an
+     * explanation — usually that every specialist returned
+     * insufficient_evidence — and "no reason reported" was throwing that away.
+     */
+    ...(detailFor(input.status, input.outcomeReason, unresolved) ? { detail: detailFor(input.status, input.outcomeReason, unresolved) as string } : {}),
   });
 
   return {
@@ -383,6 +393,12 @@ export function buildRunRecord(input: BuildRunInput): RunRecord {
     modelProfiles: [...modelProfiles],
     nodes,
   };
+}
+
+function detailFor(status: RunRecord["status"], reported: string | undefined, unresolved: string[]): string | undefined {
+  if (reported !== undefined) return reported;
+  if (status === "complete" || unresolved.length === 0) return undefined;
+  return `no specialist concluded — ${unresolved.join("; ")}`;
 }
 
 /** Cut with a visible marker, so a shortened question never reads as the whole one. */

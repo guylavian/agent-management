@@ -29,6 +29,14 @@ export type Evidence = z.infer<typeof evidenceSchema>;
 
 export const runtimeErrorCodeSchema = z.enum([
   "AUTHN_FAILED", "AUTHZ_DENIED", "ROUTE_AMBIGUOUS", "ROUTE_INVALID",
+  // Why routing failed, rather than only that it did. ROUTE_INVALID used to
+  // absorb all five: a malformed model response, a hallucinated agent, an agent
+  // this environment does not run, and the provider being down or throttling
+  // were one code, so the console could not tell a prompt regression from an
+  // outage. None of these names a policy internal — agent ids are on the
+  // console's front page.
+  "MANAGER_OUTPUT_INVALID", "UNKNOWN_AGENT", "DISABLED_AGENT",
+  "MODEL_UNAVAILABLE", "MODEL_RATE_LIMITED",
   "MODEL_TIMEOUT", "MODEL_INVALID_OUTPUT", "RAG_UNAVAILABLE", "RAG_DENIED",
   "MCP_UNAVAILABLE", "MCP_TIMEOUT", "MCP_INVALID_CALL", "TOOL_DENIED",
   "TOOL_FAILED", "EVIDENCE_STALE", "REDACTION_FAILURE", "REQUEST_TIMEOUT",
