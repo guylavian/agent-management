@@ -61,7 +61,7 @@ spec:
               # environment.yaml's endpointTemplate, which is already cluster DNS.
               # A specialist accepts that call but never dials another agent.
               - name: clients.agent
-                value: {{ if eq .agent.mode "manager" }}http-local{{ else }}mock{{ end }}
+                value: '{{ if eq .agent.mode "manager" }}http-local{{ else }}mock{{ end }}'
               # Ollama on the developer's Mac, reached through the Docker Desktop
               # host gateway. Config validation needs the URL set, not reachable,
               # so a stopped Ollama degrades queries rather than the deployment.

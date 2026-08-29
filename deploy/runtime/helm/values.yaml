@@ -69,6 +69,13 @@ clients:
 # ids). Anything credential-shaped belongs in integrationsSecret, never here.
 extraEnv: {}
 
+# The uid/gid the runtime image's `node` user resolves to. runAsNonRoot alone is
+# not enough: the kubelet refuses a non-numeric USER, so this must match the
+# image or every pod fails to start.
+securityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+
 telemetry:
   # otlp | console — console keeps a cluster without a collector from exporting
   exporter: otlp

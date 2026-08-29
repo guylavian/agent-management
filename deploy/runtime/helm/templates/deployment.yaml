@@ -68,6 +68,12 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
+            # The image declares `USER node`, which the kubelet cannot verify
+            # against runAsNonRoot because it is a name, not a uid — the pod
+            # fails CreateContainerConfigError. State the numeric uid the image
+            # actually resolves that name to (node:24-alpine -> 1000).
+            runAsUser: {{ .Values.securityContext.runAsUser }}
+            runAsGroup: {{ .Values.securityContext.runAsGroup }}
             seccompProfile: { type: RuntimeDefault }
             capabilities: { drop: [ALL] }
           volumeMounts:
