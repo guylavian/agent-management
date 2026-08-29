@@ -92,20 +92,22 @@ const accessEntrySchema = z
 export type AgentAccessEntry = z.infer<typeof accessEntrySchema>;
 
 /**
- * How the Manager decides this Agent is the right one. Precision matters more
- * than recall: `exactTerms` resolve routing on their own, `ambiguousTerms` are
- * documented specifically so they cannot, and `capabilities`/`exclusions` are
- * handed to the Manager model as descriptors rather than baked into a prompt.
+ * How the Manager decides this Agent is the right one — semantically.
+ *
+ * This used to carry a lexicon: exact phrases that resolved routing on their
+ * own, regexes over the question, and a list of overloaded words documented so
+ * they could not. Code matched them and picked an agent before any model was
+ * asked. It was precise when it fired and silent when it did not: an agent was
+ * reachable only if someone had written the right phrase down, and onboarding a
+ * specialist meant curating vocabulary rather than describing a domain.
+ *
+ * What remains is description. The Manager reads it and decides; the runtime
+ * then decides whether that agent may actually run.
  */
 const routingSchema = z
   .object({
-    // whole-phrase, case-insensitive terms that resolve to this agent (high precision)
-    exactTerms: z.array(z.string().min(2)).default([]),
-    // regexes (source strings) tested against the question; a match routes and yields an entity
-    entityPatterns: z.array(z.string().min(1)).default([]),
-    // overloaded terms that MUST NOT resolve routing on their own (precision guard, documentation)
-    ambiguousTerms: z.array(z.string().min(1)).default([]),
-    // free-text routing hints supplied to the Manager (what this specialist covers / does not)
+    // what this specialist covers, and what it does not. Both are handed to the
+    // Manager as description; neither is matched against the question by code
     capabilities: z.array(z.string().min(1)).default([]),
     exclusions: z.array(z.string().min(1)).default([]),
   })
@@ -113,7 +115,7 @@ const routingSchema = z
 
 export type AgentRouting = z.infer<typeof routingSchema>;
 
-const ROUTING_DEFAULT: AgentRouting = { exactTerms: [], entityPatterns: [], ambiguousTerms: [], capabilities: [], exclusions: [] };
+const ROUTING_DEFAULT: AgentRouting = { capabilities: [], exclusions: [] };
 
 const specialistSpecSchema = z
   .object({

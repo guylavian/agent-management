@@ -3,39 +3,55 @@ import { loadAgentInstance, type ManagerAgentConfig } from "@sre/config";
 import type { ChatRequest, ChatResponse, ModelClient } from "@sre/llm";
 import { MockModelClient } from "@sre/llm";
 import { describe, expect, it } from "vitest";
-import { classifyIntent, deterministicRoute, ManagerRouter } from "../src/index.ts";
+import { classifyIntent, extractEntities, ManagerRouter } from "../src/index.ts";
 
 const registry = loadEffectiveAgentCatalog({ ...CONFIG_PATHS, deploymentEnvironmentDir: deployEnvironmentDir("production") });
 const manager = loadAgentInstance({ configFile: "config/agents/manager.yaml" }) as ManagerAgentConfig;
 const ids = ["active-directory", "openshift", "network-observability"];
-// routing rules are sourced entirely from registry config, never from code
-const rules = registry.listEnabled().map((entry) => ({ agentId: entry.agentId, ...entry.routing }));
 
-describe("Stage-1 routing", () => {
-  it.each([
-    ["Check AD replication between DC-TLV-01 and DC-HFA-02", "active-directory"],
-    ["Why is this OpenShift pod in CrashLoopBackOff?", "openshift"],
-    ["Show Prometheus availability", "observability"],
-  ])("routes precise vocabulary", (question, expected) => {
-    expect(deterministicRoute(question, rules)).toMatchObject({ resolved: true, decision: { agents: [expected] } });
+/**
+ * Stage-1 keyword routing is gone.
+ *
+ * It matched exact phrases and regexes from each agent's config and chose a
+ * specialist before any model was asked. What replaces it is described in the
+ * Manager block below: the catalog is handed to the model as description, and
+ * the model decides.
+ *
+ * What survives here is the part that was never about choosing an agent.
+ */
+describe("request context", () => {
+  it("extracts a trusted entity from the question without choosing anyone", () => {
+    // a hostname shape the platform uses everywhere, not a per-agent lexicon
+    expect(extractEntities("Why is DC-TLV-01 intermittently slow?")).toMatchObject({ hostname: "DC-TLV-01" });
+    expect(extractEntities("why is everything slow")).toEqual({});
   });
 
-  it.each(["cluster status", "replication status", "certificate policy", "gateway node"])("does not guess from ambiguous phrase %s", (question) => {
-    expect(deterministicRoute(question, rules).resolved).toBe(false);
-  });
-
-  it("extracts trusted entity syntax and classifies intent deterministically", () => {
-    const result = deterministicRoute("Why is DC-TLV-01 intermittently slow?", rules);
-    expect(result.entities).toMatchObject({ hostname: "DC-TLV-01" });
-    expect(result.intent).toBe("diagnostic");
+  it("classifies intent linguistically, which shapes the answer and not the routing", () => {
     expect(classifyIntent("Show current status", ["causal-question"])).toBe("diagnostic");
     expect(classifyIntent("Show current status")).toBe("factual");
   });
+});
 
-  it("onboards a new specialist from config alone — no routing code change", () => {
-    // an Exchange specialist added purely as a registry rule routes immediately
-    const withExchange = [...rules, { agentId: "exchange", exactTerms: ["exchange", "mailbox", "outlook"], entityPatterns: [], ambiguousTerms: [] }];
-    expect(deterministicRoute("Is the Exchange mailbox database mounted?", withExchange)).toMatchObject({ resolved: true, decision: { agents: ["exchange"] } });
+/**
+ * A specialist becomes routable by being in the catalog and the Manager's
+ * allowlist. There is no vocabulary to curate and no code to change — which is
+ * the whole point of moving routing to the model.
+ */
+describe("onboarding", () => {
+  it("offers a new specialist to the Manager from config alone", async () => {
+    class InspectingModel implements ModelClient {
+      readonly mode = "mock" as const;
+      request?: ChatRequest;
+      async chat(request: ChatRequest): Promise<ChatResponse> { this.request = request; return { content: JSON.stringify({ routes: [{ agent: "openshift", task: "Check the workload." }], confidence: 0.9, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } }; }
+    }
+    const model = new InspectingModel();
+    await new ManagerRouter(model, registry, manager).selectAgents("Is the mailbox database mounted?", ids, {});
+    const sent = JSON.parse((model.request?.messages.at(-1)?.content ?? "{}") as string) as { authorizedSpecialists: Array<{ id: string; capabilities?: string[] }> };
+
+    // every authorized agent reaches the model with its own description; none of
+    // them had to declare a phrase to be considered
+    expect(sent.authorizedSpecialists.map(agent => agent.id).sort()).toEqual([...ids].sort());
+    for (const agent of sent.authorizedSpecialists) expect(Object.keys(agent)).not.toContain("exactTerms");
   });
 });
 

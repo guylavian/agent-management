@@ -55,15 +55,17 @@ const LIMIT_BOUNDS: Record<string, { min: number; max: number; unit?: string }> 
   maxRawExcerptBytes: { min: 256, max: 65_536, unit: 'bytes' },
 };
 
-const EMPTY_ROUTING = { exactTerms: [], entityPatterns: [], ambiguousTerms: [], capabilities: [], exclusions: [] };
+const EMPTY_ROUTING = { capabilities: [], exclusions: [] };
 
-/** Comma-separated list fields: routing vocabulary, roles, cross-domain grants. */
+/**
+ * What the Manager reads. Three more fields used to live here — exact phrases,
+ * regexes and a list of overloaded words — which code matched against the
+ * question to pick an agent before any model was asked. Routing is semantic
+ * now, so describing the domain is the whole job.
+ */
 const ROUTING_FIELDS: Array<[keyof typeof EMPTY_ROUTING, string, string]> = [
-  ['capabilities', 'Capabilities', 'What this agent can do. Used by the Manager to choose it.'],
-  ['exactTerms', 'Exact terms', 'Terms that route here unambiguously.'],
-  ['entityPatterns', 'Entity patterns', 'Identifier shapes this agent owns.'],
-  ['ambiguousTerms', 'Ambiguous terms', 'Terms that need more context before routing.'],
-  ['exclusions', 'Exclusions', 'Terms that must NOT route here.'],
+  ['capabilities', 'Capabilities', 'What this agent investigates. Plain language.'],
+  ['exclusions', 'Exclusions', 'What belongs to another specialist.'],
 ];
 
 /**
@@ -273,7 +275,7 @@ export function CreateAgentPage(props: { agentId?: string }) {
         </div>
       </Section>
 
-      <Section icon="routing" title="Routing" description="Vocabulary the Manager matches against a request to decide whether this agent should handle it. Comma separated.">
+      <Section icon="routing" title="Routing" description="The Manager reads these to decide, in its own judgement, whether this agent should handle a request. They are descriptions, not keywords — nothing here is matched against the question, so write them the way you would explain the agent to a colleague. Comma separated.">
         <FieldGrid>
           {ROUTING_FIELDS.map(([key, label, hint]) => (
             <Field key={key} label={label} hint={hint}>

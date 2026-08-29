@@ -13,9 +13,6 @@ spec:
   identity: { provider: keycloak, clientId: sre-agent-observability }
   environments: ["prod", "dr", "lab"]
   routing:
-    exactTerms: ["keycloak healthy", "prometheus", "promql", "service health", "runtime health", "runtime problem", "availability", "time series", "last 15 minutes"]
-    entityPatterns: []
-    ambiguousTerms: ["healthy", "latency", "errors", "failing"]
     capabilities: ["Prometheus metrics and target availability", "latency/error signals", "runtime and service health over time"]
     exclusions: ["Keycloak configuration", "identity administration", "write operations"]
   access:

@@ -13,9 +13,6 @@ spec:
   identity: { provider: keycloak, clientId: sre-agent-active-directory }
   environments: ["prod", "dr", "lab"]
   routing:
-    exactTerms: ["active directory", "domain controller", "domain controllers", "kerberos", "ldap", "ad replication"]
-    entityPatterns: ["\\bDC-[A-Z0-9-]+\\b"]
-    ambiguousTerms: ["replication", "policy", "certificate", "cluster"]
     capabilities: ["AD replication and domain-controller health", "Kerberos/LDAP authentication", "AD-integrated DNS"]
     exclusions: ["Keycloak configuration", "Prometheus observability", "OpenShift workloads"]
   access:

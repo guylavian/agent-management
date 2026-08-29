@@ -24,7 +24,7 @@ describe("effective agent catalog", () => {
   it("derives routing, ownership and authorization from the canonical Agent alone", () => {
     const catalog = loadEffectiveAgentCatalog(production);
     const keycloak = catalog.resolve("keycloak");
-    expect(keycloak?.routing.exactTerms).toContain("keycloak realm");
+    expect(keycloak?.routing.capabilities.join(" ")).toMatch(/keycloak/iu);
     expect(keycloak?.requiredRoles).toEqual(["infra-read"]);
     expect(keycloak?.allowedNeedsDomains).toEqual(["observability"]);
     expect(keycloak?.owner).toBe("identity-platform");
@@ -47,7 +47,7 @@ describe("effective agent catalog", () => {
         prompt: { systemFile: "config/prompts/network-security.md" },
         identity: { provider: "keycloak", clientId: "sre-agent-network-security" },
         environments: ["prod"],
-        routing: { exactTerms: ["firewall policy"], capabilities: ["firewall rules"] },
+        routing: { capabilities: ["firewall rules"] },
         access: [{ mcp: "wiki", tools: ["wiki_search"] }],
         execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 },
         authorization: { requiredRoles: ["network-read"] },
@@ -60,7 +60,7 @@ describe("effective agent catalog", () => {
     const catalog = buildAgentCatalog([...canonicalDocuments(), newAgent], environment.settings, overlays);
     const entry = catalog.resolve("network-security");
     expect(entry?.enabled).toBe(true);
-    expect(entry?.routing.exactTerms).toEqual(["firewall policy"]);
+    expect(entry?.routing.capabilities).toEqual(["firewall rules"]);
     expect(entry?.endpoint).toBe("http://sre-agent-network-security.sre-assistant.svc.cluster.local");
     expect(catalog.listEnabled("prod").map((agent) => agent.agentId)).toContain("network-security");
   });
@@ -100,7 +100,7 @@ describe("deployment overlays", () => {
    * or tool access is decided.
    */
   it.each([
-    ["routing", { exactTerms: ["anything"] }],
+    ["routing", { capabilities: ["anything"] }],
     ["capabilities", ["something"]],
     ["exclusions", ["something"]],
     ["access", [{ mcp: "wiki", tools: ["wiki_search"] }]],

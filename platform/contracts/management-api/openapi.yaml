@@ -669,10 +669,11 @@ components:
     AgentDraftRouting:
       type: object
       additionalProperties: false
+      description: >-
+        What the Manager reads to decide, semantically, whether this specialist
+        should handle a request. It is description, not a lexicon: no code
+        matches these strings against a question.
       properties:
-        exactTerms: { type: array, items: { type: string } }
-        entityPatterns: { type: array, items: { type: string } }
-        ambiguousTerms: { type: array, items: { type: string } }
         capabilities: { type: array, items: { type: string } }
         exclusions: { type: array, items: { type: string } }
 

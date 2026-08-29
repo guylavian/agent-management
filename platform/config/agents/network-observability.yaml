@@ -13,9 +13,6 @@ spec:
   identity: { provider: keycloak, clientId: sre-agent-network-observability }
   environments: ["prod", "dr", "lab"]
   routing:
-    exactTerms: ["packet loss", "bgp", "interface errors", "interface error", "splunk", "network latency"]
-    entityPatterns: []
-    ambiguousTerms: ["gateway", "policy", "latency"]
     capabilities: ["connectivity/latency/packet-loss", "Splunk network queries", "network-path evidence"]
     exclusions: ["identity/authentication", "OpenShift workload internals"]
   access:

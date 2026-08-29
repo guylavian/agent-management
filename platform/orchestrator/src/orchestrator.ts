@@ -6,7 +6,7 @@ import type { Evidence, RuntimeError, SpecialistResult } from "@sre/evidence";
 import { reduceEvidence } from "./synthesis/index.ts";
 import { redactText } from "@sre/redaction";
 import type { ModelClient } from "@sre/llm";
-import { classifyIntent, deterministicRoute, ManagerRouter, resolveAbstentionFanout, type ManagerDecision } from "./routing/index.ts";
+import { classifyIntent, extractEntities, ManagerRouter, resolveAbstentionFanout, type ManagerDecision } from "./routing/index.ts";
 import { incrementMetric, withSpan } from "@sre/telemetry";
 import { planFollowup, followupRejectionEvidence } from "./followup/followup.ts";
 import { deterministicMultiSpecialistResponse, deterministicResponseBuilder, shouldEscalate, synthesizeResponse } from "./synthesis/index.ts";
@@ -44,26 +44,42 @@ async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies
   const configured = new Set(deps.manager.spec.agents.allowed);
   const enabledAllowed = deps.registry.listEnabled(environment).filter((agent) => configured.has(agent.agentId));
   const allAgentIds = enabledAllowed.map((agent) => agent.agentId);
-  // routing rules come from the registry (config), not from code — see agents/registry.yaml
-  const rules = enabledAllowed.map((agent) => ({ agentId: agent.agentId, ...agent.routing }));
-  const stage1 = await withSpan("manager.route.stage1", { "request.id": req.identity.requestId, environment }, async () => deterministicRoute(req.question, rules));
   const authorizedCandidates = deps.registry.filterAuthorized(allAgentIds, req.identity.roles, environment);
   const defaultTask = `Investigate this request within your domain and return cited evidence: ${modelSafeQuestion}`.slice(0, 2000);
+
+  /*
+   * WHO investigates is a semantic judgement, and it is the Manager's alone.
+   *
+   * A keyword and regex stage used to resolve narrow factual questions before
+   * the model was asked at all. It was precise when it fired, but it decided by
+   * vocabulary rather than by meaning: an agent was reachable only if someone
+   * had written the right phrase into its config, a request worded differently
+   * missed it entirely, and onboarding a specialist meant curating a lexicon
+   * rather than describing what it does.
+   *
+   * Nothing about authorization moved. The model proposes agents; every line
+   * below still decides whether they may run.
+   */
+  const entities = extractEntities(req.question);
+  if (authorizedCandidates.length === 0) return authorizationDenied(req.identity.requestId);
   let routing: ManagerDecision;
-  // deterministic fast path applies ONLY to narrow factual requests; diagnostic,
-  // causal, ambiguous or potentially cross-domain questions go to the Manager
-  const fastPath = stage1.resolved && stage1.decision !== undefined && stage1.intent === "factual";
-  if (fastPath && stage1.decision !== undefined) {
-    routing = { routes: stage1.decision.agents.map((agent) => ({ agent, task: defaultTask })), confidence: 1, abstain: false, reasonCodes: [stage1.decision.reasonCode] };
-  } else {
-    if (authorizedCandidates.length === 0) return authorizationDenied(req.identity.requestId);
-    try {
-      incrementMetric("sre_manager_invocations_total");
-      // the Manager LLM call shares the request deadline signal
-      routing = await withSpan("manager.route.llm", { "request.id": req.identity.requestId, environment }, () => new ManagerRouter(deps.model, deps.registry, deps.manager).selectAgents(modelSafeQuestion, authorizedCandidates, stage1.entities, signal));
-    } catch {
-      return signal.aborted ? requestTimeout(req.identity.requestId) : routeInvalid(req.identity.requestId);
-    }
+  try {
+    incrementMetric("sre_manager_invocations_total");
+    // the Manager LLM call shares the request deadline signal
+    /*
+     * The Manager is offered every ENABLED agent the allowlist permits, not
+     * only the ones this principal may use.
+     *
+     * Selection and authorization are different questions, and collapsing them
+     * makes the answer worse: pre-filtering meant a request the caller was not
+     * entitled to make came back as whatever the remaining agents could say,
+     * instead of as a denial. The model picks on merit; the filter below is
+     * authoritative and rejects what the caller may not have. Agent ids and
+     * descriptions are not secrets — they are on the console's front page.
+     */
+    routing = await withSpan("manager.route.llm", { "request.id": req.identity.requestId, environment }, () => new ManagerRouter(deps.model, deps.registry, deps.manager).selectAgents(modelSafeQuestion, allAgentIds, entities, signal));
+  } catch {
+    return signal.aborted ? requestTimeout(req.identity.requestId) : routeInvalid(req.identity.requestId);
   }
 
   const intent = classifyIntent(req.question, routing.reasonCodes);
@@ -98,7 +114,7 @@ async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies
     alreadyRun: authorizedAgents,
     ctx,
     registry: deps.registry,
-    entities: stage1.entities,
+    entities,
     budgetUsed: false,
     maxAgentsPerRequest: deps.manager.spec.execution.maxAgentsPerRequest,
     allowedManagerAgents: deps.manager.spec.agents.allowed,

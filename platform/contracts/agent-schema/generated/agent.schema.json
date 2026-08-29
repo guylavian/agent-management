@@ -257,38 +257,11 @@
             },
             "routing": {
               "default": {
-                "exactTerms": [],
-                "entityPatterns": [],
-                "ambiguousTerms": [],
                 "capabilities": [],
                 "exclusions": []
               },
               "type": "object",
               "properties": {
-                "exactTerms": {
-                  "default": [],
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "minLength": 2
-                  }
-                },
-                "entityPatterns": {
-                  "default": [],
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "ambiguousTerms": {
-                  "default": [],
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
                 "capabilities": {
                   "default": [],
                   "type": "array",
@@ -307,9 +280,6 @@
                 }
               },
               "required": [
-                "exactTerms",
-                "entityPatterns",
-                "ambiguousTerms",
                 "capabilities",
                 "exclusions"
               ],

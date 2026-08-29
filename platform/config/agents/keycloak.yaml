@@ -13,9 +13,6 @@ spec:
   identity: { provider: keycloak, clientId: sre-agent-keycloak }
   environments: ["prod", "dr", "lab"]
   routing:
-    exactTerms: ["keycloak realm", "sre-test realm", "realm", "realms", "keycloak client", "clients exist", "authentication flow", "authentication flows", "identity provider", "identity providers", "keycloak configuration", "login failure", "login failures"]
-    entityPatterns: ["\\bsre-test-(?:user|client|role)\\b"]
-    ambiguousTerms: ["authentication", "login", "client", "role", "group", "session"]
     capabilities: ["Keycloak realms/users/clients/roles/groups", "authentication flows and sessions", "identity providers and login configuration"]
     exclusions: ["Prometheus metrics", "general infrastructure observability", "Active Directory administration"]
   access:

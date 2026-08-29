@@ -20,48 +20,15 @@ export function classifyIntent(question: string, reasonCodes: string[] = []): Re
   return DIAGNOSTIC.test(question) || reasonCodes.some((code) => DIAGNOSTIC_REASON_CODES.has(code)) ? "diagnostic" : "factual";
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-}
-
-function phraseMatches(question: string, term: string): boolean {
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(term)}(?![\\p{L}\\p{N}])`, "iu").test(question);
-}
-
-/** Generic entity extraction shared by session context; registry entityPatterns extend this. */
+/**
+ * Generic entity extraction, shared by session context and handed to the
+ * Manager as trusted context.
+ *
+ * This is NOT agent selection: the pattern is a hostname shape the platform
+ * uses everywhere, not a per-agent lexicon, and what it produces is a fact
+ * about the question rather than a decision about who answers it.
+ */
 export function extractEntities(question: string): Record<string, string> {
   const hostname = question.match(/\b(?:DC|APP|OCP)-[A-Z0-9-]+\b/u)?.[0];
   return hostname === undefined ? {} : { hostname };
-}
-
-/**
- * Precision-biased Stage-1 routing. A rule matches only on an exact term or an
- * entity-pattern hit; overloaded/ambiguous terms never resolve on their own.
- * Resolves only when exactly one agent matches.
- */
-export function deterministicRoute(question: string, rules: RoutingRule[]): Stage1RoutingResult {
-  const entities = extractEntities(question);
-  const matched: Array<{ agentId: string }> = [];
-  for (const rule of rules) {
-    const exactHit = rule.exactTerms.some((term) => phraseMatches(question, term));
-    let patternHit = false;
-    for (const pattern of rule.entityPatterns) {
-      const found = safeMatch(question, pattern);
-      if (found !== undefined) { patternHit = true; entities[`${rule.agentId}.entity`] = found; }
-    }
-    if (exactHit || patternHit) matched.push({ agentId: rule.agentId });
-  }
-  const candidates = [...new Set(matched.map((match) => match.agentId))];
-  if (candidates.length === 1) {
-    return { resolved: true, decision: { agents: candidates, reasonCode: "registry-lexicon" }, candidates, entities, intent: classifyIntent(question) };
-  }
-  return { resolved: false, candidates, entities, intent: classifyIntent(question) };
-}
-
-function safeMatch(question: string, pattern: string): string | undefined {
-  try {
-    return question.match(new RegExp(pattern, "iu"))?.[0];
-  } catch {
-    return undefined;
-  }
 }

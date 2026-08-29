@@ -86,7 +86,7 @@ export interface AgentDetailView extends AgentSummaryView {
    * that quietly dropped them. `tests/create-agent.test.ts` proves the round trip.
    */
   environments: string[];
-  routing: { exactTerms: string[]; entityPatterns: string[]; ambiguousTerms: string[]; capabilities: string[]; exclusions: string[] };
+  routing: { capabilities: string[]; exclusions: string[] };
 }
 
 /**
@@ -192,9 +192,6 @@ export function agentDetail(agent: SpecialistAgentConfig, catalog: ApprovedCatal
     ...(agent.description === undefined ? {} : { description: agent.description }),
     environments: agent.spec.environments,
     routing: {
-      exactTerms: agent.spec.routing.exactTerms,
-      entityPatterns: agent.spec.routing.entityPatterns,
-      ambiguousTerms: agent.spec.routing.ambiguousTerms,
       capabilities: agent.spec.routing.capabilities,
       exclusions: agent.spec.routing.exclusions,
     },

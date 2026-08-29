@@ -24,7 +24,7 @@ export interface AgentDraft {
   description?: string;
   /** logical environments the Agent is defined for; deployment is a separate, per-environment decision */
   environments?: string[];
-  routing?: { exactTerms?: string[]; entityPatterns?: string[]; ambiguousTerms?: string[]; capabilities?: string[]; exclusions?: string[] };
+  routing?: { capabilities?: string[]; exclusions?: string[] };
   requiredRoles: string[];
   crossDomainAllowed?: string[];
   access: Array<{ mcp: string; tools: string[] }>;
@@ -118,9 +118,6 @@ export function draftToDocument(draft: AgentDraft): AgentDocument {
       identity: { provider: "keycloak", clientId: workloadClientId(draft.name) },
       environments: draft.environments ?? [...DEFAULT_ENVIRONMENTS],
       routing: {
-        exactTerms: draft.routing?.exactTerms ?? [],
-        entityPatterns: draft.routing?.entityPatterns ?? [],
-        ambiguousTerms: draft.routing?.ambiguousTerms ?? [],
         capabilities: draft.routing?.capabilities ?? [],
         exclusions: draft.routing?.exclusions ?? [],
       },
@@ -271,9 +268,6 @@ export function renderAgentYaml(document: AgentDocument): string {
     `  identity: { provider: ${spec.identity.provider}, clientId: ${spec.identity.clientId} }`,
     `  environments: [${spec.environments.map(quote).join(", ")}]`,
     "  routing:",
-    `    exactTerms: [${spec.routing.exactTerms.map(quote).join(", ")}]`,
-    `    entityPatterns: [${spec.routing.entityPatterns.map(quote).join(", ")}]`,
-    `    ambiguousTerms: [${spec.routing.ambiguousTerms.map(quote).join(", ")}]`,
     `    capabilities: [${spec.routing.capabilities.map(quote).join(", ")}]`,
     `    exclusions: [${spec.routing.exclusions.map(quote).join(", ")}]`,
     "  access:",

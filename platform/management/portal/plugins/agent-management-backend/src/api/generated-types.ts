@@ -257,10 +257,11 @@ export interface AgentDraftAccess {
   tools: Array<string>;
 }
 
+/**
+ * What the Manager reads to decide, semantically, whether this specialist should handle a request. It is description, not a lexicon: no code matches these strings against a question.
+ */
+
 export interface AgentDraftRouting {
-  exactTerms?: Array<string>;
-  entityPatterns?: Array<string>;
-  ambiguousTerms?: Array<string>;
   capabilities?: Array<string>;
   exclusions?: Array<string>;
 }

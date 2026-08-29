@@ -11,6 +11,9 @@ const result = (agentId: string, needsDomain: string, secret = "hidden transcrip
 describe("T5 bounded cross-domain follow-up", () => {
   it("executes one authorized discovered domain and never recurses", async () => {
     const model = new MockModelClient();
+    // the Manager picks AD; the network domain is DISCOVERED by that specialist
+    // in round two, which is what this test is about
+    model.enqueue({ content: JSON.stringify({ routes: [{ agent: "active-directory", task: "Check AD replication." }], confidence: 0.9, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
     const runtime = distributedRuntime(model);
     const response = await executeRequest({ question: "AD replication has a network dependency", identity }, runtime);
     expect(response.metadata.routedAgents).toEqual(["active-directory", "network-observability"]);

@@ -43,9 +43,6 @@ export interface PromptAssistContext {
   owner?: string;
   capabilities: string[];
   exclusions: string[];
-  exactTerms: string[];
-  entityPatterns: string[];
-  ambiguousTerms: string[];
   crossDomainAllowed: string[];
   environments: string[];
   requiredRoles: string[];
@@ -102,9 +99,6 @@ export function safeContext(body: unknown): PromptAssistContext {
     ...(str(input.owner) === undefined ? {} : { owner: str(input.owner) as string }),
     capabilities: list(routing.capabilities),
     exclusions: list(routing.exclusions),
-    exactTerms: list(routing.exactTerms),
-    entityPatterns: list(routing.entityPatterns),
-    ambiguousTerms: list(routing.ambiguousTerms),
     crossDomainAllowed: list(input.crossDomainAllowed),
     environments: list(input.environments),
     requiredRoles: list(input.requiredRoles),
@@ -150,9 +144,6 @@ function render(context: PromptAssistContext): string {
     ...(context.owner === undefined ? [] : [`owning team: ${context.owner}`]),
     ...(context.capabilities.length === 0 ? [] : [`capabilities: ${context.capabilities.join(", ")}`]),
     ...(context.exclusions.length === 0 ? [] : [`out of scope: ${context.exclusions.join(", ")}`]),
-    ...(context.exactTerms.length === 0 ? [] : [`routes on: ${context.exactTerms.join(", ")}`]),
-    ...(context.entityPatterns.length === 0 ? [] : [`entity patterns: ${context.entityPatterns.join(", ")}`]),
-    ...(context.ambiguousTerms.length === 0 ? [] : [`ambiguous terms: ${context.ambiguousTerms.join(", ")}`]),
     ...(context.crossDomainAllowed.length === 0 ? [] : [`may escalate to: ${context.crossDomainAllowed.join(", ")}`]),
     ...(context.environments.length === 0 ? [] : [`environments: ${context.environments.join(", ")}`]),
     "read-only: yes",

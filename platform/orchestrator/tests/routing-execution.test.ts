@@ -43,21 +43,37 @@ describe("T3 routing execution edge cases", () => {
     expect((deps.agentClient as MockSpecialistTransport).calls).toHaveLength(0);
   });
 
-  it("routes an obvious narrow factual request directly without invoking the Manager", async () => {
+  /**
+   * Every request reaches the Manager. A keyword stage used to answer narrow
+   * factual questions before the model was asked, which meant an agent was
+   * reachable only if someone had written the right phrase into its config.
+   * The model now decides, and the task it writes is what the specialist gets.
+   */
+  it("asks the Manager even for an obvious single-domain request, and uses the task it writes", async () => {
     const model = new MockModelClient();
-    model.enqueue({ content: JSON.stringify({ routes: [{ agent: "network-observability", task: "should-not-run" }], confidence: 1, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
+    model.enqueue({ content: JSON.stringify({ routes: [{ agent: "active-directory", task: "Report current AD replication status across domain controllers." }], confidence: 0.95, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
     const deps = runtime(model);
-    const response = await executeRequest({ question: "Show AD replication status", identity: { subject: "alice", groups: [], roles: ["infra-read"], requestId: "req-fast" } }, deps);
-    // deterministic fast path selected AD directly; the enqueued Manager decision was never consumed
+    const response = await executeRequest({ question: "Show AD replication status", identity: { subject: "alice", groups: [], roles: ["infra-read"], requestId: "req-single" } }, deps);
+
     expect(response.metadata.routedAgents).toEqual(["active-directory"]);
     const calls = (deps.agentClient as MockSpecialistTransport).calls;
     expect(calls.map((call) => call.agentId)).toEqual(["active-directory"]);
-    expect(calls[0]?.request.task).toContain("Show AD replication status");
+    // the specialist receives the Manager's task, not a template built from the question
+    expect(calls[0]?.request.task).toContain("replication status across domain controllers");
   });
 
-  it("does not let the deterministic fast path swallow a diagnostic single-domain question", async () => {
+  it("routes a question whose wording matches no agent's vocabulary", async () => {
     const model = new MockModelClient();
-    // Manager returns AD + network for a causal AD question; the fast path must defer to it
+    // nothing here says "active directory", "kerberos" or "ldap" — the old
+    // keyword stage would have found nothing and the Manager decides on meaning
+    model.enqueue({ content: JSON.stringify({ routes: [{ agent: "active-directory", task: "Investigate sign-in failures for the Tel Aviv office." }], confidence: 0.8, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
+    const deps = runtime(model);
+    const response = await executeRequest({ question: "Nobody in the Tel Aviv office can sign in this morning", identity: { subject: "alice", groups: [], roles: ["infra-read"], requestId: "req-semantic" } }, deps);
+    expect(response.metadata.routedAgents).toEqual(["active-directory"]);
+  });
+
+  it("routes a genuinely cross-domain question to more than one specialist", async () => {
+    const model = new MockModelClient();
     model.enqueue({ content: JSON.stringify({ routes: [{ agent: "active-directory", task: "Check AD auth." }, { agent: "network-observability", task: "Check site-B path." }], confidence: 0.9, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
     const deps = runtime(model);
     const response = await executeRequest({ question: "Why is AD authentication failing from Site B?", identity: { subject: "admin", groups: [], roles: ["infra-read", "network-read"], requestId: "req-diag" } }, deps);

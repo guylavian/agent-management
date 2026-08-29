@@ -35,7 +35,7 @@ const draft: AgentDraft = {
   modelProfile: "tool-caller",
   prompt: "You are the Network Security specialist. Investigate firewall policy and gateway state using only the approved read-only tools, and cite every claim.",
   environments: ["prod"],
-  routing: { exactTerms: ["firewall policy", "security zone"], capabilities: ["firewall rules and gateway state"], exclusions: ["identity administration"] },
+  routing: { capabilities: ["firewall rules and gateway state"], exclusions: ["identity administration"] },
   requiredRoles: ["network-read"],
   crossDomainAllowed: ["network-observability"],
   access: [{ mcp: "wiki", tools: ["wiki_search", "wiki_read_page"] }],
