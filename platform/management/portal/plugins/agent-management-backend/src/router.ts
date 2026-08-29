@@ -82,6 +82,21 @@ export async function createRouter({
   proxyGet('/evaluations', evaluationReadPermission, '/management/evaluations');
 
   /** Pure preview: validates the draft and renders canonical YAML. Changes nothing. */
+  /**
+   * Reading a run's trace with the console-assistance model. Requires only the
+   * permission that already lets an operator READ the run: the diagnosis says
+   * nothing the trace does not, and changes nothing.
+   */
+  router.post('/runs/:id/diagnose', async (request, response) => {
+    await requirePermission(request, runReadPermission);
+    if (!runtime.configured) {
+      response.status(501).json({ status: 'not-configured', reason: 'sreAgent.managementApi.baseUrl is not set' });
+      return;
+    }
+    const result = await runtime.post(`/management/runs/${encodeURIComponent(request.params.id)}/diagnose`, {});
+    response.status(result.status).json(result.body);
+  });
+
   router.post('/agents/preview', async (request, response) => {
     await requirePermission(request, agentAccessEditPermission);
     if (!runtime.configured) {

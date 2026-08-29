@@ -220,6 +220,52 @@ paths:
               schema: { $ref: "#/components/schemas/RunDetail" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /runs/{id}/diagnose:
+    post:
+      operationId: diagnoseRun
+      summary: Read one run's trace with the console-assistance model. Stores nothing.
+      description: >-
+        Returns a plain-language reading of the execution trace: what the run
+        did, the earliest node that explains the outcome, and what to check
+        next. It is a READING of the trace, not a new source of truth — it
+        re-runs nothing, reaches no tool and widens no policy.
+
+        What leaves the process is the trace the console already renders. That
+        is already the allowlist: node values are scalars, evidence nodes carry
+        a citation rather than a payload, the question is stored after the same
+        redaction the model saw, and the initiator is a hash.
+
+        Nothing is written back onto the run record. A trace holds facts, and
+        keeping a model's reading beside them would blur which is which.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The diagnosis.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [diagnosis]
+                properties:
+                  diagnosis: { type: string }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "501":
+          description: No console-assistance profile is bound in this environment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotConfigured" }
+        "502":
+          description: The model was unavailable or returned nothing usable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotConfigured" }
+
   /evaluations:
     get:
       operationId: getEvaluations

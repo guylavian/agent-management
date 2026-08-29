@@ -89,6 +89,22 @@ export function useRun(id: string) {
   return useAsync(async () => request<RunDetail>(`/runs/${encodeURIComponent(id)}`), [id]);
 }
 
+/**
+ * Read a run's trace with the console-assistance model.
+ *
+ * Not a `useAsync`: a diagnosis costs a model call, so it happens when an
+ * operator asks for one rather than on every visit to the page.
+ */
+export function useRunDiagnosis() {
+  const request = useFetch();
+  return (id: string) =>
+    request<{ diagnosis: string }>(`/runs/${encodeURIComponent(id)}/diagnose`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+}
+
 export function useEvaluations() {
   const request = useFetch();
   return useAsync(async () => request<Record<string, unknown>>('/evaluations'), []);

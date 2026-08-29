@@ -10,6 +10,7 @@ import {
   AvatarError,
   BUILT_IN_ICONS,
   CONTENT_TYPE,
+  diagnoseRun,
   diffFile,
   draftSystemPrompt,
   isManagedAvatarPath,
@@ -18,6 +19,7 @@ import {
   permissionMatrix,
   proposeAgentChange,
   proposeManagerChange,
+  RunDiagnosisError,
   proposePromptChange,
   PromptAssistError,
   safeContext,
@@ -125,6 +127,35 @@ export function managementRouter(deps: ManagementDeps): Router {
     const run = deps.runs.get(request.params.id as string);
     if (run === undefined) { notFound(response, "run"); return; }
     response.json(run);
+  });
+
+  /**
+   * Read one run's trace with the console-assistance model.
+   *
+   * PURE: it stores nothing, and in particular writes nothing back onto the run
+   * record. A run trace holds facts; keeping a model's reading beside them
+   * would blur which is which the first time someone cites one.
+   *
+   * What leaves the process is the trace the console already renders — see
+   * run-diagnosis.ts on why that is the allowlist rather than a copy of it.
+   */
+  router.post("/runs/:id/diagnose", async (request: Request, response: Response) => {
+    const run = deps.runs.get(request.params.id as string);
+    if (run === undefined) { notFound(response, "run"); return; }
+    if (deps.promptAssistModel === undefined) {
+      response.status(501).json({ code: "NOT_CONFIGURED", message: "No console-assistance model profile is configured for this environment" });
+      return;
+    }
+    try {
+      response.json({ diagnosis: await diagnoseRun(deps.promptAssistModel, run) });
+    } catch (error) {
+      if (error instanceof RunDiagnosisError) {
+        response.status(502).json({ code: "RUN_DIAGNOSIS_UNAVAILABLE", message: "The run could not be diagnosed" });
+        return;
+      }
+      // never echo a provider error body: it can disclose endpoints or policy
+      response.status(502).json({ code: "RUN_DIAGNOSIS_UNAVAILABLE", message: "The run could not be diagnosed" });
+    }
   });
 
   // an evaluation backend is not implemented; say so rather than invent numbers
