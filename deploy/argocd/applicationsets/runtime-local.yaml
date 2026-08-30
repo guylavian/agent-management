@@ -76,6 +76,10 @@ spec:
               # image, so a merged pull request reaches this cluster the same
               # way it reaches Argo — no image rebuild. The image still
               # supplies the code; only desired state follows Git.
+              # a laptop node cannot fit old+new pods side by side at the
+              # production-sized requests during a rolling update
+              - { name: resources.requests.cpu, value: 100m }
+              - { name: resources.requests.memory, value: 128Mi }
               - { name: gitSync.enabled, value: "true" }
               - { name: gitSync.repoURL, value: https://github.com/guylavian/agent-management.git }
               - { name: gitSync.credentialsSecret, value: sre-git-sync }
