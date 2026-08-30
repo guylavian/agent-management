@@ -1,0 +1,20 @@
+# GENERATED FILE — DO NOT EDIT.
+# Produced by `npm run render:deploy` from:
+#   config/agents/<agent>.yaml
+#   config/prompts/<agent>.md
+#   deploy/environments/<env>/agents/<agent>.yaml
+#   deploy/environments/<env>/model-bindings.yaml
+# CI re-renders and fails on any diff, so edits here are lost, not applied.
+agent:
+  name: efrgdv
+  mode: specialist
+  configFile: config/agents/efrgdv.yaml
+deploymentEnvironment: production
+environment: production
+replicaCount: 2
+resources:
+  requests: { cpu: "500m", memory: "512Mi" }
+  limits: { cpu: "1", memory: "1Gi" }
+modelEnv:
+  SRE_MODEL_TOOL_CALLER: "qwen3-8b"
+promptSha256: fd60407668c10f26ba527c5442a925218d7f1cfb2f4a1e009b60dffbbbcc6561
