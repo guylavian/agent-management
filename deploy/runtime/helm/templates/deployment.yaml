@@ -15,10 +15,39 @@ spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if .Values.gitSync.enabled }}
+      initContainers:
+        # the first clone happens BEFORE the runtime starts: startup fails
+        # closed on configuration, so the checkout must exist when it loads
+        - name: git-sync-init
+          image: {{ .Values.gitSync.image | quote }}
+          args: ["--one-time", "--repo={{ .Values.gitSync.repoURL }}", "--ref={{ .Values.gitSync.branch }}", "--root=/repo", "--link=current", "--depth=1"]
+          {{- if .Values.gitSync.credentialsSecret }}
+          env:
+            - { name: GITSYNC_USERNAME, valueFrom: { secretKeyRef: { name: {{ .Values.gitSync.credentialsSecret | quote }}, key: username } } }
+            - { name: GITSYNC_PASSWORD, valueFrom: { secretKeyRef: { name: {{ .Values.gitSync.credentialsSecret | quote }}, key: password } } }
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65533
+            seccompProfile: { type: RuntimeDefault }
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: git-repo, mountPath: /repo }
+      {{- end }}
       containers:
         - name: runtime
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.gitSync.enabled }}
+          # code runs from the image; every relative configuration read
+          # (agents, prompts, deploy/environments, change previews) resolves
+          # into the synced checkout instead of the image's baked copy
+          workingDir: /repo/current/platform
+          command: ["node", "/app/platform/runtime-host/src/main.ts"]
+          {{- end }}
           ports:
             - { name: http, containerPort: 3000 }
           env:
@@ -105,10 +134,41 @@ spec:
             {{- if .Values.caBundle.enabled }}
             - { name: trusted-ca, mountPath: {{ .Values.caBundle.mountPath | quote }}, readOnly: true }
             {{- end }}
+            {{- if .Values.gitSync.enabled }}
+            - { name: git-repo, mountPath: /repo, readOnly: true }
+            {{- end }}
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+        {{- if .Values.gitSync.enabled }}
+        # keeps the checkout following the branch; the runtime revalidates its
+        # desired state every few seconds and picks the new revision up itself
+        - name: git-sync
+          image: {{ .Values.gitSync.image | quote }}
+          args: ["--repo={{ .Values.gitSync.repoURL }}", "--ref={{ .Values.gitSync.branch }}", "--root=/repo", "--link=current", "--depth=1", "--period={{ .Values.gitSync.periodSeconds }}s"]
+          {{- if .Values.gitSync.credentialsSecret }}
+          env:
+            - { name: GITSYNC_USERNAME, valueFrom: { secretKeyRef: { name: {{ .Values.gitSync.credentialsSecret | quote }}, key: username } } }
+            - { name: GITSYNC_PASSWORD, valueFrom: { secretKeyRef: { name: {{ .Values.gitSync.credentialsSecret | quote }}, key: password } } }
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65533
+            seccompProfile: { type: RuntimeDefault }
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: git-repo, mountPath: /repo }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 100m, memory: 128Mi }
+        {{- end }}
       volumes:
+        {{- if .Values.gitSync.enabled }}
+        - name: git-repo
+          emptyDir: {}
+        {{- end }}
         - name: workload-identity
           projected:
             sources:

@@ -40,6 +40,22 @@ caBundle:
 # Must be the full document (apiVersion, kind, environment, namespace, endpointTemplate).
 environmentOverride: ""
 
+# LOCAL CLUSTERS ONLY: sync the repository into the pod and read configuration
+# from a live checkout of the branch, so a merged pull request reaches the
+# runtime without an image rebuild — the same way it reaches Argo. Production
+# leaves this off: there the image IS the reviewed artifact. When enabled the
+# runtime container's working directory moves to <root>/current/platform; the
+# code still runs from the image.
+gitSync:
+  enabled: false
+  repoURL: ""
+  branch: main
+  image: registry.k8s.io/git-sync/git-sync:v4.4.0
+  periodSeconds: 30
+  # name of a Secret with `username` and `password` (a token) for a private
+  # repository; empty for a public one
+  credentialsSecret: ""
+
 replicaCount: 2
 
 service:
