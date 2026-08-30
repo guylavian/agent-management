@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CONFIG_PATHS, loadAgentRegistry } from "@sre/config";
 import { buildDependencies, createApp, type ManagerDependencies, type TestableApp } from "@sre/runtime-host";
 
 /**
@@ -36,7 +37,9 @@ describe("management API", () => {
     const response = await get(app, "/management/agents", token);
     expect(response.statusCode).toBe(200);
     const body = response.json() as { agents: Array<{ id: string; workloadClientId: string }> };
-    expect(body.agents.map((agent) => agent.id).sort()).toEqual(["active-directory", "keycloak", "network-observability", "observability", "openshift"]);
+    // derived, not listed: adding an Agent is a routine config change, and a
+    // literal roster here fails on every one of them
+    expect(body.agents.map((agent) => agent.id).sort()).toEqual(loadAgentRegistry(CONFIG_PATHS).listSpecialists().map((agent) => agent.name).sort());
     expect(body.agents.every((agent) => agent.workloadClientId === `sre-agent-${agent.id}`)).toBe(true);
   });
 
@@ -148,7 +151,9 @@ describe("GitOps change flow", () => {
     expect(body.branch).toBe("agent/add-check-point");
     expect(body.title).toContain("check-point");
     expect(body.body).toContain("Workload identity");
-    expect(body.files.map((file) => file.path)).toHaveLength(3);
+    // document, prompt, overlay, and the render Argo's ApplicationSet globs
+    expect(body.files.map((file) => file.path)).toHaveLength(4);
+    expect(body.files.map((file) => file.path)).toContainEqual(expect.stringContaining("/rendered/agents/"));
   });
 
   it("exposes no endpoint that deploys to production", async () => {

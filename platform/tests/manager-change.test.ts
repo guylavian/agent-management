@@ -43,8 +43,9 @@ describe("the Manager view describes the Manager, not a specialist", () => {
   it("lists specialists that exist but are NOT routable, rather than omitting them", () => {
     const every = registry.listSpecialists().map(agent => agent.name).sort();
     expect([...detail.allowed, ...detail.notRouted].sort()).toEqual(every);
-    // "not shown" and "not routable" must not look alike
-    expect(detail.notRouted).toEqual([]);
+    // "not shown" and "not routable" must not look alike: every specialist the
+    // Manager does not route to must still be listed, and none may be dropped
+    expect(detail.notRouted.sort()).toEqual(every.filter(name => !detail.allowed.includes(name)));
   });
 
   it("exposes no tool access of any kind", () => {

@@ -42,13 +42,25 @@ const draft: AgentDraft = {
 };
 
 describe("Create Agent", () => {
-  it("produces exactly the three source files a deployable Agent needs", () => {
+  /**
+   * The rendered values are the fourth file, and the one Argo actually reads:
+   * its ApplicationSet globs `rendered/`, so a change-set without it adds an
+   * Agent to Git that never deploys and reports no error anywhere.
+   */
+  it("produces every file a deployable Agent needs, including the render Argo globs", () => {
     const change = generateAgentChange(draft, "production");
     expect(change.files.map((file) => file.path)).toEqual([
       "platform/config/agents/network-security.yaml",
       "platform/config/prompts/network-security.md",
       "deploy/environments/production/agents/network-security.yaml",
+      "deploy/environments/production/rendered/agents/network-security.yaml",
     ]);
+
+    const rendered = change.files.at(-1)?.contents ?? "";
+    expect(rendered).toContain("name: network-security");
+    expect(rendered).toContain("deploymentEnvironment: production");
+    // the digest is what makes a later prompt edit a visible, syncable diff
+    expect(rendered).toMatch(/promptSha256: [a-f0-9]{64}/u);
   });
 
   /**
@@ -150,10 +162,36 @@ describe("Create Agent", () => {
 
   it("proposes the change as a pull request and never as a deployment", () => {
     const { change } = proposeAgentChange({ draft, requestedBy: "alice" });
-    expect(change.files.map((file) => file.path)).toHaveLength(3);
+    expect(change.files.map((file) => file.path)).toHaveLength(4);
     expect(change.branch).toBe("agent/add-network-security");
     expect(change.effects.some((effect) => /deploy now|apply|kubectl/iu.test(effect))).toBe(false);
     expect(change.effects.some((effect) => effect.includes("Argo CD: sync after merge"))).toBe(true);
+  });
+
+  /**
+   * A real incident: an agent created in the console declared a cross-domain
+   * grant to an agent that did not exist. The draft passed schema validation,
+   * the pull request merged, and StaticAgentCatalog then refused the edge at
+   * STARTUP — so every environment stopped loading its configuration at all.
+   *
+   * The check belongs where the draft is written, not where it is loaded.
+   */
+  it("refuses a cross-domain grant to an agent that does not exist", () => {
+    const dangling = { ...draft, crossDomainAllowed: ["no-such-agent"] };
+    expect(() => proposeAgentChange({ draft: dangling, requestedBy: "alice", knownAgents: ["observability"] }))
+      .toThrow(/is not an agent that exists/u);
+  });
+
+  it("accepts a cross-domain grant to an agent that does exist", () => {
+    const granted = { ...draft, crossDomainAllowed: ["observability"] };
+    expect(() => proposeAgentChange({ draft: granted, requestedBy: "alice", knownAgents: ["observability"] })).not.toThrow();
+  });
+
+  // a self-edge was already refused, by the document schema rather than here
+  it("refuses a cross-domain grant an agent gives itself", () => {
+    const selfEdge = { ...draft, crossDomainAllowed: [draft.name] };
+    expect(() => proposeAgentChange({ draft: selfEdge, requestedBy: "alice", knownAgents: ["observability"] }))
+      .toThrow(/cannot discover itself/u);
   });
 
   it("refuses a draft whose prompt is missing, rather than generating a broken Agent", () => {

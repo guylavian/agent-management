@@ -8,7 +8,12 @@ describe("startup configuration", () => {
   it("loads all specialist YAML agents and approved tools", () => {
     const registry = loadAgentRegistry(CONFIG_PATHS);
     expect(registry.manager.name).toBe("manager");
-    expect(registry.listSpecialists().map((agent) => agent.name).sort()).toEqual(["active-directory", "keycloak", "network-observability", "observability", "openshift"]);
+    // every canonical document except the Manager, derived rather than listed
+    const onDisk = readdirSync(CONFIG_PATHS.agentsDir)
+      .filter((file) => file.endsWith(".yaml") && file !== "manager.yaml")
+      .map((file) => file.replace(/\.yaml$/u, ""))
+      .sort();
+    expect(registry.listSpecialists().map((agent) => agent.name).sort()).toEqual(onDisk);
     // wiki is a shared MCP tool on the specialists, not a standalone agent
     expect(accessTools(registry.getSpecialist("active-directory")!.spec)).toContain("wiki_search");
     expect(registry.getSpecialist("active-directory")?.spec.execution.maxEvidenceBytes).toBe(262_144);

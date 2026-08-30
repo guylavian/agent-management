@@ -173,7 +173,7 @@ export function managementRouter(deps: ManagementDeps): Router {
    */
   router.post("/agents/preview", (request: Request, response: Response) => {
     try {
-      const { change, generated } = proposeAgentChange({ draft: request.body as AgentDraft, requestedBy: request.identity?.subject ?? "unknown", update: deps.registry.getSpecialist((request.body as AgentDraft)?.name ?? "") !== undefined });
+      const { change, generated } = proposeAgentChange({ draft: request.body as AgentDraft, requestedBy: request.identity?.subject ?? "unknown", update: deps.registry.getSpecialist((request.body as AgentDraft)?.name ?? "") !== undefined, knownAgents: deps.registry.listSpecialists().map((agent) => agent.name) });
       response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: generated.files, diff: diffAgainstDisk(generated.files) });
     } catch (error) {
       respondDraftError(response, error);

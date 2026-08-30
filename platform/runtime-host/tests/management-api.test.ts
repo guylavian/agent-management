@@ -132,13 +132,15 @@ describe("GitOps YAML generation", () => {
    * that fails startup on a missing prompt and is never rendered for any
    * environment.
    */
-  it("generates the Agent, its prompt and its deployment overlay as one change-set", () => {
+  it("generates the Agent, its prompt, its overlay and its render as one change-set", () => {
     const change = generateAgentChange(draft);
     expect(change.files.map((file) => file.path)).toEqual([
       // repository-relative: the runtime's own config/ is platform/config/ in Git
       "platform/config/agents/check-point.yaml",
       "platform/config/prompts/check-point.md",
       "deploy/environments/production/agents/check-point.yaml",
+      // what Argo's ApplicationSet actually globs; without it the merge deploys nothing
+      "deploy/environments/production/rendered/agents/check-point.yaml",
     ]);
     const prompt = change.files.find((file) => file.path.endsWith(".md"));
     expect(prompt?.contents).toContain("Investigate firewall policy");

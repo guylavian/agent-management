@@ -88,14 +88,12 @@ function keycloakAgent(): SpecialistAgentConfig {
 
 describe("desired Keycloak state", () => {
   it("derives one dedicated workload client per agent", () => {
-    const clients = desiredClientsFor(specialists());
-    expect(clients.map((client) => client.clientId).sort()).toEqual([
-      "sre-agent-active-directory",
-      "sre-agent-keycloak",
-      "sre-agent-network-observability",
-      "sre-agent-observability",
-      "sre-agent-openshift",
-    ]);
+    const agents = specialists();
+    const clients = desiredClientsFor(agents);
+    // derived from the agents handed in: a literal list here fails whenever an
+    // Agent is added, which is a routine config change and not a regression
+    expect(clients.map((client) => client.clientId).sort())
+      .toEqual(agents.map((agent) => `sre-agent-${agent.name}`).sort());
     // no shared credential: every agent has its own client
     expect(new Set(clients.map((client) => client.clientId)).size).toBe(clients.length);
   });
@@ -213,8 +211,10 @@ describe("reconciliation", () => {
       return originalCreate(client);
     };
     const results = await reconcileAll(admin, desired);
-    expect(results).toHaveLength(5);
+    // one result per desired client, derived rather than counted
+    expect(results).toHaveLength(desired.length);
     expect(results.filter((result) => "error" in result)).toHaveLength(1);
-    expect(admin.clients.size).toBe(4);
+    // every client except the one that failed — isolation, not a fixed count
+    expect(admin.clients.size).toBe(desired.length - 1);
   });
 });
