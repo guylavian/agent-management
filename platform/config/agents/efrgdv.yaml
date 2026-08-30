@@ -10,15 +10,24 @@ spec:
   model: { tier: small, profile: tool-caller }
   prompt: { systemFile: config/prompts/efrgdv.md }
   identity: { provider: keycloak, clientId: sre-agent-efrgdv }
-  environments: ["prod", "dr", "lab"]
+  environments: [ "prod", "dr", "lab" ]
   routing:
-    capabilities: ["regvf"]
-    exclusions: ["ergvf"]
+    capabilities: [ "regvf" ]
+    exclusions: [ "ergvf" ]
   access:
     - mcp: active-directory
       audience: sre-toolhive:active-directory
-      tools: [get_replication_status, get_dc_health]
-  execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
-  discovery: { allowedNeedsDomains: [active-directory, guy, network-observability] }
-  authorization: { requiredRoles: [infra-read] }
+      tools: [ get_replication_status, get_dc_health ]
+  execution:
+    {
+      maxToolCalls: 6,
+      maxModelTurns: 6,
+      timeoutMs: 120000,
+      maxEvidenceBytes: 262144,
+      maxContextTokens: 12000,
+      maxEvidenceItems: 32,
+      maxRawExcerptBytes: 8192
+    }
+  discovery: { allowedNeedsDomains: [ active-directory, network-observability ] }
+  authorization: { requiredRoles: [ infra-read ] }
   security: { readOnly: true }
