@@ -1,0 +1,20 @@
+# GENERATED FILE — DO NOT EDIT.
+# Produced by `npm run render:deploy` from:
+#   config/agents/<agent>.yaml
+#   config/prompts/<agent>.md
+#   deploy/environments/<env>/agents/<agent>.yaml
+#   deploy/environments/<env>/model-bindings.yaml
+# CI re-renders and fails on any diff, so edits here are lost, not applied.
+agent:
+  name: guy
+  mode: specialist
+  configFile: config/agents/guy.yaml
+deploymentEnvironment: local
+environment: local
+replicaCount: 1
+resources:
+  requests: { cpu: "500m", memory: "512Mi" }
+  limits: { cpu: "1", memory: "1Gi" }
+modelEnv:
+  SRE_MODEL_TOOL_CALLER: "openai/gpt-oss-20b"
+promptSha256: c79d627bfbb04f027ccaea809024885c81d81e93741c71a23ea00e4e0104f2f6

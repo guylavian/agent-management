@@ -5,6 +5,7 @@
 #
 # MCP server: active-directory
 #   active-directory (sre-agent-active-directory) -> 4 tool(s), aud sre-toolhive:active-directory
+#   guy (sre-agent-guy) -> 4 tool(s), aud sre-toolhive:active-directory
 version: "1.0"
 type: cedarv1
 cedar:
@@ -13,4 +14,8 @@ cedar:
     - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_dns_health") when { principal has claim_azp && principal.claim_azp == "sre-agent-active-directory" };'
     - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_replication_status") when { principal has claim_azp && principal.claim_azp == "sre-agent-active-directory" };'
     - 'permit(principal, action == Action::"call_tool", resource == Tool::"list_domain_controllers") when { principal has claim_azp && principal.claim_azp == "sre-agent-active-directory" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_dc_health") when { principal has claim_azp && principal.claim_azp == "sre-agent-guy" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_dns_health") when { principal has claim_azp && principal.claim_azp == "sre-agent-guy" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"get_replication_status") when { principal has claim_azp && principal.claim_azp == "sre-agent-guy" };'
+    - 'permit(principal, action == Action::"call_tool", resource == Tool::"list_domain_controllers") when { principal has claim_azp && principal.claim_azp == "sre-agent-guy" };'
   entities_json: "[]"

@@ -7,7 +7,7 @@ metadata:
   displayName: guy
 spec:
   type: specialist
-  lifecycle: draft
+  lifecycle: active
   model: { tier: small, profile: tool-caller }
   prompt: { systemFile: config/prompts/guy.md }
   identity: { provider: keycloak, clientId: sre-agent-guy }
