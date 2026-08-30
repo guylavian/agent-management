@@ -36,6 +36,9 @@ spec:
             capabilities: { drop: [ALL] }
           volumeMounts:
             - { name: git-repo, mountPath: /repo }
+            # git-sync writes its gitconfig under /tmp; the root filesystem is
+            # read-only, so give it a scratch dir rather than widening the root
+            - { name: git-tmp, mountPath: /tmp }
       {{- end }}
       containers:
         - name: runtime
@@ -160,6 +163,9 @@ spec:
             capabilities: { drop: [ALL] }
           volumeMounts:
             - { name: git-repo, mountPath: /repo }
+            # git-sync writes its gitconfig under /tmp; the root filesystem is
+            # read-only, so give it a scratch dir rather than widening the root
+            - { name: git-tmp, mountPath: /tmp }
           resources:
             requests: { cpu: 10m, memory: 32Mi }
             limits: { cpu: 100m, memory: 128Mi }
@@ -167,6 +173,8 @@ spec:
       volumes:
         {{- if .Values.gitSync.enabled }}
         - name: git-repo
+          emptyDir: {}
+        - name: git-tmp
           emptyDir: {}
         {{- end }}
         - name: workload-identity
