@@ -1,0 +1,25 @@
+apiVersion: sre.ai/v1alpha1
+kind: Agent
+metadata:
+  name: test
+  owner: test
+  description: "rrr"
+  displayName: test
+spec:
+  type: specialist
+  lifecycle: active
+  model: { tier: small, profile: tool-caller }
+  prompt: { systemFile: config/prompts/test.md }
+  identity: { provider: keycloak, clientId: sre-agent-test }
+  environments: ["prod", "dr", "lab"]
+  routing:
+    capabilities: ["ewdsv"]
+    exclusions: ["ervfdc"]
+  access:
+    - mcp: keycloak
+      audience: sre-toolhive:keycloak
+      tools: [keycloak_health]
+  execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
+  discovery: { allowedNeedsDomains: [active-directory] }
+  authorization: { requiredRoles: [infra-read] }
+  security: { readOnly: true }
