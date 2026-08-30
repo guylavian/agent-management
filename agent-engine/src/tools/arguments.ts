@@ -10,7 +10,15 @@ import type { ToolDescriptor } from "./port.ts";
  * trust boundary rather than a convenience: it is the only thing standing
  * between a hallucinated argument object and a real backend.
  */
-const ajv = new Ajv({ allErrors: true, strict: false, allowUnionTypes: true });
+// coerceTypes bends SCALARS to the published schema. Providers routinely
+// declare `type: string` for a parameter whose own description invites a
+// number — "accepts Unix epoch seconds" on a string-typed timestamp is the
+// canonical case — and a model that follows the description then fails the
+// type. Coercing 1699999999 to "1699999999" is contract repair, not leniency:
+// coercion cannot invent structure, so objects, arrays, missing required
+// fields and length/enum violations still fail, and the trust boundary keeps
+// its shape.
+const ajv = new Ajv({ allErrors: true, strict: false, allowUnionTypes: true, coerceTypes: true });
 const compiled = new WeakMap<object, ValidateFunction>();
 
 export interface ArgumentValidation {

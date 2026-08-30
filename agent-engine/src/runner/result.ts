@@ -56,7 +56,19 @@ export function failed(agentId: string, code: RuntimeError["code"], message: str
   return { agentId, status: "failed", evidence: [], errors: [{ code, message, retryable: false }] };
 }
 
-export function failedWithEvidence(scope: ResultScope, evidence: Evidence[], errors: RuntimeError[], code: RuntimeError["code"], message: string): SpecialistResult {
+/**
+ * The run failed, but what was collected is still the truth. When a grounded
+ * summary is supplied it is DETERMINISTIC text about the run — how it was
+ * interrupted and what was gathered — never a model-authored claim, so a
+ * failure cannot fabricate an answer on the way out.
+ */
+export function failedWithEvidence(scope: ResultScope, evidence: Evidence[], errors: RuntimeError[], code: RuntimeError["code"], message: string, groundedSummary?: string): SpecialistResult {
   const normalized = enforceEvidenceBudget(scope.sanitizer, evidence, scope.budgets);
-  return { agentId: scope.agentId, status: normalized.length ? "partial" : "failed", evidence: normalized, errors: [...errors, { code, message, retryable: false }] };
+  return {
+    agentId: scope.agentId,
+    status: normalized.length ? "partial" : "failed",
+    evidence: normalized,
+    ...(groundedSummary !== undefined && normalized.length > 0 ? { summary: scope.sanitizer.text(groundedSummary).value } : {}),
+    errors: [...errors, { code, message, retryable: false }],
+  };
 }

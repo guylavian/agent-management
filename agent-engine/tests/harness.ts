@@ -206,7 +206,35 @@ export function dependencies(model: Model, tools = new FixtureToolProvider(), te
   return { model, tools, sanitizer: testSanitizer, telemetry };
 }
 
-export const evidenceId = (tool: string, requestId = ALICE.requestId): string => `mcp:${requestId}:${tool}`;
+/** Mirrors the engine's evidence identity: request + tool + args fingerprint. */
+export const evidenceId = (tool: string, args: Record<string, unknown>, requestId = ALICE.requestId): string => {
+  const canonical = (value: unknown): string => Array.isArray(value)
+    ? `[${value.map(canonical).join(",")}]`
+    : value !== null && typeof value === "object"
+      ? `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a < b ? -1 : 1).map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`
+      : JSON.stringify(value) ?? "null";
+  let hash = 0x811c9dc5;
+  for (const char of canonical(args)) { hash ^= char.charCodeAt(0); hash = Math.imul(hash, 0x01000193) >>> 0; }
+  return `mcp:${requestId}:${tool}:${hash.toString(16).padStart(8, "0")}`;
+};
+
+/** Fails the first N chat calls with a coded error, then behaves like ScriptedModel. */
+export class FlakyModel implements Model {
+  attempts = 0;
+  readonly #failures: number;
+  readonly #code: string;
+  readonly #inner: ScriptedModel;
+  constructor(failures: number, code: string, actions: unknown[]) {
+    this.#failures = failures;
+    this.#code = code;
+    this.#inner = new ScriptedModel(actions);
+  }
+  async chat(request: ModelRequest): Promise<ModelResponse> {
+    this.attempts += 1;
+    if (this.attempts <= this.#failures) throw engineError(this.#code, `synthetic ${this.#code}`);
+    return this.#inner.chat(request);
+  }
+}
 
 export const baseEvidence: Evidence = { id: "e1", kind: "telemetry", source: "alpha/alpha_status", system: "alpha", environment: "prod", rawExcerpt: "x".repeat(5000), citation: "mcp://alpha/alpha_status", status: "ok", requestId: "req-1" };
 

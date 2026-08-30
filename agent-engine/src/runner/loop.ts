@@ -1,16 +1,15 @@
 import type { DomainHandoff, Evidence, RuntimeError, SpecialistResult } from "@sre/evidence";
-import { z } from "zod";
 import type { AgentDefinition } from "../agent/definition.ts";
 import type { ToolCredential } from "../agent/principal.ts";
 import { enforceEvidenceBudget } from "../evidence/normalize.ts";
-import { errorCode } from "../errors/index.ts";
+import { engineError, isRetryableModelFailure, modelFailureCode, safeModelMessage } from "../errors/index.ts";
 import { authorizeAgent } from "../guardrails/authorization.ts";
 import { withDeadline } from "../guardrails/deadline.ts";
 import { acquireCredentials } from "../lifecycle/credentials.ts";
 import type { ModelMessage, ModelToolSchema } from "../model/port.ts";
 import { noopTelemetry, type Telemetry } from "../telemetry/port.ts";
 import { validateToolArguments } from "../tools/arguments.ts";
-import { toolProblemEvidence } from "../tools/evidence.ts";
+import { canonicalJson, toolProblemEvidence } from "../tools/evidence.ts";
 import { executeTool, type ToolExecutionScope } from "../tools/execute.ts";
 import type { ToolPolicy } from "../tools/port.ts";
 import { visibleTools } from "../tools/visibility.ts";
@@ -83,6 +82,13 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
   ];
   const messages: ModelMessage[] = buildInitialMessages(agent, ctx, handoff);
 
+  // identical successful call → identical result, served from this run's cache.
+  // A model that repeats itself gets the same answer back without burning the
+  // tool budget, re-invoking the provider, or duplicating evidence. Only
+  // SUCCESSFUL results are cached: a failed source may legitimately be asked
+  // again, and the provider-level transient retry already bounded that.
+  const completedCalls = new Map<string, string>();
+
   // one bounded tool execution; mutates evidence/errors/toolCalls; returns a short result string for the model
   const executeOne = async (name: string | undefined, args: Record<string, unknown>): Promise<string> => {
     if (toolCalls >= budgets.maxToolCalls) { errors.push({ code: "MCP_INVALID_CALL", message: "Tool-call budget exhausted", retryable: false }); return "tool-call budget exhausted"; }
@@ -90,19 +96,52 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
     if (selected === undefined) { errors.push({ code: "MCP_INVALID_CALL", message: "Model requested a non-visible tool", retryable: false }); evidence.push(toolProblemEvidence(name ?? "unknown", ctx.requestId, ctx.environment, agent.id, "unknown-tool")); return "tool is not available"; }
     const argCheck = validateToolArguments(selected.schema, args);
     if (!argCheck.valid) { toolCalls += 1; telemetry.counter("tool.arguments.invalid"); errors.push({ code: "MCP_INVALID_CALL", message: `Tool arguments failed schema validation (${argCheck.reason})`, retryable: false }); evidence.push(toolProblemEvidence(selected.schema.name, ctx.requestId, ctx.environment, agent.id, "invalid-args", selected.approved.serverId)); return "arguments failed schema validation"; }
+    const callKey = `${selected.approved.serverId}\u0000${selected.schema.name}\u0000${canonicalJson(args)}`;
+    const cached = completedCalls.get(callKey);
+    if (cached !== undefined) {
+      telemetry.counter("tool.calls.duplicate");
+      return `duplicate of an identical call already executed this run; its result: ${cached}`.slice(0, 4000);
+    }
     toolCalls += 1;
     const outcome = await executeTool(scope, selected, args);
     evidence.push(outcome.evidence);
     if (outcome.error) errors.push(outcome.error);
     // REDACTION BOUNDARY: never feed a raw tool payload back into the model — redact first
     const redacted = enforceEvidenceBudget(deps.sanitizer, [outcome.evidence], budgets)[0] ?? outcome.evidence;
-    return JSON.stringify({ id: redacted.id, status: redacted.status, kind: redacted.kind, content: redacted.payload ?? redacted.rawExcerpt ?? null }).slice(0, 4000);
+    const rendered = JSON.stringify({ id: redacted.id, status: redacted.status, kind: redacted.kind, content: redacted.payload ?? redacted.rawExcerpt ?? null }).slice(0, 4000);
+    if (outcome.evidence.status === "ok" || outcome.evidence.status === "empty") completedCalls.set(callKey, rendered);
+    return rendered;
+  };
+
+  // ONE retry for the whole run, whatever the model failure. A per-turn budget
+  // would multiply against the turn budget; a single flag cannot loop.
+  let modelRetryUsed = false;
+  const modelTurn = async () => {
+    const attempt = () => telemetry.span(`model.turn.${agent.id}`, { "request.id": ctx.requestId, "agent.id": agent.id, "model.tier": "small" }, () => withDeadline(deadline, (signal) => deps.model.chat({ model: agent.modelProfile, messages, tools: offered, signal }), ctx.signal));
+    const checked = async () => {
+      const response = await attempt();
+      // a response proposing nothing at all is invalid output, not an answer:
+      // treating it as one used to mint a "complete" result with an empty summary
+      if ((response.toolCalls ?? []).length === 0 && (response.content === undefined || response.content.trim() === "")) {
+        throw engineError("MODEL_INVALID_OUTPUT", "model returned an empty response");
+      }
+      return response;
+    };
+    try {
+      return await checked();
+    } catch (error) {
+      const code = modelFailureCode(error);
+      if (modelRetryUsed || !isRetryableModelFailure(code) || ctx.signal?.aborted === true || Date.now() >= deadline) throw error;
+      modelRetryUsed = true;
+      telemetry.counter("model.retries");
+      return checked();
+    }
   };
 
   try {
     while (modelTurns < budgets.maxModelTurns) {
       if (Date.now() >= deadline) return failedWithEvidence(results, evidence, errors, "REQUEST_TIMEOUT", "Specialist deadline exhausted");
-      const response = await telemetry.span(`model.turn.${agent.id}`, { "request.id": ctx.requestId, "agent.id": agent.id, "model.tier": "small" }, () => withDeadline(deadline, (signal) => deps.model.chat({ model: agent.modelProfile, messages, tools: offered, signal }), ctx.signal));
+      const response = await modelTurn();
       modelTurns += 1;
       const calls = response.toolCalls ?? [];
 
@@ -131,8 +170,15 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
     }
     return insufficientResult(results, evidence, errors, "Model-turn budget exhausted before a supported answer could be reached.");
   } catch (error) {
-    const code = error instanceof z.ZodError || error instanceof SyntaxError ? "MODEL_INVALID_OUTPUT" : errorCode(error) === "REQUEST_TIMEOUT" ? "REQUEST_TIMEOUT" : "MODEL_TIMEOUT";
-    return failedWithEvidence(results, evidence, errors, code, code === "MODEL_INVALID_OUTPUT" ? "Specialist returned invalid structured output" : "Specialist model unavailable");
+    const code = modelFailureCode(error);
+    // evidence that was gathered is not voided by a later model failure. The
+    // summary below is DETERMINISTIC — it reports how the run was interrupted
+    // and that citations exist; it asserts nothing the evidence does not.
+    const usable = evidence.filter((item) => item.status === "ok" || item.status === "empty").length;
+    const grounded = usable > 0
+      ? `The investigation was interrupted (${code}) before a final summary could be produced. ${usable} evidence item(s) were collected and are cited; they answer the question only as far as they go.`
+      : undefined;
+    return failedWithEvidence(results, evidence, errors, code, safeModelMessage(code), grounded);
   }
 }
 

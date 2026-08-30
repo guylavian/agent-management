@@ -51,9 +51,43 @@ describe("bounded investigation loop", () => {
 
   it("enforces the tool-call budget", async () => {
     const tools = new FixtureToolProvider();
-    const result = await runAgent(budgets({ maxModelTurns: 10, maxToolCalls: 2 }), policy, runContext("q"), dependencies(new ScriptedModel([toolCallAction("alpha_health", { node: "node-1" })]), tools));
+    // distinct arguments each turn: identical calls are deduplicated and no
+    // longer consume budget, so a budget test must actually vary the work
+    const result = await runAgent(budgets({ maxModelTurns: 10, maxToolCalls: 2 }), policy, runContext("q"), dependencies(new ScriptedModel([
+      toolCallAction("alpha_health", { node: "node-1" }),
+      toolCallAction("alpha_health", { node: "node-2" }),
+      toolCallAction("alpha_health", { node: "node-3" }),
+    ]), tools));
     expect(tools.calls).toHaveLength(2);
     expect(result.summary).toMatch(/tool-call budget/iu);
+  });
+
+  it("serves an identical repeated call from the run cache instead of re-executing it", async () => {
+    const tools = new FixtureToolProvider();
+    const telemetry = new RecordingTelemetry();
+    const result = await runAgent(budgets({ maxModelTurns: 6, maxToolCalls: 6 }), policy, runContext("q"), dependencies(new ScriptedModel([
+      toolCallAction("alpha_status", alphaArgs),
+      toolCallAction("alpha_status", alphaArgs),
+      toolCallAction("alpha_status", alphaArgs),
+      answerAction("Done.", [evidenceId("alpha_status", alphaArgs)]),
+    ]), tools, telemetry));
+    // the provider ran once; the repeats were answered from the cache
+    expect(tools.calls).toHaveLength(1);
+    expect(telemetry.counters.filter((name) => name === "tool.calls.duplicate")).toHaveLength(2);
+    // and the record holds ONE evidence item, not three copies
+    expect(result.evidence.filter((item) => item.tool === "alpha_status")).toHaveLength(1);
+    expect(result.status).toBe("complete");
+  });
+
+  it("gives different arguments to the same tool distinct evidence identities", async () => {
+    const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([
+      toolCallAction("alpha_health", { node: "node-1" }),
+      toolCallAction("alpha_health", { node: "node-2" }),
+      answerAction("Done."),
+    ])));
+    const ids = result.evidence.filter((item) => item.tool === "alpha_health").map((item) => item.id);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
   });
 
   it("enforces an already-expired deadline", async () => {
@@ -75,7 +109,7 @@ describe("bounded investigation loop", () => {
     const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([
       toolCallAction("docs_search", docsArgs),
       toolCallAction("alpha_status", alphaArgs),
-      answerAction("Done.", [evidenceId("docs_search"), evidenceId("alpha_status")]),
+      answerAction("Done.", [evidenceId("docs_search", docsArgs), evidenceId("alpha_status", alphaArgs)]),
     ])));
     expect(result.evidence.some((item) => item.kind === "wiki")).toBe(true);
     expect(result.evidence.some((item) => item.kind === "telemetry")).toBe(true);
@@ -142,7 +176,8 @@ describe("bounded investigation loop", () => {
   it("rejects arguments that fail the tool's schema, before any provider is reached", async () => {
     const tools = new FixtureToolProvider();
     const telemetry = new RecordingTelemetry();
-    const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([toolCallAction("alpha_status", { target: 42 }), answerAction("stop.")]), tools, telemetry));
+    const result = await runAgent(agentDefinition(), policy, runContext("q"), // an object cannot be coerced to a string, so this still fails the schema
+    dependencies(new ScriptedModel([toolCallAction("alpha_status", { target: { nested: true } }), answerAction("stop.")]), tools, telemetry));
     expect(tools.calls).toHaveLength(0);
     expect(telemetry.counters).toContain("tool.arguments.invalid");
     expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "MCP_INVALID_CALL" })]));

@@ -32,8 +32,12 @@ describe("tool argument validation", () => {
     expect(result.reason).toBe("SCHEMA_VALIDATION_FAILED");
   });
 
-  it("rejects a wrong type, an unknown property, a bad enum and an oversized string", () => {
-    expect(validateToolArguments(tool, { target: 42 }).valid).toBe(false);
+  it("coerces a scalar to the declared type, but rejects structure, unknown properties, bad enums and oversized strings", () => {
+    // a number where a string is declared is coerced (contract repair), not rejected
+    const coercible: Record<string, unknown> = { target: 42 };
+    expect(validateToolArguments(tool, coercible).valid).toBe(true);
+    expect(coercible.target).toBe("42");
+    expect(validateToolArguments(tool, { target: { nested: true } }).valid).toBe(false);
     expect(validateToolArguments(tool, { target: "node-1", drop: true }).valid).toBe(false);
     expect(validateToolArguments(tool, { target: "node-1", mode: "restart" }).valid).toBe(false);
     expect(validateToolArguments(tool, { target: "x".repeat(65) }).valid).toBe(false);

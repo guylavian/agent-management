@@ -2,14 +2,28 @@ import type { Evidence, SpecialistResult } from "@sre/evidence";
 import { evidenceGaps, renderCitations } from "./citations.ts";
 import type { AssistantResponse, ExecutionContext } from "../types.ts";
 
+/**
+ * A missing summary is not a missing cause. When a specialist ends without one
+ * its errors say exactly why, so the user reads the actual failure — rate
+ * limit, invalid output, timeout — instead of the generic sentence this used
+ * to emit for every one of them.
+ */
+function causeSummary(result: SpecialistResult): string {
+  const error = result.errors?.[0];
+  if (error === undefined) return "No supported answer could be produced from the available evidence.";
+  return `The investigation could not be completed: ${error.message} (${error.code}).`;
+}
+
 export function deterministicResponseBuilder(ctx: ExecutionContext, result: SpecialistResult): AssistantResponse {
   const gaps = evidenceGaps(result.evidence);
   const citations = renderCitations(result.evidence);
-  const summary = result.summary ?? "No supported answer could be produced from the available evidence.";
+  const summary = result.summary ?? causeSummary(result);
   const sections = [summary];
   if (citations.length > 0) sections.push(`Sources:\n${citations.map((citation) => `- [${citation.evidenceId}] ${citation.label}`).join("\n")}`);
-  if (gaps.length > 0) sections.push(`Evidence gaps:\n${gaps.map((gap) => `- ${gap.source}: ${gap.reason}`).join("\n")}`);
-  return { requestId: ctx.requestId, answer: sections.join("\n\n"), citations, evidenceGaps: gaps, degraded: gaps.length > 0 || result.status !== "complete", metadata: { routedAgents: [result.agentId], tierLUsed: false } };
+  const errorGaps = (result.errors ?? []).map((error) => ({ source: result.agentId, reason: error.code }));
+  const allGaps = [...gaps, ...errorGaps.filter((gap) => !gaps.some((existing) => existing.reason === gap.reason))];
+  if (allGaps.length > 0) sections.push(`Evidence gaps:\n${allGaps.map((gap) => `- ${gap.source}: ${gap.reason}`).join("\n")}`);
+  return { requestId: ctx.requestId, answer: sections.join("\n\n"), citations, evidenceGaps: allGaps, degraded: allGaps.length > 0 || result.status !== "complete", metadata: { routedAgents: [result.agentId], tierLUsed: false } };
 }
 
 /**

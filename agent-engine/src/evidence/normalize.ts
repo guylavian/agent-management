@@ -43,7 +43,26 @@ export function normalizeEvidence(sanitizer: Sanitizer, input: Evidence, budgets
  * by both the byte budget and the context-token budget, so a set that fits
  * individually cannot overflow collectively.
  */
-export function enforceEvidenceBudget(sanitizer: Sanitizer, evidence: Evidence[], budgets: AgentBudgets): Evidence[] {
+/**
+ * Collapse duplicate ids to one entry, keeping the FIRST position for citation
+ * stability but preferring a usable observation over a failed one: a call that
+ * failed and then succeeded is one fact with its best-known state, not two.
+ */
+export function dedupeEvidence(evidence: Evidence[]): Evidence[] {
+  const byId = new Map<string, Evidence>();
+  const order: string[] = [];
+  const usable = (item: Evidence) => item.status === "ok" || item.status === "empty";
+  for (const item of evidence) {
+    const existing = byId.get(item.id);
+    if (existing === undefined) { byId.set(item.id, item); order.push(item.id); continue; }
+    if (usable(existing) && !usable(item)) continue;
+    byId.set(item.id, item);
+  }
+  return order.map((id) => byId.get(id) as Evidence);
+}
+
+export function enforceEvidenceBudget(sanitizer: Sanitizer, rawEvidence: Evidence[], budgets: AgentBudgets): Evidence[] {
+  const evidence = dedupeEvidence(rawEvidence);
   const result: Evidence[] = [];
   let bytes = 0;
   const tokenByteLimit = budgets.maxContextTokens * 4;
