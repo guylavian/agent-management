@@ -23,6 +23,13 @@ spec:
       containers:
         - name: portal
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          {{- if eq .Values.gitops.provider "bitbucketServer" }}
+          # the image's CMD loads app-config.yaml + app-config.production.yaml;
+          # the Bitbucket SCM integration is a separate layer, joined only when
+          # this deployment actually targets Bitbucket, because an integrations
+          # entry with unset env vars would fail config validation everywhere else
+          args: ["packages/backend", "--config", "app-config.yaml", "--config", "app-config.production.yaml", "--config", "app-config.bitbucket.yaml"]
+          {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -48,14 +55,29 @@ spec:
                   key: client-secret
             - name: SRE_GITOPS_PROVIDER
               value: {{ .Values.gitops.provider | quote }}
-            {{- if eq .Values.gitops.provider "github" }}
+            {{- if ne .Values.gitops.provider "none" }}
             - name: SRE_GITOPS_OWNER
               value: {{ .Values.gitops.owner | quote }}
             - name: SRE_GITOPS_REPO
               value: {{ .Values.gitops.repo | quote }}
             - name: SRE_GITOPS_BASE_BRANCH
               value: {{ .Values.gitops.baseBranch | quote }}
-            - name: SRE_GITOPS_TOKEN
+            {{- end }}
+            {{- if eq .Values.gitops.provider "github" }}
+            # the name Backstage's SCM integration reads (integrations.github.token)
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.gitops.tokenSecretRef }}
+                  key: token
+            {{- end }}
+            {{- if eq .Values.gitops.provider "bitbucketServer" }}
+            - name: SRE_GITOPS_HOST
+              value: {{ required "gitops.host is required for bitbucketServer" .Values.gitops.host | quote }}
+            - name: SRE_GITOPS_API_BASE_URL
+              value: {{ printf "https://%s/rest/api/1.0" .Values.gitops.host | quote }}
+            # the name app-config.bitbucket.yaml reads (integrations.bitbucketServer.token)
+            - name: BITBUCKET_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.gitops.tokenSecretRef }}

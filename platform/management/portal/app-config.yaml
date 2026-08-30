@@ -199,19 +199,21 @@ sreAgent:
   # they name a repository — so they live here; the credential does not, and is
   # read from Backstage's own GitHub integration above.
   gitops:
-    # github (default) or bitbucketServer. The credential always comes from the
-    # matching `integrations` entry above, never from this block.
+    # Everything here comes from the PLATFORM ENVIRONMENT — the Helm chart (or a
+    # local shell) sets SRE_GITOPS_*; nothing repository-specific is baked into
+    # this file. Unset provider defaults to github, unset baseBranch to main,
+    # and unset owner/repo degrade to an honest "not configured" instead of a
+    # failing pull request.
     #
-    # For bitbucketServer, `owner` is the PROJECT KEY, `repo` the repository
-    # slug, and `host` must name an `integrations.bitbucketServer` entry:
-    #   provider: bitbucketServer
-    #   host: bitbucket.company.com
-    #   owner: SRE
-    #   repo: agent-management
-    provider: github
-    owner: guylavian
-    repo: agent-management
-    baseBranch: main
+    # provider: github | bitbucketServer. The credential always comes from the
+    # matching `integrations` entry, never from this block. For bitbucketServer,
+    # owner is the PROJECT KEY, repo the repository slug, and host must name an
+    # `integrations.bitbucketServer` entry (see app-config.bitbucket.yaml).
+    provider: ${SRE_GITOPS_PROVIDER}
+    host: ${SRE_GITOPS_HOST}
+    owner: ${SRE_GITOPS_OWNER}
+    repo: ${SRE_GITOPS_REPO}
+    baseBranch: ${SRE_GITOPS_BASE_BRANCH}
 
   managementApi:
     baseUrl: ${SRE_MANAGEMENT_API_URL}

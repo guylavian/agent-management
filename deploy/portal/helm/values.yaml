@@ -27,7 +27,11 @@ oidc:
 # Git host used to open Agent change pull requests. With no token the portal
 # reports "not configured" rather than pretending a PR was opened.
 gitops:
+  # none | github | bitbucketServer. For bitbucketServer, `owner` is the
+  # PROJECT KEY and `host` the Bitbucket Server hostname; the API base URL is
+  # derived as https://<host>/rest/api/1.0.
   provider: none
+  host: ""
   owner: ""
   repo: ""
   baseBranch: main

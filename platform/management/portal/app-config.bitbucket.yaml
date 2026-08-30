@@ -1,0 +1,14 @@
+# Bitbucket Server SCM integration for the management plane.
+#
+# Layered in only when the platform targets Bitbucket, because an integrations
+# entry whose host is an unset env var would fail config validation for every
+# deployment that does not use it:
+#   yarn start --config app-config.yaml --config app-config.bitbucket.yaml
+#
+# All values come from the platform environment; the token arrives by secret
+# reference in the Helm chart and never appears in Git.
+integrations:
+  bitbucketServer:
+    - host: ${SRE_GITOPS_HOST}
+      apiBaseUrl: ${SRE_GITOPS_API_BASE_URL}
+      token: ${BITBUCKET_TOKEN}
