@@ -199,6 +199,16 @@ sreAgent:
   # they name a repository — so they live here; the credential does not, and is
   # read from Backstage's own GitHub integration above.
   gitops:
+    # github (default) or bitbucketServer. The credential always comes from the
+    # matching `integrations` entry above, never from this block.
+    #
+    # For bitbucketServer, `owner` is the PROJECT KEY, `repo` the repository
+    # slug, and `host` must name an `integrations.bitbucketServer` entry:
+    #   provider: bitbucketServer
+    #   host: bitbucket.company.com
+    #   owner: SRE
+    #   repo: agent-management
+    provider: github
     owner: guylavian
     repo: agent-management
     baseBranch: main

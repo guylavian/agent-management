@@ -140,6 +140,122 @@ export class GitHubGitOpsPublisher implements GitOpsPublisher {
   }
 }
 
+export interface BitbucketServerGitOpsSettings {
+  /** Bitbucket Server project KEY (the `owner` config key, reused across providers) */
+  projectKey: string;
+  /** repository slug */
+  repo: string;
+  baseBranch: string;
+  token: string;
+  /** e.g. https://bitbucket.company.com/rest/api/1.0 — from the SCM integration */
+  apiBaseUrl: string;
+}
+
+/**
+ * Bitbucket Server / Data Center. Same contract, different provider grammar:
+ * project key + repository slug instead of owner/repo, `/rest/api/1.0` instead
+ * of the Cloud 2.0 API (which is why the Cloud-oriented `bitbucket` npm client
+ * is not used here), and a 409 where GitHub answers 422.
+ *
+ * The amendment path is deliberately identical in behaviour to the GitHub
+ * publisher: the branch name derives from the agent, so the second proposal for
+ * an agent lands on an existing branch with an open pull request — that is the
+ * normal case, and the open PR (which now shows the new files) is the truthful
+ * answer.
+ */
+export class BitbucketServerGitOpsPublisher implements GitOpsPublisher {
+  readonly configured = true;
+  readonly #settings: BitbucketServerGitOpsSettings;
+  readonly #fetch: typeof fetch;
+
+  constructor(settings: BitbucketServerGitOpsSettings, fetchImplementation: typeof fetch = fetch) {
+    this.#settings = settings;
+    this.#fetch = fetchImplementation;
+  }
+
+  get #repoUrl(): string {
+    const { apiBaseUrl, projectKey, repo } = this.#settings;
+    return `${apiBaseUrl.replace(/\/$/u, '')}/projects/${encodeURIComponent(projectKey)}/repos/${encodeURIComponent(repo)}`;
+  }
+
+  async #call(method: string, path: string, body?: BodyInit, contentType?: string): Promise<Response> {
+    return this.#fetch(`${this.#repoUrl}${path}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${this.#settings.token}`,
+        // multipart bodies must set their own boundary header; JSON declares itself
+        ...(contentType ? { 'content-type': contentType } : {}),
+      },
+      ...(body !== undefined ? { body } : {}),
+    });
+  }
+
+  async createPullRequest(input: PullRequestInput): Promise<PullRequestOutcome> {
+    const { baseBranch } = this.#settings;
+
+    // a branch, never a push to the default branch: the change is reviewed or it
+    // does not happen. 409 means the branch already exists — an amendment.
+    const created = await this.#call('POST', '/branches', JSON.stringify({ name: input.branch, startPoint: `refs/heads/${baseBranch}` }), 'application/json');
+    if (!created.ok && created.status !== 409) throw this.#asError(created.status, await created.text().catch(() => ''), 'create branch');
+
+    for (const file of input.files) {
+      // Bitbucket requires the file's latest commit id when EDITING, and its
+      // absence when creating — so ask which case this is first.
+      const history = await this.#call('GET', `/commits?path=${encodeURIComponent(file.path)}&until=${encodeURIComponent(`refs/heads/${input.branch}`)}&limit=1`);
+      const latest = history.ok ? ((await history.json()) as { values?: Array<{ id: string }> }).values?.[0]?.id : undefined;
+
+      const form = new FormData();
+      form.set('branch', input.branch);
+      form.set('message', `${input.title} (${file.path})`);
+      form.set('content', new Blob([file.encoding === 'base64' ? Buffer.from(file.contents, 'base64') : Buffer.from(file.contents, 'utf8')]), file.path.split('/').pop() ?? file.path);
+      if (latest) form.set('sourceCommitId', latest);
+      const put = await this.#call('PUT', `/browse/${file.path.split('/').map(encodeURIComponent).join('/')}`, form);
+      // an unchanged file answers 409 ("could not be committed"); for an
+      // amendment that resubmits identical content that is not a failure
+      if (!put.ok && put.status !== 409) throw this.#asError(put.status, await put.text().catch(() => ''), `commit ${file.path}`);
+    }
+
+    const ref = (branch: string) => ({ id: `refs/heads/${branch}`, repository: { slug: this.#settings.repo, project: { key: this.#settings.projectKey } } });
+    const pull = await this.#call('POST', '/pull-requests', JSON.stringify({ title: input.title, description: input.body, fromRef: ref(input.branch), toRef: ref(baseBranch) }), 'application/json');
+    if (pull.ok) {
+      const data = (await pull.json()) as { id: number; links?: { self?: Array<{ href: string }> } };
+      return { status: 'created', number: data.id, ...(data.links?.self?.[0]?.href ? { url: data.links.self[0].href } : {}) };
+    }
+
+    // a body reads once; the 409 handling below needs it parsed AND #asError
+    // needs its message, so it is captured here rather than re-read
+    const body = await pull.text().catch(() => '');
+
+    // a duplicate answers 409 and — unlike GitHub — hands back the existing PR
+    // inside the error payload, so no second lookup is needed
+    if (pull.status === 409) {
+      const payload = (() => {
+        try {
+          return JSON.parse(body) as { errors?: Array<{ existingPullRequest?: { id: number; links?: { self?: Array<{ href: string }> } } }> };
+        } catch {
+          return {};
+        }
+      })() as { errors?: Array<{ existingPullRequest?: { id: number; links?: { self?: Array<{ href: string }> } } }> };
+      const existing = payload.errors?.find(error => error.existingPullRequest)?.existingPullRequest;
+      // 409 also covers "already up to date" — a proposal identical to the base.
+      // There is no pull request to point at, so that stays an error.
+      if (existing) return { status: 'created', number: existing.id, ...(existing.links?.self?.[0]?.href ? { url: existing.links.self[0].href } : {}) };
+    }
+    throw this.#asError(pull.status, body, 'create pull request');
+  }
+
+  #asError(status: number, body: string, action: string): Error {
+    const message = (() => {
+      try {
+        return (JSON.parse(body) as { errors?: Array<{ message?: string }> }).errors?.[0]?.message;
+      } catch {
+        return undefined;
+      }
+    })();
+    return Object.assign(new Error(`bitbucket ${action} failed (${status})${message ? `: ${message}` : ''}`), { status });
+  }
+}
+
 export const gitOpsPublisherRef = createServiceRef<GitOpsPublisher>({
   id: 'sre.agent-management.gitops',
   defaultFactory: async service =>
@@ -160,11 +276,41 @@ export function fromConfig(config: RootConfigService): GitOpsPublisher {
     return new UnconfiguredGitOpsPublisher('sreAgent.gitops.owner and sreAgent.gitops.repo are not set');
   }
 
-  const host = gitops?.getOptionalString('host') ?? 'github.com';
+  const provider = gitops?.getOptionalString('provider') ?? 'github';
+  const baseBranch = gitops?.getOptionalString('baseBranch') ?? 'main';
   const integrations = ScmIntegrations.fromConfig(config);
+
+  if (provider === 'bitbucketServer') {
+    // no default host: unlike github.com there is no canonical Bitbucket
+    // Server, so guessing one would only defer the failure to the first request
+    const host = gitops?.getOptionalString('host');
+    if (!host) {
+      return new UnconfiguredGitOpsPublisher('sreAgent.gitops.host is required for the bitbucketServer provider');
+    }
+    const integration = integrations.bitbucketServer.byHost(host);
+    // the token is Backstage's SCM integration credential, configured once where
+    // Backstage already expects it, rather than a second secret in this plugin
+    const token = integration?.config.token;
+    if (!token) {
+      return new UnconfiguredGitOpsPublisher(`no Bitbucket Server integration token is configured for ${host}`);
+    }
+    return new BitbucketServerGitOpsPublisher({
+      // `owner` is the Bitbucket PROJECT KEY; the config key is shared across
+      // providers so switching provider does not mean renaming settings
+      projectKey: owner,
+      repo,
+      baseBranch,
+      token,
+      apiBaseUrl: integration.config.apiBaseUrl,
+    });
+  }
+
+  if (provider !== 'github') {
+    return new UnconfiguredGitOpsPublisher(`unknown sreAgent.gitops.provider "${provider}" (github | bitbucketServer)`);
+  }
+
+  const host = gitops?.getOptionalString('host') ?? 'github.com';
   const integration = integrations.github.byHost(host);
-  // the token is Backstage's SCM integration credential, configured once where
-  // Backstage already expects it, rather than a second secret in this plugin
   const token = integration?.config.token;
   if (!token) {
     return new UnconfiguredGitOpsPublisher(`no GitHub integration token is configured for ${host}`);
@@ -173,7 +319,7 @@ export function fromConfig(config: RootConfigService): GitOpsPublisher {
   return new GitHubGitOpsPublisher({
     owner,
     repo,
-    baseBranch: gitops?.getOptionalString('baseBranch') ?? 'main',
+    baseBranch,
     token,
     ...(integration?.config.apiBaseUrl ? { apiBaseUrl: integration.config.apiBaseUrl } : {}),
   });

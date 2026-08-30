@@ -1,5 +1,5 @@
 // backstage-cli package test runs jest; describe/it/expect are global.
-import { GitHubGitOpsPublisher } from './GitOpsPublisher';
+import { BitbucketServerGitOpsPublisher, GitHubGitOpsPublisher } from './GitOpsPublisher';
 
 /**
  * Amending a proposal is the normal case, not the exceptional one: the branch
@@ -80,5 +80,86 @@ describe('GitHubGitOpsPublisher', () => {
     );
 
     await expect(publisher.createPullRequest(input)).rejects.toThrow();
+  });
+});
+
+/**
+ * The Bitbucket Server publisher speaks /rest/api/1.0 directly, so its double is
+ * a fetch. Same behavioural contract as GitHub, different provider grammar:
+ * 409 where GitHub answers 422, and the duplicate-PR error carries the existing
+ * pull request in its payload instead of needing a list call.
+ */
+function bitbucketFetch(overrides: { branch?: number; commit?: number; pull?: () => Response } = {}) {
+  const json = (status: number, body: unknown): Response =>
+    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const calls: Array<{ method: string; url: string }> = [];
+  const impl = async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const href = String(url);
+    calls.push({ method: init?.method ?? 'GET', url: href });
+    if (href.includes('/branches')) return json(overrides.branch ?? 200, {});
+    if (href.includes('/commits?')) return json(overrides.commit ?? 404, {});
+    if (href.includes('/browse/')) return json(200, {});
+    if (href.includes('/pull-requests')) {
+      return overrides.pull
+        ? overrides.pull()
+        : json(201, { id: 7, links: { self: [{ href: 'http://bb/pr/7' }] } });
+    }
+    return json(404, {});
+  };
+  return { impl: impl as typeof fetch, calls, json };
+}
+
+const bbSettings = { projectKey: 'SRE', repo: 'agents', baseBranch: 'main', token: 't', apiBaseUrl: 'http://bb/rest/api/1.0' };
+
+describe('BitbucketServerGitOpsPublisher', () => {
+  it('opens a pull request for a new proposal', async () => {
+    const double = bitbucketFetch();
+    const publisher = new BitbucketServerGitOpsPublisher(bbSettings, double.impl);
+    await expect(publisher.createPullRequest(input)).resolves.toMatchObject({
+      status: 'created',
+      number: 7,
+      url: 'http://bb/pr/7',
+    });
+    // branch first, then the file, then the PR — and everything under the repo path
+    expect(double.calls.map(c => c.method)).toEqual(['POST', 'GET', 'PUT', 'POST']);
+    expect(double.calls.every(c => c.url.startsWith('http://bb/rest/api/1.0/projects/SRE/repos/agents'))).toBe(true);
+  });
+
+  it('treats an existing branch as an amendment, not a failure', async () => {
+    const double = bitbucketFetch({ branch: 409 });
+    const publisher = new BitbucketServerGitOpsPublisher(bbSettings, double.impl);
+    await expect(publisher.createPullRequest(input)).resolves.toMatchObject({ status: 'created' });
+  });
+
+  it('returns the open pull request the duplicate error carries', async () => {
+    const double = bitbucketFetch({
+      pull: () =>
+        new Response(
+          JSON.stringify({ errors: [{ existingPullRequest: { id: 3, links: { self: [{ href: 'http://bb/pr/3' }] } } }] }),
+          { status: 409 },
+        ),
+    });
+    const publisher = new BitbucketServerGitOpsPublisher(bbSettings, double.impl);
+    await expect(publisher.createPullRequest(input)).resolves.toMatchObject({
+      status: 'created',
+      number: 3,
+      url: 'http://bb/pr/3',
+    });
+  });
+
+  it('still fails when 409 means there is nothing to propose', async () => {
+    // "already up to date" is also a 409, with no existing PR in the payload.
+    // Reporting success would be a lie.
+    const double = bitbucketFetch({
+      pull: () => new Response(JSON.stringify({ errors: [{ message: 'already up to date' }] }), { status: 409 }),
+    });
+    const publisher = new BitbucketServerGitOpsPublisher(bbSettings, double.impl);
+    await expect(publisher.createPullRequest(input)).rejects.toThrow(/already up to date/);
+  });
+
+  it('does not swallow a non-409 failure', async () => {
+    const double = bitbucketFetch({ pull: () => new Response('boom', { status: 500 }) });
+    const publisher = new BitbucketServerGitOpsPublisher(bbSettings, double.impl);
+    await expect(publisher.createPullRequest(input)).rejects.toThrow(/failed \(500\)/);
   });
 });
