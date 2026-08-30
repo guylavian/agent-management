@@ -23,6 +23,7 @@ export type {
   AgentIdentityView,
   AgentLifecycle,
   AgentMetrics,
+  AgentReconciliation,
   AgentSummary,
   ApiError,
   ChangePreview,
@@ -45,8 +46,18 @@ export type {
   RunDetail,
   RunNode,
   RunSummary,
+  Signal,
   ToolClassification,
   ToolView,
 } from './generated-types';
 
 export { isNotConfigured } from './generated-types';
+
+import type { AgentReconciliation } from './generated-types';
+
+/**
+ * The lifecycle a MANAGED AGENT is in, as opposed to the lifecycle its document
+ * declares. Derived from the contract rather than re-listed, so a status added
+ * to the OpenAPI document cannot be forgotten in the console's switch.
+ */
+export type AgentStatus = AgentReconciliation['status'];

@@ -25,7 +25,16 @@ paths:
   /agents:
     get:
       operationId: listAgents
-      summary: Every specialist Agent, projected from the canonical configuration.
+      summary: Every specialist Agent, from Git desired state, joined to actual state.
+      description: >-
+        The inventory is the CANONICAL Agent set — every Agent whose document is
+        in the repository — not the set the runtime is currently running. An
+        Agent that merged and then failed to deploy therefore stays on this
+        page, with a reconciliation block saying why, instead of disappearing at
+        the moment someone needs to find it.
+
+        Desired state is re-read while the process runs, so an Agent whose pull
+        request has just merged appears here without a restart.
       responses:
         "200":
           description: Agent summaries.
@@ -33,11 +42,28 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [agents]
+                required: [agents, revision, loadedAt]
                 properties:
                   agents:
                     type: array
                     items: { $ref: "#/components/schemas/AgentSummary" }
+                  revision:
+                    type: string
+                    description: Changes whenever any desired-state file does; a client can poll on it.
+                  loadedAt: { type: string }
+                  configError:
+                    type: string
+                    description: >-
+                      The most recent reload failed to validate. The agents above
+                      are the last good desired state, and every one of them is
+                      reported FAILED rather than silently stale.
+                  proposalsError:
+                    type: string
+                    description: >-
+                      Open pull requests could not be listed, so Agents that are
+                      still `pending-merge` are missing from the list above.
+                      Every MERGED Agent is present. Set only by the management
+                      plane, which is the side holding the Git credential.
         "401": { $ref: "#/components/responses/Unauthenticated" }
 
   /prompt-assist:
@@ -408,6 +434,52 @@ components:
         workloadClientId: { type: string, description: "Derived, never author-supplied." }
         readOnly: { type: boolean }
         avatar: { $ref: "#/components/schemas/AgentAvatar" }
+        reconciliation: { $ref: "#/components/schemas/AgentReconciliation" }
+
+    Signal:
+      type: object
+      additionalProperties: false
+      description: >-
+        One observation. `unknown` means this deployment cannot see the signal
+        and `detail` says why — it is never a stand-in for a failure, and no
+        signal is ever invented. `detail` is required because a state with no
+        explanation is not diagnosable.
+      required: [state, detail]
+      properties:
+        state: { type: string, enum: [ok, pending, degraded, unknown] }
+        detail: { type: string }
+
+    AgentReconciliation:
+      type: object
+      additionalProperties: false
+      description: >-
+        Git desired state joined to actual state, kept separate on purpose.
+        Merged-but-not-synced, synced-but-not-ready and ready-but-not-routable
+        are four different problems with four different fixes.
+      required: [status, git, argo, runtime, manager]
+      properties:
+        status:
+          type: string
+          enum: [draft, pending-merge, reconciling, active, disabled, degraded, failed]
+          description: >-
+            The Agent lifecycle:
+            draft → pending-merge → reconciling → active, with degraded and
+            failed as the branches where actual or desired state is broken, and
+            active → reconciling → disabled when an Agent is turned off.
+
+            `draft` is desired state like any other: the Agent document is
+            merged, but its own lifecycle says it is not meant to run yet. It is
+            deliberately distinct from `disabled`, where something WAS turned
+            off and an operator might go looking for what broke.
+
+            `pending-merge` is never served by the RUNTIME, which reads the
+            repository as Argo synced it and so cannot see an unmerged branch.
+            It is contributed by the management plane, which holds the Git
+            credential and asks the provider for open proposals.
+        git: { $ref: "#/components/schemas/Signal" }
+        argo: { $ref: "#/components/schemas/Signal" }
+        runtime: { $ref: "#/components/schemas/Signal" }
+        manager: { $ref: "#/components/schemas/Signal" }
 
     AgentAvatar:
       type: object
@@ -473,6 +545,7 @@ components:
           type: array
           items: { $ref: "#/components/schemas/McpAccessView" }
         identity: { $ref: "#/components/schemas/AgentIdentityView" }
+        reconciliation: { $ref: "#/components/schemas/AgentReconciliation" }
 
     PromptAssistRequest:
       type: object
@@ -505,7 +578,7 @@ components:
         no access and no routing vocabulary, because it calls no tool. Like
         AgentDetail, it carries everything needed to rebuild a ManagerDraft, so
         editing cannot silently delete a field the console never displayed.
-      required: [id, owner, lifecycle, modelProfile, modelTier, promptFile, prompt, allowed, notRouted, execution, identity]
+      required: [id, owner, lifecycle, modelProfile, modelTier, promptFile, prompt, routable, notRouted, environment, execution, identity]
       properties:
         id: { type: string }
         displayName: { type: string }
@@ -516,9 +589,14 @@ components:
         modelTier: { type: string }
         promptFile: { type: string }
         prompt: { type: string }
-        allowed:
+        routable:
           type: array
-          description: The routing table — specialists the Manager may dispatch to.
+          description: >-
+            The routing table, DERIVED: every Agent whose own document is active
+            and whose deployment overlay enables it in this environment. It is
+            the same set the orchestrator offers the Manager. There is no
+            authored allowlist any more — onboarding an Agent required a second
+            pull request against one, and nothing checked that anyone did it.
           items: { type: string }
         notRouted:
           type: array
@@ -528,18 +606,7 @@ components:
           items: { type: string }
         environment:
           type: string
-          description: >-
-            The deployment environment this runtime serves. Absent when none is
-            mounted, so a console can say nothing rather than imply everything
-            is deployed.
-        notDeployed:
-          type: array
-          description: >-
-            Allowed specialists this environment does not run. Being in the
-            routing table is only half of being reachable: the effective catalog
-            is the allowlist intersected with what the environment enables, and
-            an agent listed here is never offered to the Manager at all.
-          items: { type: string }
+          description: The deployment environment this runtime serves; `routable` is relative to it.
         execution:
           type: object
           additionalProperties: { type: number }
@@ -558,13 +625,11 @@ components:
       description: >-
         What the portal collects to update the Manager. `maxRounds` is absent by
         design: a second Manager loop is a runtime feature, never configuration,
-        and the schema pins it to 1.
-      required: [allowed, modelProfile, prompt]
+        and the schema pins it to 1. A routing table is absent for a different
+        reason: routing is derived from the effective catalog, so no edit here
+        can make an Agent reachable or unreachable.
+      required: [modelProfile, prompt]
       properties:
-        allowed:
-          type: array
-          minItems: 1
-          items: { type: string }
         modelProfile: { type: string }
         prompt: { type: string }
         owner: { type: string }
@@ -582,13 +647,21 @@ components:
     AgentHealth:
       type: object
       additionalProperties: false
-      required: [agentId, lifecycle, routable, reachability, reason]
+      required: [agentId, lifecycle, routable, reachability, reason, reconciliation]
       properties:
         agentId: { type: string }
         lifecycle: { $ref: "#/components/schemas/AgentLifecycle" }
-        routable: { type: boolean }
-        reachability: { type: string, enum: [unknown] }
+        routable:
+          type: boolean
+          description: In the effective catalog — the set the orchestrator routes from.
+        reachability:
+          type: string
+          enum: [ready, unavailable, unknown]
+          description: >-
+            `unknown` when no probe is configured. It is never reported as
+            `ready` without something having answered.
         reason: { type: string }
+        reconciliation: { $ref: "#/components/schemas/AgentReconciliation" }
 
     AgentMetrics:
       type: object

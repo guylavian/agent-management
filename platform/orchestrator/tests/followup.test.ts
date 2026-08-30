@@ -22,22 +22,22 @@ describe("T5 bounded cross-domain follow-up", () => {
   });
 
   it("rejects a second discovered request after the single budget is allocated", () => {
-    const plan = planFollowup({ results: [result("active-directory", "network-observability"), result("openshift", "network-observability")], alreadyRun: ["active-directory", "openshift"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest, allowedManagerAgents: managerAgent.spec.agents.allowed });
+    const plan = planFollowup({ results: [result("active-directory", "network-observability"), result("openshift", "network-observability")], alreadyRun: ["active-directory", "openshift"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest });
     expect(plan.request?.agentId).toBe("network-observability");
     expect(plan.rejections).toEqual([expect.objectContaining({ reason: "budget-exhausted" })]);
-    const exhausted = planFollowup({ results: [result("active-directory", "network-observability")], alreadyRun: ["active-directory"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: true, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest, allowedManagerAgents: managerAgent.spec.agents.allowed });
+    const exhausted = planFollowup({ results: [result("active-directory", "network-observability")], alreadyRun: ["active-directory"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: true, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest });
     expect(exhausted.request).toBeUndefined();
     expect(exhausted.rejections[0]?.reason).toBe("budget-exhausted");
-    const totalAgentBudget = planFollowup({ results: [result("active-directory", "network-observability")], alreadyRun: ["active-directory", "openshift", "another-agent"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest, allowedManagerAgents: managerAgent.spec.agents.allowed });
+    const totalAgentBudget = planFollowup({ results: [result("active-directory", "network-observability")], alreadyRun: ["active-directory", "openshift", "another-agent"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest });
     expect(totalAgentBudget.rejections[0]?.reason).toBe("budget-exhausted");
   });
 
   it("rejects unauthorized and non-allowlisted domains", () => {
     const bob = { subject: "bob", groups: [], roles: ["network-read"], requestId: "req-bob" };
     const bobCtx = { ...ctx, identity: bob, request: { question: ctx.request.question, identity: bob }, requestId: bob.requestId };
-    const unauthorized = planFollowup({ results: [result("network-observability", "active-directory")], alreadyRun: ["network-observability"], ctx: bobCtx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest, allowedManagerAgents: managerAgent.spec.agents.allowed });
+    const unauthorized = planFollowup({ results: [result("network-observability", "active-directory")], alreadyRun: ["network-observability"], ctx: bobCtx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest });
     expect(unauthorized.rejections[0]?.reason).toBe("unauthorized");
-    const invalid = planFollowup({ results: [result("active-directory", "openshift")], alreadyRun: ["active-directory"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest, allowedManagerAgents: managerAgent.spec.agents.allowed });
+    const invalid = planFollowup({ results: [result("active-directory", "openshift")], alreadyRun: ["active-directory"], ctx, registry: serviceRegistry, entities: {}, budgetUsed: false, maxAgentsPerRequest: managerAgent.spec.execution.maxAgentsPerRequest });
     expect(invalid.rejections[0]?.reason).toBe("not-allowed");
   });
 });

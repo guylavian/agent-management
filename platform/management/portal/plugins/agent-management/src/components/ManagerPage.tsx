@@ -19,6 +19,8 @@ import {
   SectionTitle,
   StatusPill,
   Tabs,
+  ReconciliationBadge,
+  blockingSignal,
   inputStyle,
   lifecycleTone,
 } from './common';
@@ -27,13 +29,53 @@ import type { AgentLifecycle, AgentSummary, ChangePreview, ManagerDetail, Manage
 const TABS = ['Routing', 'Prompt', 'Review & Propose'] as const;
 
 /**
+ * The Manager view as this console needs it, from whatever the runtime sent.
+ *
+ * The runtime is a SEPARATE PROCESS on its own release cadence, so the console
+ * will meet one that predates a contract change — during a rollout, that is the
+ * normal state for minutes at a time. Reading `manager.routable.length` from a
+ * response that has no `routable` took the whole page down with a white screen,
+ * which is the worst possible way to report "these two are different versions".
+ *
+ * Absent is NOT rendered as empty: an empty routing table and an unknown one
+ * look identical on screen and mean opposite things, so `known` is false and
+ * the page says which runtime it is talking to instead of implying the Manager
+ * can route nowhere.
+ */
+interface ManagerView {
+  routable: string[];
+  notRouted: string[];
+  environment: string;
+  /** false when the runtime did not send a derived routing table at all */
+  known: boolean;
+}
+
+export function managerView(manager: ManagerDetail): ManagerView {
+  const routable = manager.routable;
+  return {
+    routable: routable ?? [],
+    notRouted: manager.notRouted ?? [],
+    environment: manager.environment ?? 'this environment',
+    known: Array.isArray(routable),
+  };
+}
+
+/**
  * The Manager, which the console used to omit entirely — it is not in
  * `listSpecialists()`, so the Agents page could never show it, and the one Agent
  * deciding which specialist runs was the one Agent an operator could not see.
  *
  * It gets its own page rather than a row in the Agents table because it is a
- * different document type: no workload identity, no MCP access, no routing
- * vocabulary, and a routing table no specialist has.
+ * different document type: no workload identity, no MCP access and no routing
+ * vocabulary.
+ *
+ * Its routing table is READ-ONLY here, and that is the fix rather than a
+ * limitation. It used to be a checkbox list backed by a hand-written
+ * `agents.allowed` field, which meant onboarding an Agent took a second pull
+ * request against this page that nothing checked anyone had made — and an Agent
+ * could sit deployed and healthy while the Manager was never offered it. The
+ * table is now DERIVED from each Agent's own lifecycle and deployment overlay,
+ * so this page shows who is reachable and where to go to change it.
  */
 export function ManagerPage() {
   const manager = useManager();
@@ -52,7 +94,6 @@ export function ManagerPage() {
     if (manager.value === undefined || draft !== undefined) return;
     const value = manager.value;
     setDraft({
-      allowed: value.allowed,
       modelProfile: value.modelProfile,
       prompt: value.prompt,
       owner: value.owner,
@@ -65,14 +106,6 @@ export function ManagerPage() {
   }, [manager.value, draft]);
 
   const patch = (next: Partial<ManagerDraft>) => setDraft(current => (current === undefined ? current : { ...current, ...next }));
-
-  const toggleAgent = (name: string) => {
-    setDraft(current => {
-      if (current === undefined) return current;
-      const allowed = current.allowed.includes(name) ? current.allowed.filter(item => item !== name) : [...current.allowed, name];
-      return { ...current, allowed };
-    });
-  };
 
   const runPreview = async () => {
     if (draft === undefined) return;
@@ -107,15 +140,15 @@ export function ManagerPage() {
       <AsyncState loading={manager.loading} error={manager.error}>
         {manager.value && draft && (
           <>
-            <Header manager={manager.value} />
+            <Header manager={manager.value} view={managerView(manager.value)} />
             <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
             {tab === 'Routing' && (
               <RoutingTab
                 manager={manager.value}
+                view={managerView(manager.value)}
                 draft={draft}
-                agents={agents.value ?? []}
-                onToggle={toggleAgent}
+                agents={agents.value?.agents ?? []}
                 onPatch={patch}
               />
             )}
@@ -140,7 +173,7 @@ export function ManagerPage() {
             {tab === 'Review & Propose' && (
               <ReviewTab
                 draft={draft}
-                manager={manager.value}
+                view={managerView(manager.value)}
                 preview={preview}
                 issues={issues}
                 pr={pr}
@@ -156,12 +189,12 @@ export function ManagerPage() {
   );
 }
 
-function Header({ manager }: { manager: ManagerDetail }) {
-  // The fan-out bound is stated against what the Manager can actually reach.
-  // "3 of 5" while this environment runs two of them is a true sentence about
-  // the document and a false one about the deployment.
-  const reachable = manager.allowed.length - (manager.notDeployed ?? []).length;
-  const undeployed = (manager.notDeployed ?? []).length;
+function Header({ manager, view }: { manager: ManagerDetail; view: ManagerView }) {
+  // The fan-out bound is stated against what the Manager can ACTUALLY reach.
+  // `routable` is the effective catalog, so there is no longer a second number
+  // ("allowed") that could be larger and read as reachable.
+  const reachable = view.routable.length;
+  const notRouted = view.notRouted.length;
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 24 }}>
@@ -172,11 +205,16 @@ function Header({ manager }: { manager: ManagerDetail }) {
             <StatusPill tone={lifecycleTone(manager.lifecycle as AgentLifecycle)}>{manager.lifecycle}</StatusPill>
           </div>
           <div style={{ fontSize: 14, color: C.muted, marginTop: 8 }}>
-            Routes every request to at most {manager.execution.maxAgentsPerRequest ?? '—'} of {reachable} reachable specialist
-            {reachable === 1 ? '' : 's'}. It calls no tool of its own.
-            {undeployed > 0 && (
-              <> {manager.allowed.length} are in the routing table
-                {manager.environment ? `, but ${manager.environment} does not run ${undeployed} of them` : `, but ${undeployed} are not deployed`}.</>
+            {view.known ? (
+              <>
+                Routes every request to at most {manager.execution.maxAgentsPerRequest ?? '—'} of {reachable} reachable specialist
+                {reachable === 1 ? '' : 's'} in {view.environment}. It calls no tool of its own.
+                {notRouted > 0 && (
+                  <> {notRouted} other specialist{notRouted === 1 ? ' exists' : 's exist'} but {notRouted === 1 ? 'is' : 'are'} not enabled here.</>
+                )}
+              </>
+            ) : (
+              <>Routes every request to at most {manager.execution.maxAgentsPerRequest ?? '—'} specialists. It calls no tool of its own.</>
             )}
           </div>
         </div>
@@ -195,7 +233,7 @@ function Header({ manager }: { manager: ManagerDetail }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(168px, 1fr))', gap: '16px 0' }}>
           <Fact label="Owner" value={manager.owner} note="owning team" first />
           <Fact label="Model profile" value={manager.modelProfile} note={`tier ${manager.modelTier}`} mono />
-          <Fact label="Agents per request" value={`${manager.execution.maxAgentsPerRequest ?? '—'} of ${manager.allowed.length}`} note="fan-out bound" />
+          <Fact label="Agents per request" value={view.known ? `${manager.execution.maxAgentsPerRequest ?? '—'} of ${reachable}` : String(manager.execution.maxAgentsPerRequest ?? '—')} note="fan-out bound" />
           <Fact label="Routing timeout" value={`${manager.execution.timeoutMs ?? '—'} ms`} note="time to decide" />
           <Fact label="Rounds" value={String(manager.execution.maxRounds ?? '—')} note="fixed by the schema" />
           <Fact label="Tool access" value="none" note="by design — never receives a tool schema" />
@@ -210,38 +248,34 @@ function Header({ manager }: { manager: ManagerDetail }) {
 
 function RoutingTab(props: {
   manager: ManagerDetail;
+  view: ManagerView;
   draft: ManagerDraft;
   agents: AgentSummary[];
-  onToggle: (name: string) => void;
   onPatch: (next: Partial<ManagerDraft>) => void;
 }) {
-  // the union of what the runtime says exists and what the draft currently
-  // routes to, so an agent removed in the draft stays visible and re-addable
-  const names = [...new Set([...props.agents.map(agent => agent.id), ...props.manager.allowed, ...props.manager.notRouted, ...props.draft.allowed])].sort();
+  // every specialist the runtime knows about, routable or not: "not shown" and
+  // "not reachable" must not look alike
+  const names = [...new Set([...props.agents.map(agent => agent.id), ...props.view.routable, ...props.view.notRouted])].sort();
   const byId = new Map(props.agents.map(agent => [agent.id, agent]));
-  // Allowed and reachable are different facts. An older runtime sends neither
-  // field; an empty list then reads as "everything is deployed", which is the
-  // honest thing to say when the runtime has not told us otherwise.
-  const notDeployed = props.manager.notDeployed ?? [];
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, alignItems: 'start' }}>
       <div style={{ gridColumn: 'span 2', minWidth: 0 }}>
         <Panel>
-          <GroupHeader title="Routing table" />
+          <GroupHeader title={props.view.known ? `Routing table — ${props.view.environment}` : 'Routing table'} />
           <div style={{ marginBottom: 12 }}>
             <Muted size={12.5}>
-              Which specialists a request can reach. Removing one makes it unreachable through the Manager; its own tool access is unchanged.
+              Derived, not authored. An Agent is reachable when its own document is active and this
+              environment&rsquo;s deployment overlay enables it — so enabling one is a change to that Agent,
+              not to the Manager, and there is no list here that can disagree with what the router uses.
             </Muted>
           </div>
           {names.map(name => {
             const agent = byId.get(name);
-            const on = props.draft.allowed.includes(name);
-            const was = props.manager.allowed.includes(name);
-            const draftLifecycle = agent !== undefined && agent.lifecycle !== 'active';
+            const routable = props.view.routable.includes(name);
+            const reconciliation = agent?.reconciliation;
             return (
-              <label key={name} style={{ display: 'grid', gridTemplateColumns: '20px 1.6fr 1.6fr auto', gap: 12, alignItems: 'center', padding: '11px 2px', borderBottom: `1px solid ${C.rule}`, cursor: 'pointer' }}>
-                <input type="checkbox" checked={on} onChange={() => props.onToggle(name)} aria-label={`Route to ${name}`} />
+              <div key={name} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1.6fr auto', gap: 12, alignItems: 'center', padding: '11px 2px', borderBottom: `1px solid ${C.rule}` }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                   <AgentTile id={name} owner={agent?.owner ?? name} size={26} />
                   <div style={{ minWidth: 0 }}>
@@ -249,34 +283,35 @@ function RoutingTab(props: {
                     <div style={{ fontSize: 11.5, fontFamily: MONO, color: C.faint }}>{name}</div>
                   </div>
                 </div>
-                {/* the agent's own description, so the row says what routing here
-                    would actually reach rather than only that it is permitted */}
-                <div style={{ fontSize: 12.5, color: C.bodySoft, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {agent?.description ?? ''}
+                {/* WHY, not just whether. A row that says "Not routed" and nothing
+                    else is the state this whole page existed to stop producing. */}
+                <div style={{ fontSize: 12.5, color: C.bodySoft, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  title={reconciliation === undefined ? agent?.description : blockingSignal(reconciliation).detail}>
+                  {reconciliation === undefined ? agent?.description ?? '' : routable ? agent?.description ?? '' : blockingSignal(reconciliation).detail}
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  {on !== was
-                    ? <StatusPill tone={on ? 'ok' : 'warn'}>{on ? 'will be added' : 'will be removed'}</StatusPill>
-                    : draftLifecycle
-                      ? <StatusPill tone="warn">{agent?.lifecycle} — not routable</StatusPill>
-                      : on && notDeployed.includes(name)
-                        // Allowed here, but this environment does not run it, so
-                        // the Manager is never offered it and cannot reach it.
-                        // Saying "Routable" was the whole bug.
-                        ? <StatusPill tone="warn">allowed — not deployed{props.manager.environment ? ` in ${props.manager.environment}` : ''}</StatusPill>
-                        : on && notDeployed.includes(name)
-                        // allowed here, but this environment does not run it, so
-                        // the Manager is never offered it. Saying "Routable" was
-                        // the whole bug.
-                        ? <StatusPill tone="warn">allowed — not deployed{props.manager.environment ? ` in ${props.manager.environment}` : ''}</StatusPill>
-                        : <StatusPill tone={on ? 'ok' : 'neutral'}>{on ? 'Routable' : 'Not routed'}</StatusPill>}
+                <div style={{ textAlign: 'right', display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
+                  {reconciliation !== undefined && <ReconciliationBadge reconciliation={reconciliation} />}
+                  <StatusPill tone={props.view.known ? (routable ? 'ok' : 'neutral') : 'neutral'}>
+                    {props.view.known ? (routable ? 'Routable' : 'Not routable') : 'Unknown'}
+                  </StatusPill>
                 </div>
-              </label>
+              </div>
             );
           })}
-          {props.draft.allowed.length === 0 && (
+          {/* absent and empty mean opposite things, so they do not share a message */}
+          {!props.view.known && (
             <div style={{ marginTop: 12 }}>
-              <StatusPill tone="warn">A Manager that can route nowhere is rejected by the schema.</StatusPill>
+              <StatusPill tone="warn">
+                This runtime does not report a derived routing table, so reachability is unknown here.
+                It predates the change that removed the Manager&rsquo;s hand-written agent list; restart or redeploy it to see this table.
+              </StatusPill>
+            </div>
+          )}
+          {props.view.known && props.view.routable.length === 0 && (
+            <div style={{ marginTop: 12 }}>
+              <StatusPill tone="warn">
+                No specialist is enabled in {props.view.environment}, so the Manager can route nowhere.
+              </StatusPill>
             </div>
           )}
         </Panel>
@@ -330,7 +365,7 @@ function RoutingTab(props: {
           <GroupHeader title="Security" />
           <Guarantee title="Tool access" value="none — by design" detail="The Manager never receives a tool schema, so there is nothing to grant." />
           <Guarantee title="MCP access" value="none — by design" detail="Specialists hold the MCP credentials; the Manager holds none." />
-          <Guarantee title="Read-only orchestration" value="enforced" detail="Routing decisions cannot mutate state." last />
+          <Guarantee title="Routing table" value="derived" detail="Enabling an Agent is a change to that Agent, so no edit here can grant reachability." last />
         </Panel>
       </div>
     </div>
@@ -361,7 +396,7 @@ function Fact({ label, value, note, mono, first }: { label: string; value: strin
 
 function ReviewTab(props: {
   draft: ManagerDraft;
-  manager: ManagerDetail;
+  view: ManagerView;
   preview?: ChangePreview;
   issues: string[];
   pr?: { url?: string; status: string; reason?: string };
@@ -369,18 +404,16 @@ function ReviewTab(props: {
   onPreview: () => void;
   onCreate: () => void;
 }) {
-  const added = props.draft.allowed.filter(name => !props.manager.allowed.includes(name));
-  const removed = props.manager.allowed.filter(name => !props.draft.allowed.includes(name));
-
   return (
     <Panel title="Review & propose">
       <DefinitionList
         items={[
-          ['Routes to', props.draft.allowed.join(', ') || 'none'],
-          ['Added', added.length === 0 ? 'none' : added.join(', ')],
-          ['Removed', removed.length === 0 ? 'none' : removed.join(', ')],
+          ['Model profile', props.draft.modelProfile],
           ['Max per request', String(props.draft.execution?.maxAgentsPerRequest ?? 3)],
           ['Timeout', `${props.draft.execution?.timeoutMs ?? 1500} ms`],
+          // stated on the review step so nobody proposes this expecting it to
+          // change reachability, which is what the old routing table did
+          ['Routing table', `unchanged — derived from each Agent in ${props.view.environment}`],
         ]}
       />
 

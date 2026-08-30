@@ -188,7 +188,19 @@ const managerSpecSchema = z
       })
       .strict(),
     prompt: z.object({ systemFile: z.string().min(1) }).strict(),
-    agents: z.object({ allowed: z.array(agentName).min(1) }).strict(),
+    /*
+     * There is deliberately NO `agents.allowed` here.
+     *
+     * A hand-maintained routing list meant onboarding an Agent took two merged
+     * pull requests — the Agent, and then an edit to this file — and the second
+     * one had no failure mode: an Agent existed, deployed, healthy, and was
+     * simply never offered to the Manager, with nothing anywhere saying why.
+     *
+     * Routing is now DERIVED from the effective catalog: the canonical Agent
+     * document (lifecycle) intersected with the environment's deployment
+     * overlay (enabled). `.strict()` above means a leftover `agents:` block in
+     * a config file is a load-time error rather than a silently ignored one.
+     */
     execution: z
       .object({
         maxAgentsPerRequest: z.number().int().min(1).max(3),

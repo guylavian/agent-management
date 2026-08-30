@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_PATHS, loadAgentRegistry, toRepoPath } from "@sre/config";
+import { CONFIG_PATHS, deployEnvironmentDir, loadAgentRegistry, loadEffectiveAgentCatalog, toRepoPath } from "@sre/config";
 import { generateManagerChange, managerDetail, managerDraftToDocument, proposeManagerChange, type ManagerDraft } from "@sre/runtime-host";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
@@ -9,17 +9,22 @@ import { parse as parseYaml } from "yaml";
  * The Manager, edited through the console.
  *
  * It is a separate branch of the Agent document union — no workload identity,
- * no MCP access, no environments, no routing vocabulary, and an `agents.allowed`
- * routing table no specialist has. So it needs its own generator, and its own
- * proof that the console can rebuild what it displays.
+ * no MCP access, no environments and no routing vocabulary. So it needs its own
+ * generator, and its own proof that the console can rebuild what it displays.
+ *
+ * What it no longer has is a routing table. `agents.allowed` was a hand-written
+ * list that had to be edited in a SECOND pull request after an Agent merged,
+ * with nothing checking that anyone remembered; the tests below now pin the
+ * opposite property — that no Manager edit can change routability at all.
  */
 
 const registry = loadAgentRegistry(CONFIG_PATHS);
-const detail = managerDetail(registry);
+const catalog = loadEffectiveAgentCatalog({ ...CONFIG_PATHS, deploymentEnvironmentDir: deployEnvironmentDir("production") });
+const deployment = { environment: "production", enabledAgentIds: catalog.listEnabled().map(entry => entry.agentId) };
+const detail = managerDetail(registry, deployment);
 
 /** Exactly what a prefilled Manager editor can know, and nothing more. */
 const draftFromDetail = (): ManagerDraft => ({
-  allowed: detail.allowed,
   modelProfile: detail.modelProfile,
   prompt: detail.prompt,
   owner: detail.owner,
@@ -31,9 +36,12 @@ const draftFromDetail = (): ManagerDraft => ({
 });
 
 describe("the Manager view describes the Manager, not a specialist", () => {
-  it("serves the routing table and says why there is no workload identity", () => {
+  it("derives the routing table from the effective catalog, not from a list in its own document", () => {
     expect(detail.id).toBe("manager");
-    expect(detail.allowed).toEqual(registry.manager.spec.agents.allowed);
+    expect(detail.routable).toEqual([...deployment.enabledAgentIds].sort());
+    // the field it used to be read from is gone from the schema entirely, so
+    // there is nothing left to edit into disagreement with the catalog
+    expect(registry.manager.spec).not.toHaveProperty("agents");
     expect(detail.identity.provider).toBe("none");
     // the Manager never calls a tool, so a blank client id would be a missing
     // fact rather than an absent one — the view states the reason instead
@@ -42,10 +50,10 @@ describe("the Manager view describes the Manager, not a specialist", () => {
 
   it("lists specialists that exist but are NOT routable, rather than omitting them", () => {
     const every = registry.listSpecialists().map(agent => agent.name).sort();
-    expect([...detail.allowed, ...detail.notRouted].sort()).toEqual(every);
+    expect([...detail.routable, ...detail.notRouted].sort()).toEqual(every);
     // "not shown" and "not routable" must not look alike: every specialist the
     // Manager does not route to must still be listed, and none may be dropped
-    expect(detail.notRouted.sort()).toEqual(every.filter(name => !detail.allowed.includes(name)));
+    expect(detail.notRouted.sort()).toEqual(every.filter(name => !detail.routable.includes(name)));
   });
 
   it("exposes no tool access of any kind", () => {
@@ -98,12 +106,12 @@ describe("the Manager document stays within its schema", () => {
     expect(generateManagerChange(draftFromDetail()).yaml).not.toContain("lifecycle:");
   });
 
-  it("rejects a routing entry that is not a known agent name", () => {
-    expect(() => managerDraftToDocument({ ...draftFromDetail(), allowed: ["Not A Name"] })).toThrow(/invalid agent draft/u);
-  });
-
-  it("rejects an empty routing table: a Manager that can route nowhere is not a Manager", () => {
-    expect(() => managerDraftToDocument({ ...draftFromDetail(), allowed: [] })).toThrow(/invalid agent draft/u);
+  it("has nowhere to put a routing table, so an edit cannot smuggle one in", () => {
+    // `.strict()` on the manager spec: a leftover `agents:` block is a load
+    // error, not a field that is quietly ignored while someone believes it works
+    const document = managerDraftToDocument(draftFromDetail());
+    expect(document.spec).not.toHaveProperty("agents");
+    expect(generateManagerChange(draftFromDetail()).yaml).not.toContain("allowed:");
   });
 
   it("rejects an empty prompt rather than generating a file the runtime refuses", () => {
@@ -115,21 +123,15 @@ describe("the Manager document stays within its schema", () => {
   });
 });
 
-describe("a proposed Manager change names what moved", () => {
-  it("reports an agent losing routability by name, not as a count", () => {
-    const draft = { ...draftFromDetail(), allowed: detail.allowed.filter(name => name !== "openshift") };
-    const { change } = proposeManagerChange({ draft, current: registry.manager, requestedBy: "tester" });
-    expect(change.effects).toContain("Routing: openshift stops being reachable through the Manager");
+describe("a proposed Manager change cannot change who is routable", () => {
+  it("says so in the effects, rather than leaving the old semantics to be assumed", () => {
+    const { change } = proposeManagerChange({ draft: draftFromDetail(), current: registry.manager, requestedBy: "tester" });
     expect(change.branch).toBe("agent/update-manager");
-    expect(change.body).toContain("~~`openshift`~~ **(removed)**");
-  });
-
-  it("reports an agent gaining routability by name", () => {
-    // dropping then re-adding is the only way to observe an addition against a
-    // registry where every specialist is already routed
-    const reduced = { ...registry.manager, spec: { ...registry.manager.spec, agents: { allowed: detail.allowed.filter(name => name !== "keycloak") } } };
-    const { change } = proposeManagerChange({ draft: draftFromDetail(), current: reduced, requestedBy: "tester" });
-    expect(change.effects).toContain("Routing: keycloak becomes reachable through the Manager");
+    expect(change.effects.some(effect => effect.startsWith("Routing: unchanged"))).toBe(true);
+    // no effect may claim an agent gained or lost reachability: this change-set
+    // touches two files, neither of which any routing decision reads
+    expect(change.effects.some(effect => /becomes reachable|stops being reachable/u.test(effect))).toBe(false);
+    expect(change.files.every(file => !file.path.startsWith("deploy/"))).toBe(true);
   });
 
   it("states that no tool access is granted, because the Manager holds none", () => {

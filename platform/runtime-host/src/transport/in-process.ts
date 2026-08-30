@@ -28,19 +28,26 @@ export type InProcessSpecialistDependencies = SpecialistRuntimeDependencies;
  */
 export class InProcessSpecialistTransport implements SpecialistTransport {
   readonly mode = "mock" as const;
-  readonly #registry: ConfigAgentRegistry;
+  /**
+   * A GETTER, not a captured registry. The Manager's routing catalog re-reads
+   * Git desired state while the process runs, so a snapshot here would let an
+   * Agent be routable-but-not-executable: routed by the live catalog, then
+   * refused as AGENT_UNAVAILABLE by a registry from boot time.
+   */
+  readonly #registryOf: () => ConfigAgentRegistry;
   readonly #deps: InProcessSpecialistDependencies;
   readonly #verifier: DelegatedIdentityVerifier;
 
-  constructor(registry: ConfigAgentRegistry, deps: InProcessSpecialistDependencies, verifier: DelegatedIdentityVerifier) {
-    this.#registry = registry;
+  constructor(registry: ConfigAgentRegistry | (() => ConfigAgentRegistry), deps: InProcessSpecialistDependencies, verifier: DelegatedIdentityVerifier) {
+    this.#registryOf = typeof registry === "function" ? registry : () => registry;
     this.#deps = deps;
     this.#verifier = verifier;
   }
 
   async execute(agentId: string, request: AgentExecutionRequest, signal: AbortSignal): Promise<AgentExecutionResponse> {
     assertSerializedLimit(request, MAX_AGENT_REQUEST_BYTES, "agent request");
-    const specialist = this.#registry.getSpecialist(agentId);
+    const registry = this.#registryOf();
+    const specialist = registry.getSpecialist(agentId);
     if (specialist === undefined) throw new AgentTransportError("AGENT_UNAVAILABLE", "Agent service is unavailable", false);
     let identity;
     try {
@@ -61,7 +68,7 @@ export class InProcessSpecialistTransport implements SpecialistTransport {
       ...(request.task ? { task: request.task } : {}),
       ...(request.conversationContext?.resolvedEntities ? { resolvedEntities: request.conversationContext.resolvedEntities } : {}),
     };
-    const result = await runSpecialistInstance(specialist, this.#registry.catalog, ctx, this.#deps, request.handoff);
+    const result = await runSpecialistInstance(specialist, registry.catalog, ctx, this.#deps, request.handoff);
     try {
       assertSerializedLimit(result, MAX_AGENT_RESPONSE_BYTES, "agent response");
     } catch {

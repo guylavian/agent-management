@@ -60,7 +60,6 @@ describe("startup configuration", () => {
           type: "manager",
           model: { tier: "small", profile: "no-such-profile" },
           prompt: { systemFile: "config/prompts/manager.md" },
-          agents: { allowed: ["keycloak"] },
           execution: { maxAgentsPerRequest: 3, maxRounds: 1, timeoutMs: 1500 },
           output: { schema: "ManagerDecision" },
         },

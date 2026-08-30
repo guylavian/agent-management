@@ -33,14 +33,27 @@ export function createApp(deps: ApiDependencies): TestableApp {
 
   if (deps.mode === "manager") {
     registerManagerRoutes(app, deps);
-    // read-only management plane, behind the same human authentication as /v1/query
-    if (deps.managementRegistry) {
-      // `registry` is canonical — every Agent that exists, which is what a
-      // management plane must be able to show and edit. `deployment` is what
-      // THIS environment runs. The console needs both to tell "allowed" from
-      // "reachable"; the effective catalog is their intersection.
-      app.use("/management", oidcAuthenticationMiddleware(deps.oidc), managementRouter({ registry: deps.managementRegistry, config: deps.config, runs: deps.runs, ...(deps.deployment ? { deployment: deps.deployment } : {}), ...(deps.promptAssistModel ? { promptAssistModel: deps.promptAssistModel } : {}), ...(deps.deployment ? { deployment: deps.deployment } : {}) }));
-    }
+    // read-only management plane, behind the same human authentication as /v1/query.
+    // `state` is a FUNCTION: it is evaluated per request, so an Agent merged a
+    // moment ago is listed without this process being restarted.
+    app.use("/management", oidcAuthenticationMiddleware(deps.oidc), managementRouter({
+      /*
+       * `catalog` is deps.registry — the EFFECTIVE catalog, the very object the
+       * orchestrator routes from, not the raw desired-state catalog inside the
+       * snapshot. Handing over the raw one would reintroduce the divergence
+       * this work removed: the console would call an Agent routable on desired
+       * state alone while the router had already dropped it as unavailable.
+       */
+      state: () => {
+        const snapshot = deps.desiredState.current();
+        return { ...snapshot, catalog: deps.registry, enabledAgentIds: deps.registry.listEnabled().map((entry) => entry.agentId) };
+      },
+      config: deps.config,
+      runs: deps.runs,
+      ...(deps.promptAssistModel ? { promptAssistModel: deps.promptAssistModel } : {}),
+      ...(deps.argo ? { argo: deps.argo } : {}),
+      ...(deps.runtimeProbe ? { runtimeProbe: deps.runtimeProbe } : {}),
+    }));
   } else registerSpecialistRoutes(app, deps);
 
   // body-parse errors (malformed JSON / oversized) mapped to the per-mode shape

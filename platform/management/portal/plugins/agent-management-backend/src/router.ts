@@ -14,7 +14,7 @@ import {
 } from './permissions';
 import { runtimeManagementClientRef } from './services/RuntimeManagementClient';
 import type { gitOpsPublisherRef } from './services/GitOpsPublisher';
-import type { ChangePreview } from './api/generated-types';
+import type { AgentReconciliation, AgentSummary, ChangePreview } from './api/generated-types';
 
 /**
  * Management operations for the portal.
@@ -68,7 +68,44 @@ export async function createRouter({
     });
   };
 
-  proxyGet('/agents', agentReadPermission, '/management/agents');
+  /**
+   * THE AGENT INVENTORY, from both planes.
+   *
+   * The runtime contributes everything in Git — desired state joined to Argo
+   * and pod status. This backend contributes the one state the runtime cannot
+   * see: an Agent whose pull request is OPEN. The runtime reads the repository
+   * as Argo synced it, so an unmerged branch does not exist to it, and
+   * "Pending merge" was previously a badge that lived only on the page that had
+   * just created the proposal and vanished on navigation.
+   *
+   * The join is by agent id, and the runtime always wins: once an Agent is
+   * merged it has real desired state, and a stale open branch for it is an
+   * update in flight rather than a second copy of the Agent.
+   */
+  router.get('/agents', async (request, response) => {
+    await requirePermission(request, agentReadPermission);
+    if (!runtime.configured) {
+      response.status(501).json({ status: 'not-configured', reason: 'sreAgent.managementApi.baseUrl is not set' });
+      return;
+    }
+    const listed = await runtime.get<{ agents: AgentSummary[] }>('/management/agents');
+    const known = new Set(listed.agents.map(agent => agent.id));
+    /*
+     * Best-effort, and it must NEVER fail the page: the inventory that matters
+     * is the merged one, and losing the whole Agents view because the Git
+     * provider rate-limited would be a far worse outcome than not showing a
+     * pending row. The failure is reported alongside the data.
+     */
+    const [proposals] = await Promise.allSettled([gitops.listProposals()]);
+    const pending = proposals.status === 'fulfilled'
+      ? proposals.value.filter(proposal => proposal.kind === 'add' && !known.has(proposal.agentId))
+      : [];
+    response.json({
+      ...listed,
+      ...(proposals.status === 'rejected' ? { proposalsError: 'open pull requests could not be listed' } : {}),
+      agents: [...listed.agents, ...pending.map(proposal => pendingAgent(proposal.agentId, proposal.title, proposal.url))],
+    });
+  });
   // not /agents/manager: the Manager is a different document type, and serving
   // it there would mean inventing the identity and access fields it has none of
   proxyGet('/manager', agentReadPermission, '/management/manager');
@@ -240,4 +277,38 @@ export async function createRouter({
   });
 
   return router;
+}
+
+/**
+ * A row for an Agent that exists only as an open pull request.
+ *
+ * Every field the console would show about a real Agent is DELIBERATELY empty
+ * or zero rather than parsed out of the proposal's diff: nothing about it is
+ * true yet, the schema that would validate it lives in the runtime, and a row
+ * that displayed a tool count from an unmerged branch would be showing access
+ * nobody has approved. The row exists to say "this is on its way", with a link.
+ */
+function pendingAgent(agentId: string, title: string, url?: string): AgentSummary {
+  const reconciliation: AgentReconciliation = {
+    status: 'pending-merge',
+    git: { state: 'pending', detail: url ? `proposed in ${url}` : 'proposed, not yet merged' },
+    argo: { state: 'unknown', detail: 'nothing is deployed until the pull request merges' },
+    runtime: { state: 'unknown', detail: 'nothing is running until the pull request merges' },
+    manager: { state: 'pending', detail: 'not routable: the Agent is not in the repository yet' },
+  };
+  return {
+    id: agentId,
+    displayName: title,
+    description: 'Proposed. This Agent appears in full once its pull request merges.',
+    owner: 'unknown until merged',
+    lifecycle: 'draft',
+    enabled: false,
+    modelProfile: '—',
+    modelTier: '—',
+    mcpCount: 0,
+    toolCount: 0,
+    workloadClientId: `sre-agent-${agentId}`,
+    readOnly: true,
+    reconciliation,
+  };
 }

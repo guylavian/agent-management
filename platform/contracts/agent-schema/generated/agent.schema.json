@@ -110,23 +110,6 @@
               ],
               "additionalProperties": false
             },
-            "agents": {
-              "type": "object",
-              "properties": {
-                "allowed": {
-                  "minItems": 1,
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "pattern": "^[a-z][a-z0-9-]*$"
-                  }
-                }
-              },
-              "required": [
-                "allowed"
-              ],
-              "additionalProperties": false
-            },
             "execution": {
               "type": "object",
               "properties": {
@@ -171,7 +154,6 @@
             "lifecycle",
             "model",
             "prompt",
-            "agents",
             "execution",
             "output"
           ],

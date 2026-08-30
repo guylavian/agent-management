@@ -1,10 +1,11 @@
 import { ConfigValidationError } from "./app-config.ts";
-import { assertNoSecretMaterial, isAgentEnabled, type AgentDocument, type ApprovedCatalog, type ModelProfiles, type ToolPolicy } from "./schemas.ts";
+import { assertNoSecretMaterial, type AgentDocument, type ApprovedCatalog, type ModelProfiles, type ToolPolicy } from "./schemas.ts";
 
 /**
  * Semantic validation per TDD §5.3 / §22 — fail closed:
  * - exactly one manager;
- * - manager.agents.allowed reference existing specialists;
+ * - the Manager declares no routing table (routing is derived from the
+ *   effective catalog), so a leftover `agents:` block fails schema validation;
  * - specialist MCP servers exist in the approved catalog;
  * - every allowedTool exists in the approved catalog under one of the
  *   specialist's servers;
@@ -60,12 +61,6 @@ export function validateSemantics(
   const specialistNames = new Set(
     documents.filter(({ doc }) => doc.spec.type === "specialist").map(({ doc }) => doc.metadata.name),
   );
-  // an Agent that is not active must not be reachable through routing either — TDD §34
-  const routableNames = new Set(
-    documents
-      .filter(({ doc }) => doc.spec.type === "specialist" && isAgentEnabled(doc.spec))
-      .map(({ doc }) => doc.metadata.name),
-  );
 
   const catalogServers = new Set(catalog.tools.map((t) => t.serverId));
   const catalogByTool = new Map<string, Set<string>>();
@@ -77,21 +72,9 @@ export function validateSemantics(
 
   for (const { file, doc } of documents) {
     const spec = doc.spec;
-    if (spec.type === "manager") {
-      for (const agent of spec.agents.allowed) {
-        if (!specialistNames.has(agent)) {
-          throw new ConfigValidationError(
-            `manager ${file} allows unknown specialist "${agent}"`,
-          );
-        }
-        if (!routableNames.has(agent)) {
-          throw new ConfigValidationError(
-            `manager ${file} routes to "${agent}" but that agent's lifecycle is not active`,
-          );
-        }
-      }
-      continue;
-    }
+    // the Manager declares no routing table; who it may reach is derived from
+    // the effective catalog, so there is nothing here to cross-check
+    if (spec.type === "manager") continue;
     for (const entry of spec.access) {
       if (!catalogServers.has(entry.mcp)) {
         throw new ConfigValidationError(

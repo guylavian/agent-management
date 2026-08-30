@@ -497,7 +497,20 @@ export function CreateAgentPage(props: { agentId?: string }) {
       {pr && (
         <div style={{ marginTop: S.lg }}>
           {pr.status === 'created' ? (
-            <a href={pr.url} style={{ color: C.accent, fontSize: 13 }}>{pr.url}</a>
+            <>
+              {/* PENDING MERGE is the only status this console can assert from
+                  here: the runtime reads a merged repository, so an unmerged
+                  proposal is invisible to it and must not be invented into the
+                  Agents list. After the merge the agent appears on its own. */}
+              <StatusPill tone="warn">Pending merge</StatusPill>
+              <div style={{ marginTop: 6, fontSize: 12.5, color: C.bodySoft }}>
+                Once this pull request merges, the agent appears on the Agents page as Reconciling and
+                becomes Active when its deployment is ready. Nothing else has to be edited or restarted.
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <a href={pr.url} style={{ color: C.accent, fontSize: 13 }}>{pr.url}</a>
+              </div>
+            </>
           ) : (
             <StatusPill tone="warn">Not configured: {pr.reason}</StatusPill>
           )}

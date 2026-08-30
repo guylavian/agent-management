@@ -19,15 +19,11 @@ import {
 } from "@sre/auth";
 import {
   loadAgentInstance,
-  loadAgentRegistry,
   loadAppConfig,
   loadApprovedCatalog,
-  loadDeploymentEnvironment,
-  loadEffectiveAgentCatalog,
   loadModelProfiles,
   ConfigValidationError,
   type AgentCatalog,
-  type AgentRegistry,
   type AppConfig,
   type ApprovedCatalog,
   type ManagerAgentConfig,
@@ -36,7 +32,9 @@ import {
 import { MockModelClient, RealOpenAiCompatibleClient, type ModelClient } from "@sre/llm";
 import { MockSpecialistTransport, type SessionStore } from "@sre/orchestrator";
 import { DisabledSessionStore, MockSessionStore, PostgresSessionStore } from "@sre/orchestrator";
-import { InMemoryRunStore, type RunStore } from "../management/index.ts";
+import { ArgoCdStatusSource, HttpRuntimeProbe, InMemoryRunStore, type DeploymentStatusSource, type RunStore, type RuntimeProbe } from "../management/index.ts";
+import { effectiveCatalog, NOTHING_OBSERVED, ProbeAvailabilityMonitor, type AvailabilityView } from "./availability.ts";
+import { desiredStateSource, type DesiredStateSource } from "./desired-state.ts";
 import { ClientCredentialsWorkloadTokenProvider, HttpSpecialistTransport, MockWorkloadTokenProvider, ProjectedWorkloadTokenProvider } from "../transport/http.ts";
 import { InProcessSpecialistTransport } from "../transport/in-process.ts";
 import { DirectMcpClient, mcpEndpointsFromEnv, MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "../adapters/index.ts";
@@ -70,26 +68,26 @@ export interface ManagerDependencies extends CommonDependencies {
    * OpenAI-compatible endpoint in an air-gapped deployment.
    */
   promptAssistModel: ModelClient;
+  /**
+   * The routing catalog, as a LIVE view of desired state rather than a snapshot
+   * taken at boot. Disabling an Agent in Git stops it being routed on the next
+   * request; there is no restart in that path any more.
+   */
   registry: AgentCatalog;
   agentClient: SpecialistTransport;
   identityIssuer: DelegatedIdentityIssuer;
   sessionStore: SessionStore;
   delegationPublicJwk?: Record<string, unknown>;
   /**
-   * Full agent registry, present only when every Agent document is mounted in
-   * this process. The read-only management API needs it; the execution path
-   * never does, so a deployment without the config mounted simply serves no
-   * management surface rather than serving a partial one.
+   * THE one source of Git desired state for this process. The management API
+   * projects it and the router above is derived from it, so the console and the
+   * orchestrator cannot disagree about which Agents exist or which are enabled.
    */
-  managementRegistry?: AgentRegistry;
-  /**
-   * What this environment actually enables, alongside the canonical registry
-   * above. The console needs the pair: an Agent in the Manager's routing table
-   * but absent here is allowed and NOT reachable, and showing only the first
-   * half is how "Routable" came to mean something it did not.
-   */
-  deployment?: { environment: string; enabledAgentIds: string[] };
+  desiredState: DesiredStateSource;
   runs: RunStore;
+  /** Argo CD and pod readiness. Absent means the console reports `unknown`, never a colour. */
+  argo?: DeploymentStatusSource;
+  runtimeProbe?: RuntimeProbe;
 }
 
 export interface SpecialistDependencies extends CommonDependencies {
@@ -122,14 +120,25 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     // The Manager's effective catalog is DERIVED: canonical Agents intersected
     // with this environment's deployment state. There is no registry file to
     // edit, so an Agent cannot be added to routing without adding the Agent.
-    const registry = loadEffectiveAgentCatalog({ ...configPaths(config), deploymentEnvironmentDir: config.deploymentEnvironmentDir });
+    // ONE source, re-read on demand. `loadEffectiveAgentCatalog` still runs on
+    // the first call, so an invalid configuration is still a startup failure.
+    const desiredState = desiredStateSource({ ...configPaths(config), deploymentEnvironmentDir: config.deploymentEnvironmentDir });
+    /*
+     * The catalog is desired state INTERSECTED WITH OBSERVED AVAILABILITY, and
+     * the management API is handed this same object. There is one answer to
+     * "may the Manager route here", not a routing one and a console one.
+     */
+    const runtimeProbe = config.reconciliation.probeRuntime ? new HttpRuntimeProbe() : undefined;
+    const availability: AvailabilityView = runtimeProbe === undefined
+      ? NOTHING_OBSERVED
+      : new ProbeAvailabilityMonitor(runtimeProbe, () => desiredState.current().catalog.listEnabled()).start();
+    const registry = effectiveCatalog(desiredState, availability);
     let agentClient: SpecialistTransport;
     if (config.clients.agent === "inprocess") {
       // single-process local PoC: the manager executes specialists in-process.
       // Uses the same delegation authority so the per-agent identity JWT verifies.
-      const fullRegistry = loadAgentRegistry(configPaths(config));
       agentClient = new InProcessSpecialistTransport(
-        fullRegistry,
+        () => desiredState.current().registry,
         { model, toolhive: buildToolhive(config, env) },
         mockDelegation as MockDelegationAuthority,
       );
@@ -152,9 +161,6 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     if (config.clients.delegation === "real" && delegationPrivateKey === undefined) throw new Error("manager mode requires a delegation private key");
     const identityIssuer = config.clients.delegation === "mock" ? mockDelegation as MockDelegationAuthority : new PrivateKeyDelegatedIdentityIssuer({ issuer: config.delegation.issuer, privateKeyPkcs8: delegationPrivateKey as string });
     const delegationPublicKey = config.delegation.publicKeyFile ? readFileSync(config.delegation.publicKeyFile, "utf8") : undefined;
-    // the same documents the catalog was derived from, reused for the read-only
-    // management projection rather than loaded from a second place
-    const managementRegistry: AgentRegistry = loadAgentRegistry(configPaths(config));
     return {
       mode: "manager",
       config,
@@ -162,13 +168,9 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       registry,
       agentClient,
       runs: new InMemoryRunStore(),
-      ...(managementRegistry ? { managementRegistry } : {}),
-      // the effective catalog already knows both halves; naming the deployed
-      // half is what lets the console stop presenting allowed as reachable
-      deployment: {
-        environment: loadDeploymentEnvironment(config.deploymentEnvironmentDir).settings.environment,
-        enabledAgentIds: registry.listEnabled().map((entry) => entry.agentId),
-      },
+      desiredState,
+      ...(buildArgo(config) ? { argo: buildArgo(config) as DeploymentStatusSource } : {}),
+      ...(runtimeProbe ? { runtimeProbe } : {}),
       identityIssuer,
       model,
       promptAssistModel: buildPromptAssistModel(config, model),
@@ -333,6 +335,21 @@ function buildToolhive(config: AppConfig, env: Record<string, string | undefined
   if (config.clients.toolhive === "mock") return new MockToolHiveClient(verifier);
   if (config.clients.toolhive === "direct") return new DirectMcpClient(mcpEndpointsFromEnv(env), new MockToolHiveClient(verifier));
   return new RealToolHiveClient(config.toolhive.url, config.toolhive.endpoints);
+}
+
+/**
+ * Argo CD, only when an environment actually points at one. There is no default
+ * URL: guessing one would turn "no Argo configured" into "Argo unreachable",
+ * and those must not look alike on the console.
+ */
+function buildArgo(config: AppConfig): DeploymentStatusSource | undefined {
+  const argo = config.reconciliation.argo;
+  if (argo === undefined) return undefined;
+  return new ArgoCdStatusSource({
+    baseUrl: argo.baseUrl,
+    token: argo.token,
+    ...(argo.appTemplate ? { appTemplate: argo.appTemplate } : {}),
+  });
 }
 
 function readConfiguredSecret(value: string | undefined, file: string | undefined): string | undefined {

@@ -7,8 +7,8 @@ import { AgentDraftError, type GeneratedFile, type ProposedChange } from "./yaml
  *
  * The Manager is a SEPARATE branch of the Agent document union, not a
  * specialist with fields left blank: it has no workload identity, no MCP
- * access, no environments and no routing vocabulary, and it has `agents.allowed`
- * and `output.schema`, which no specialist has. Generating it through
+ * access, no environments and no routing vocabulary, and it has `output.schema`,
+ * which no specialist has. Generating it through
  * `draftToDocument` would therefore produce a document the schema rejects, so
  * it gets its own draft type and its own renderer.
  *
@@ -17,9 +17,13 @@ import { AgentDraftError, type GeneratedFile, type ProposedChange } from "./yaml
  * pull request rather than a live mutation. The runtime has no way to write it.
  */
 
+/**
+ * There is no `allowed` field. The Manager's routing table is DERIVED from the
+ * effective catalog — the canonical Agent documents intersected with the
+ * environment's deployment overlays — so it cannot be authored here, and this
+ * change-set can neither add nor remove a route.
+ */
 export interface ManagerDraft {
-  /** the routing table: which specialists the Manager may dispatch to */
-  allowed: string[];
   modelProfile: string;
   /** the system prompt body; persisted to config/prompts/manager.md in the same change */
   prompt: string;
@@ -56,7 +60,6 @@ export function managerDraftToDocument(draft: ManagerDraft): AgentDocument {
       // the Manager routes; it never synthesises, so its tier is pinned small
       model: { tier: "small", profile: draft.modelProfile },
       prompt: { systemFile: draft.promptFile ?? "config/prompts/manager.md" },
-      agents: { allowed: draft.allowed },
       execution: {
         maxAgentsPerRequest: draft.execution?.maxAgentsPerRequest ?? DEFAULT_EXECUTION.maxAgentsPerRequest,
         maxRounds: 1,
@@ -95,8 +98,6 @@ export function renderManagerYaml(document: AgentDocument): string {
   lines.push(
     `  model: { tier: ${spec.model.tier}, profile: ${spec.model.profile} }`,
     `  prompt: { systemFile: ${spec.prompt.systemFile} }`,
-    "  agents:",
-    `    allowed: [${spec.agents.allowed.join(", ")}]`,
     `  execution: { maxAgentsPerRequest: ${spec.execution.maxAgentsPerRequest}, maxRounds: ${spec.execution.maxRounds}, timeoutMs: ${spec.execution.timeoutMs} }`,
     `  output: { schema: ${spec.output.schema} }`,
   );
@@ -141,27 +142,22 @@ export function generateManagerChange(draft: ManagerDraft): GeneratedManagerChan
 }
 
 /**
- * The routing table is the Manager's whole security-relevant surface: an agent
- * removed from `allowed` stops being reachable, and one added becomes reachable
- * to every user the Manager serves. So the effects say exactly which names moved
- * rather than reporting a count, and the reviewer sees the delta in the PR body.
+ * What this change CANNOT do is as important as what it can: routing is derived
+ * from the effective catalog, so no edit here makes an Agent reachable or
+ * unreachable. That decision is the Agent's own lifecycle plus its deployment
+ * overlay, and the PR body says so rather than leaving a reviewer to assume the
+ * old routing-table semantics still apply.
  */
 export function proposeManagerChange(options: { draft: ManagerDraft; current: ManagerAgentConfig; requestedBy: string }): { change: ProposedChange; generated: GeneratedManagerChange } {
   const generated = generateManagerChange(options.draft);
   const spec = generated.document.spec;
   if (spec.type !== "manager") throw new Error("renderManagerYaml requires the manager document");
 
-  const before = options.current.spec.agents.allowed;
-  const after = spec.agents.allowed;
-  const added = after.filter((name) => !before.includes(name));
-  const removed = before.filter((name) => !after.includes(name));
-
+  void options.current;
   const effects = [
     ...generated.files.map((file) => `update ${file.path}`),
-    ...added.map((name) => `Routing: ${name} becomes reachable through the Manager`),
-    ...removed.map((name) => `Routing: ${name} stops being reachable through the Manager`),
     `Manager: dispatches at most ${spec.execution.maxAgentsPerRequest} agent(s) per request within ${spec.execution.timeoutMs}ms`,
-    "Runtime: the Manager reloads its routing table on next deploy",
+    "Routing: unchanged — which specialists are reachable is derived from each Agent's lifecycle and deployment overlay, not from this file",
     "Argo CD: sync after merge",
   ];
 
@@ -170,11 +166,6 @@ export function proposeManagerChange(options: { draft: ManagerDraft; current: Ma
     "",
     `Requested by: ${options.requestedBy}`,
     `Owner: ${generated.document.metadata.owner}`,
-    "",
-    "## Routing table",
-    "",
-    ...after.map((name) => `- \`${name}\`${added.includes(name) ? " **(added)**" : ""}`),
-    ...removed.map((name) => `- ~~\`${name}\`~~ **(removed)**`),
     "",
     "## Files in this change",
     "",
@@ -185,8 +176,8 @@ export function proposeManagerChange(options: { draft: ManagerDraft; current: Ma
     ...effects.map((effect) => `- ${effect}`),
     "",
     "The Manager holds no workload identity and reaches no MCP server, so this",
-    "change grants no tool access. It changes which specialists a request can be",
-    "routed to; each specialist's own tool access is unaffected.",
+    "change grants no tool access, and it cannot change which specialists are",
+    "routable — that is derived from each Agent's own document and overlay.",
     "",
     "Generated by the Agent Management Portal. No credential is included in this change.",
   ].join("\n");

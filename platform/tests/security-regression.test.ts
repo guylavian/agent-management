@@ -191,9 +191,9 @@ describe("the portal cannot bypass the runtime", () => {
       const response = await app.inject({ method, url: "/management/agents/keycloak", headers });
       expect(response.statusCode).toBe(404);
     }
-    const before = deps.managementRegistry?.getSpecialist("keycloak")?.spec.access.length;
+    const before = deps.desiredState.current().registry.getSpecialist("keycloak")?.spec.access.length;
     await app.inject({ method: "POST", url: "/management/agents/preview", headers: { ...headers, "content-type": "application/json" }, payload: JSON.stringify({ name: "keycloak", owner: "x", modelTier: "small", modelProfile: "tool-caller", requiredRoles: ["infra-read"], access: [{ mcp: "wiki", tools: ["wiki_search"] }] }) });
-    expect(deps.managementRegistry?.getSpecialist("keycloak")?.spec.access.length).toBe(before);
+    expect(deps.desiredState.current().registry.getSpecialist("keycloak")?.spec.access.length).toBe(before);
   });
 
   it("does not serve MCP or ToolHive endpoints that a browser could call", async () => {

@@ -144,6 +144,24 @@ export const appConfigSchema = z
       url: z.string().optional(),
       endpoints: z.record(z.string(), z.url()).default({}),
     }).strict(),
+    /*
+     * How this deployment observes ACTUAL state for the management console.
+     *
+     * Both halves are optional and BOTH DEFAULT TO OFF, because the console
+     * reports an unobserved signal as `unknown` with the reason. A default
+     * endpoint here would turn "nobody wired Argo up" into "Argo is down",
+     * which is the kind of fabricated telemetry this platform refuses to emit.
+     */
+    reconciliation: z.object({
+      argo: z.object({
+        baseUrl: z.url(),
+        token: z.string().min(1),
+        /** `{agentId}`; must match the ApplicationSet template's metadata.name */
+        appTemplate: z.string().min(1).optional(),
+      }).strict().optional(),
+      /** probe each enabled agent's own Service for readiness */
+      probeRuntime: z.coerce.boolean().default(false),
+    }).strict().default({ probeRuntime: false }),
     toolCredential: z.object({
       issuer: z.string().min(1).default("https://mock-toolhive-sts.sre.local"),
       audiencePrefix: z.string().min(1).default("sre-toolhive"),
@@ -242,6 +260,20 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
     toolhive: {
       url: env.SRE_TOOLHIVE_URL,
       endpoints: parseJsonObject(env.SRE_TOOLHIVE_ENDPOINTS_JSON),
+    },
+    reconciliation: {
+      // both halves of the credential or nothing: a base URL with no token
+      // would fail on every poll and read as "Argo is unhealthy"
+      ...(env.SRE_ARGOCD_BASE_URL && env.SRE_ARGOCD_TOKEN
+        ? {
+          argo: {
+            baseUrl: env.SRE_ARGOCD_BASE_URL,
+            token: env.SRE_ARGOCD_TOKEN,
+            ...(env.SRE_ARGOCD_APP_TEMPLATE ? { appTemplate: env.SRE_ARGOCD_APP_TEMPLATE } : {}),
+          },
+        }
+        : {}),
+      probeRuntime: env.SRE_RUNTIME_PROBE === "on",
     },
     toolCredential: {
       issuer: env.SRE_TOOL_CREDENTIAL_ISSUER,

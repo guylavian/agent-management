@@ -1,3 +1,4 @@
+import type { AgentReconciliation } from "./reconciliation.ts";
 import {
   accessServers,
   audienceFor,
@@ -61,6 +62,13 @@ export interface AgentSummaryView {
   readOnly: boolean;
   /** presentation only; absent means the console falls back to initials */
   avatar?: { asset: string; fit: "cover" | "contain" };
+  /**
+   * Git desired state joined to actual state. Optional because `agentSummary`
+   * is a pure projection of the document and cannot observe a cluster; the
+   * route attaches it. Absent means it could not be computed, which is not the
+   * same as everything being fine.
+   */
+  reconciliation?: AgentReconciliation;
 }
 
 export interface AgentDetailView extends AgentSummaryView {
@@ -105,30 +113,29 @@ export interface ManagerDetailView {
   displayName?: string;
   description?: string;
   owner: string;
-  lifecycle: string;
+  lifecycle: AgentLifecycle;
   modelProfile: string;
   modelTier: string;
   promptFile: string;
   prompt: string;
-  /** the routing table: the specialists the Manager may dispatch to */
-  allowed: string[];
-  /** specialists that exist but are NOT routable, listed rather than omitted */
-  notRouted: string[];
   /**
-   * The deployment environment this runtime is serving, and which of the allowed
-   * specialists it does not actually run.
+   * THE ROUTING TABLE, DERIVED.
    *
-   * Being in the routing table is only half of being reachable: the effective
-   * catalog is the allowlist INTERSECTED with what this environment enables. The
-   * console showed the allowlist alone and labelled it "Routable", so an agent
-   * that was allowed but not deployed read as reachable — which it is not, and
-   * the Manager is never even offered it.
+   * It is the effective catalog for this DEPLOYMENT environment: every Agent
+   * whose own document is active and whose overlay enables it here. It is not
+   * authored anywhere — there used to be a hand-written `agents.allowed` list
+   * in the Manager document, and onboarding an Agent silently required a second
+   * pull request against it that nothing checked for.
    *
-   * Absent when the runtime has no deployment environment mounted, so the
-   * console can say nothing rather than imply everything is deployed.
+   * A request may still narrow this further by naming a LOGICAL environment
+   * (prod, dr, lab), which is a per-request filter on the same catalog rather
+   * than a second table.
    */
-  environment?: string;
-  notDeployed?: string[];
+  routable: string[];
+  /** specialists that exist but are NOT routable here, listed rather than omitted */
+  notRouted: string[];
+  /** the deployment environment this runtime serves; `routable` is relative to it */
+  environment: string;
   execution: Record<string, number>;
   /** stated so the console does not leave a blank where a client id would be */
   identity: { provider: "none"; reason: string };
@@ -136,15 +143,12 @@ export interface ManagerDetailView {
 
 export function managerDetail(
   registry: { manager: ManagerAgentConfig; listSpecialists(): SpecialistAgentConfig[] },
-  deployment?: { environment: string; enabledAgentIds: string[] },
+  deployment: { environment: string; enabledAgentIds: string[] },
 ): ManagerDetailView {
   const manager = registry.manager;
-  const allowed = manager.spec.agents.allowed;
-  const notDeployed = deployment === undefined
-    ? undefined
-    : allowed.filter((name) => !deployment.enabledAgentIds.includes(name)).sort();
+  const routable = [...deployment.enabledAgentIds].sort();
   return {
-    ...(deployment === undefined ? {} : { environment: deployment.environment, notDeployed: notDeployed as string[] }),
+    environment: deployment.environment,
     id: manager.name,
     ...(manager.displayName === undefined ? {} : { displayName: manager.displayName }),
     ...(manager.description === undefined ? {} : { description: manager.description }),
@@ -154,9 +158,9 @@ export function managerDetail(
     modelTier: manager.spec.model.tier,
     promptFile: manager.spec.prompt.systemFile,
     prompt: manager.systemPrompt,
-    allowed,
+    routable,
     // "not shown" and "not routable" must not look alike, exactly as with denied MCPs
-    notRouted: registry.listSpecialists().map((agent) => agent.name).filter((name) => !allowed.includes(name)).sort(),
+    notRouted: registry.listSpecialists().map((agent) => agent.name).filter((name) => !routable.includes(name)).sort(),
     execution: { ...manager.spec.execution },
     identity: { provider: "none", reason: "the Manager calls no tool, so it holds no workload credential" },
   };

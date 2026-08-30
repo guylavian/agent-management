@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, KeyboardEvent } from 'react';
 import { NotConfiguredError } from '../api/client';
-import type { AgentLifecycle, ToolClassification } from '../api/types';
+import type { AgentLifecycle, AgentReconciliation, AgentStatus, Signal, ToolClassification } from '../api/types';
 
 /**
  * Makes a non-semantic element operable by keyboard as well as mouse.
@@ -400,6 +400,8 @@ function AgentBanner({ id, owner, avatar }: { id: string; owner: string; avatar:
 export function AgentGridCard(props: {
   id: string; displayName: string; description?: string; owner: string;
   lifecycle: AgentLifecycle; mcpCount: number; toolCount: number; readOnly: boolean;
+  /** the MANAGED status; the document's lifecycle is a fallback, not a synonym */
+  reconciliation?: AgentReconciliation;
   avatar?: { asset: string; fit: 'cover' | 'contain' };
   onOpen: () => void;
 }) {
@@ -429,7 +431,18 @@ export function AgentGridCard(props: {
         <AgentTile id={props.id} owner={props.owner} size={34} {...(props.avatar ? { avatar: props.avatar } : {})} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>{props.displayName}</div>
-          <div style={{ marginTop: 3 }}><StatusPill tone={lifecycleTone(props.lifecycle)}>{props.lifecycle}</StatusPill></div>
+          {/* an Agent that merged and failed to deploy is on this page for
+              exactly one reason, and the badge has to be the reason */}
+          <div style={{ marginTop: 3 }}>
+            {props.reconciliation === undefined
+              ? <StatusPill tone={lifecycleTone(props.lifecycle)}>{props.lifecycle}</StatusPill>
+              : <ReconciliationBadge reconciliation={props.reconciliation} />}
+          </div>
+          {props.reconciliation !== undefined && props.reconciliation.status !== 'active' && (
+            <div style={{ marginTop: 2, fontSize: 11.5, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={blockingSignal(props.reconciliation).detail}>
+              {blockingSignal(props.reconciliation).detail}
+            </div>
+          )}
         </div>
       </div>
 
@@ -850,4 +863,91 @@ export function runStatusColor(status: string): string {
   if (status === 'complete') return C.greenBright;
   if (status === 'partial') return C.amberBright;
   return C.redBright;
+}
+
+/**
+ * RECONCILIATION, RENDERED.
+ *
+ * Git is desired state; Argo CD and the pod are actual state. The console keeps
+ * them apart because "merged but not synced", "synced but not ready" and "ready
+ * but not routable" are three different problems, and one green dot for all of
+ * them tells an operator only that today is going badly.
+ */
+export function reconciliationTone(status: AgentStatus): Tone {
+  if (status === 'active') return 'ok';
+  if (status === 'failed' || status === 'degraded') return 'danger';
+  // draft and disabled are both "not running", and neither is a problem
+  if (status === 'disabled' || status === 'draft') return 'neutral';
+  // pending-merge and reconciling are both "on its way", and neither is an error
+  return 'warn';
+}
+
+const STATUS_LABEL: Record<AgentStatus, string> = {
+  draft: 'Draft',
+  'pending-merge': 'Pending merge',
+  reconciling: 'Reconciling',
+  active: 'Active',
+  disabled: 'Disabled',
+  degraded: 'Degraded',
+  failed: 'Failed',
+};
+
+/**
+ * The status badge. An Agent with no reconciliation block is reported as such
+ * rather than defaulting to a colour: the backend could not compute it, and
+ * "unknown" is the honest answer to a question nobody managed to ask.
+ */
+export function ReconciliationBadge({ reconciliation }: { reconciliation?: AgentReconciliation }) {
+  if (reconciliation === undefined) return <StatusPill tone="neutral">Unknown</StatusPill>;
+  return <StatusPill tone={reconciliationTone(reconciliation.status)}>{STATUS_LABEL[reconciliation.status]}</StatusPill>;
+}
+
+/**
+ * The first signal that is not fine, in the order an operator would check them:
+ * a card has room for ONE sentence, and "Argo is degraded" is more use on it
+ * than "the Manager cannot route to this", which is only the consequence.
+ */
+export function blockingSignal(reconciliation: AgentReconciliation): Signal {
+  const ordered = [reconciliation.git, reconciliation.argo, reconciliation.runtime, reconciliation.manager];
+  return ordered.find(signal => signal.state === 'degraded')
+    ?? ordered.find(signal => signal.state === 'pending')
+    ?? reconciliation.manager;
+}
+
+function signalTone(state: Signal['state']): Tone {
+  if (state === 'ok') return 'ok';
+  if (state === 'degraded') return 'danger';
+  if (state === 'pending') return 'warn';
+  return 'neutral';
+}
+
+const SIGNAL_MARK: Record<Signal['state'], string> = { ok: '✓', pending: '⋯', degraded: '✕', unknown: '?' };
+
+/**
+ * The four signals, each with the reason it is in the state it is in.
+ *
+ * Every row carries `detail`, because a red cross with no sentence next to it
+ * sends someone to the logs to discover what this page already knew.
+ */
+export function ReconciliationPanel({ reconciliation }: { reconciliation?: AgentReconciliation }) {
+  if (reconciliation === undefined) {
+    return <Muted size={12.5}>This deployment did not report a reconciliation state for this agent.</Muted>;
+  }
+  const rows: Array<[string, Signal]> = [
+    ['Git', reconciliation.git],
+    ['Argo CD', reconciliation.argo],
+    ['Runtime', reconciliation.runtime],
+    ['Manager', reconciliation.manager],
+  ];
+  return (
+    <div style={{ display: 'grid', gap: 6 }}>
+      {rows.map(([label, signal]) => (
+        <div key={label} style={{ display: 'grid', gridTemplateColumns: '86px 18px 1fr', alignItems: 'baseline', gap: S.sm }}>
+          <span style={{ fontSize: 12.5, color: C.bodySoft }}>{label}</span>
+          <span style={{ fontSize: 12.5, color: TONES[signalTone(signal.state)].fg }}>{SIGNAL_MARK[signal.state]}</span>
+          <Muted size={12.5}>{signal.detail}</Muted>
+        </div>
+      ))}
+    </div>
+  );
 }

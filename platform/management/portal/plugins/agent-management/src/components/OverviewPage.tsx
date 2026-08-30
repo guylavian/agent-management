@@ -37,8 +37,10 @@ export function OverviewPage() {
   const servers = useMcpServers();
   const runs = useRuns();
 
-  const list = agents.value ?? [];
-  const active = list.filter(agent => agent.lifecycle === 'active');
+  const list = agents.value?.agents ?? [];
+  // ACTIVE here means the managed status, not the document's lifecycle: an
+  // Agent whose deployment failed is not part of "your working agents" count
+  const active = list.filter(agent => (agent.reconciliation?.status ?? agent.lifecycle) === 'active');
   const connections = list.reduce((total, agent) => total + agent.mcpCount, 0);
   const tools = list.reduce((total, agent) => total + agent.toolCount, 0);
 
@@ -67,6 +69,7 @@ export function OverviewPage() {
                 mcpCount={agent.mcpCount}
                 toolCount={agent.toolCount}
                 readOnly={agent.readOnly}
+                {...(agent.reconciliation === undefined ? {} : { reconciliation: agent.reconciliation })}
                 {...(agent.avatar === undefined ? {} : { avatar: agent.avatar })}
                 onOpen={() => go(`/agents/${agent.id}`)}
               />

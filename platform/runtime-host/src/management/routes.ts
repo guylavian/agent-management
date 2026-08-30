@@ -1,35 +1,24 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Router, type Request, type Response } from "express";
-import { fromRepoPath, type AgentRegistry, type AppConfig } from "@sre/config";
+import { fromRepoPath, type AgentCatalog, type AgentDeploymentOverlay, type AgentLifecycle, type AgentRegistry, type AppConfig } from "@sre/config";
 import type { ModelClient } from "@sre/llm";
+import { BUILT_IN_ICONS, CONTENT_TYPE, AvatarError, isManagedAvatarPath, validateAvatar } from "./avatar.ts";
+import { diffFile, summarise, type ChangeSetDiff } from "./diff.ts";
+import { proposeManagerChange, type ManagerDraft } from "./manager-yaml.ts";
+import { draftSystemPrompt, PromptAssistError, safeContext } from "./prompt-assist.ts";
 import {
-  agentDetail,
-  agentSummary,
-  AgentDraftError,
-  AvatarError,
-  BUILT_IN_ICONS,
-  CONTENT_TYPE,
-  diagnoseRun,
-  diffFile,
-  draftSystemPrompt,
-  isManagedAvatarPath,
-  managerDetail,
-  mcpServerViews,
-  permissionMatrix,
-  proposeAgentChange,
-  proposeManagerChange,
-  RunDiagnosisError,
-  proposePromptChange,
-  PromptAssistError,
-  safeContext,
-  summarise,
-  validateAvatar,
-  type AgentDraft,
-  type ChangeSetDiff,
-  type ManagerDraft,
-  type RunStore,
-} from "./index.ts";
+  reconcile,
+  unobserved,
+  type AgentReconciliation,
+  type DeploymentStatusSource,
+  type RuntimeProbe,
+  type Signal,
+} from "./reconciliation.ts";
+import { diagnoseRun, RunDiagnosisError } from "./run-diagnosis.ts";
+import type { RunStore } from "./run-store.ts";
+import { agentDetail, agentSummary, managerDetail, mcpServerViews, permissionMatrix } from "./view-model.ts";
+import { AgentDraftError, proposeAgentChange, proposePromptChange, type AgentDraft } from "./yaml.ts";
 
 /**
  * Read-only management API (TDD §43). Mounted only on the Manager, which is the
@@ -40,8 +29,43 @@ import {
  * output, and it performs no mutation: an Agent changes by merging a pull
  * request, not by calling this API.
  */
-export interface ManagementDeps {
+/**
+ * One snapshot of GIT DESIRED STATE, plus what this environment deploys.
+ *
+ * Structural on purpose: the composition root supplies a re-reading source, and
+ * tests supply a literal. Either way the management API and the Manager's
+ * router read the SAME object, so the console can never list a set of agents
+ * the router does not have.
+ */
+export interface ManagementState {
+  /** the canonical set: every Agent that exists, deployed here or not */
   registry: AgentRegistry;
+  /**
+   * The EFFECTIVE catalog: canonical ∩ deployment overlays ∩ observed
+   * availability. It must be the same object the orchestrator routes from —
+   * the console asking it directly is what makes "Routable" mean the same
+   * thing on both sides.
+   */
+  catalog: AgentCatalog;
+  environment: string;
+  enabledAgentIds: string[];
+  overlays: ReadonlyMap<string, AgentDeploymentOverlay>;
+  revision: string;
+  loadedAt: string;
+  /** the most recent reload failed to validate; the snapshot is the last good one */
+  error?: string;
+}
+
+export interface ManagementDeps {
+  /**
+   * Called PER REQUEST, not captured once.
+   *
+   * The registry used to be loaded at startup and held for the life of the
+   * process, so a merged pull request was invisible until someone restarted the
+   * Manager. Every read below goes through this, which is what makes "merge is
+   * enough" true.
+   */
+  state: () => ManagementState;
   config: AppConfig;
   runs: RunStore;
   /**
@@ -51,27 +75,113 @@ export interface ManagementDeps {
    */
   promptAssistModel?: ModelClient;
   /**
-   * What this environment actually runs, as opposed to what the Agent documents
-   * declare. `registry` above is the CANONICAL set — every Agent that exists —
-   * which is right for a management plane that must be able to show and edit an
-   * agent this cluster does not deploy. It is wrong as an answer to "can the
-   * Manager reach this", and the console was reading it as though it were.
+   * ACTUAL state. Both optional, and both report `unknown` when absent rather
+   * than defaulting to a colour — see reconciliation.ts on why an invented
+   * green is worse than an honest question mark.
    */
-  deployment?: { environment: string; enabledAgentIds: string[] };
+  argo?: DeploymentStatusSource;
+  runtimeProbe?: RuntimeProbe;
 }
+
+const NO_ARGO = "no Argo CD API is configured for this deployment";
+const NO_PROBE = "no runtime health probe is configured for this deployment";
 
 export function managementRouter(deps: ManagementDeps): Router {
   const router = Router();
-  const specialists = () => deps.registry.listSpecialists();
+  const specialists = () => deps.state().registry.listSpecialists();
 
-  router.get("/agents", (_request: Request, response: Response) => {
-    response.json({ agents: specialists().map(agentSummary) });
+  /**
+   * Actual state for one Agent, or an honest `unknown`.
+   *
+   * An Agent this environment has no overlay for is not probed at all: a pod
+   * that was never meant to exist is not "unreachable", and a red dot on it
+   * would be noise on every environment that runs a subset of the catalog.
+   *
+   * An Agent whose overlay says `enabled: false` IS still probed, which is not
+   * an oversight. Turning an Agent off is a reconciliation, not an instant, and
+   * the only way to tell "being pruned" from "gone" is to keep asking until
+   * Argo says the Application is Missing. Skipping the probe here made every
+   * disable report DISABLED the moment the file changed, while the pod was
+   * still serving traffic.
+   */
+  const observe = async (agentId: string, observable: boolean, endpoint?: string): Promise<{ argo: Signal; runtime: Signal }> => {
+    if (!observable) {
+      const detail = "this environment has no deployment overlay for this Agent, so nothing was probed";
+      return { argo: unobserved(detail), runtime: unobserved(detail) };
+    }
+    const [argo, runtime] = await Promise.allSettled([
+      deps.argo === undefined ? Promise.resolve(unobserved(NO_ARGO)) : deps.argo.status(agentId),
+      deps.runtimeProbe === undefined || endpoint === undefined
+        ? Promise.resolve(unobserved(NO_PROBE))
+        : deps.runtimeProbe.status(agentId, endpoint),
+    ]);
+    return {
+      // a source that THREW told us nothing; it must not read as a failure of
+      // the agent it was asked about
+      argo: argo.status === "fulfilled" ? argo.value : unobserved("the Argo CD status source failed"),
+      runtime: runtime.status === "fulfilled" ? runtime.value : unobserved("the runtime probe failed"),
+    };
+  };
+
+  const reconciliationFor = async (state: ManagementState, agentId: string, lifecycle: AgentLifecycle): Promise<AgentReconciliation> => {
+    const overlay = state.overlays.get(agentId);
+    const entry = state.catalog.resolve(agentId);
+    // a draft is not deployed by anyone yet, so there is nothing to ask about
+    const { argo, runtime } = await observe(agentId, lifecycle !== "draft" && overlay !== undefined, entry?.endpoint);
+    return reconcile({
+      agentId,
+      lifecycle,
+      /*
+       * ASKED, not derived. `state.catalog` is the effective catalog the
+       * orchestrator routes from — desired state intersected with observed
+       * availability — so this is the router's own answer rather than a second
+       * calculation that could drift away from it.
+       */
+      routable: state.catalog.listEnabled().some((candidate) => candidate.agentId === agentId),
+      environment: state.environment,
+      ...(overlay === undefined ? {} : { overlay }),
+      ...(state.error === undefined ? {} : { loadError: state.error }),
+      argo,
+      runtime,
+    });
+  };
+
+  /**
+   * The Agents directory: GIT DESIRED STATE joined to actual state.
+   *
+   * It lists the canonical registry, NOT the runtime's enabled set. That is the
+   * whole point — an Agent that merged and then failed to deploy has to stay on
+   * this page with a reason, and listing from what is running is exactly how it
+   * used to disappear at the moment someone needed to find it.
+   */
+  router.get("/agents", async (_request: Request, response: Response) => {
+    const state = deps.state();
+    const agents = state.registry.listSpecialists();
+    const settled = await Promise.allSettled(
+      agents.map((agent) => reconciliationFor(state, agent.name, agent.spec.lifecycle)),
+    );
+    response.json({
+      revision: state.revision,
+      loadedAt: state.loadedAt,
+      ...(state.error === undefined ? {} : { configError: state.error }),
+      agents: agents.map((agent, index) => {
+        const outcome = settled[index];
+        return {
+          ...agentSummary(agent),
+          ...(outcome?.status === "fulfilled" ? { reconciliation: outcome.value } : {}),
+        };
+      }),
+    });
   });
 
-  router.get("/agents/:id", (request: Request, response: Response) => {
-    const agent = deps.registry.getSpecialist(request.params.id as string);
+  router.get("/agents/:id", async (request: Request, response: Response) => {
+    const state = deps.state();
+    const agent = state.registry.getSpecialist(request.params.id as string);
     if (agent === undefined) { notFound(response, "agent"); return; }
-    response.json(agentDetail(agent, deps.registry.catalog));
+    response.json({
+      ...agentDetail(agent, state.registry.catalog),
+      reconciliation: await reconciliationFor(state, agent.name, agent.spec.lifecycle),
+    });
   });
 
   /**
@@ -79,20 +189,25 @@ export function managementRouter(deps: ManagementDeps): Router {
    * having asked the Agent would be fabricated telemetry, so reachability is
    * explicitly reported as unknown until a probe exists.
    */
-  router.get("/agents/:id/health", (request: Request, response: Response) => {
-    const agent = deps.registry.getSpecialist(request.params.id as string);
+  router.get("/agents/:id/health", async (request: Request, response: Response) => {
+    const state = deps.state();
+    const agent = state.registry.getSpecialist(request.params.id as string);
     if (agent === undefined) { notFound(response, "agent"); return; }
+    const reconciliation = await reconciliationFor(state, agent.name, agent.spec.lifecycle);
     response.json({
       agentId: agent.name,
       lifecycle: agent.spec.lifecycle,
-      routable: deps.registry.manager.spec.agents.allowed.includes(agent.name),
-      reachability: "unknown",
-      reason: "runtime health probing is not configured",
+      // the effective catalog, which is the set the orchestrator routes from —
+      // not a hand-written list that could disagree with it
+      routable: reconciliation.manager.state === "ok",
+      reachability: reconciliation.runtime.state === "ok" ? "ready" : reconciliation.runtime.state === "degraded" ? "unavailable" : "unknown",
+      reason: reconciliation.runtime.detail,
+      reconciliation,
     });
   });
 
   router.get("/agents/:id/metrics", (request: Request, response: Response) => {
-    const agent = deps.registry.getSpecialist(request.params.id as string);
+    const agent = deps.state().registry.getSpecialist(request.params.id as string);
     if (agent === undefined) { notFound(response, "agent"); return; }
     const runs = deps.runs.list(200).filter((run) => run.agents.includes(agent.name));
     if (runs.length === 0) {
@@ -111,11 +226,11 @@ export function managementRouter(deps: ManagementDeps): Router {
   });
 
   router.get("/mcp-servers", (_request: Request, response: Response) => {
-    response.json({ servers: mcpServerViews(specialists(), deps.registry.catalog, deps.config.toolhive.endpoints) });
+    response.json({ servers: mcpServerViews(specialists(), deps.state().registry.catalog, deps.config.toolhive.endpoints) });
   });
 
   router.get("/permissions", (_request: Request, response: Response) => {
-    response.json(permissionMatrix(specialists(), deps.registry.catalog));
+    response.json(permissionMatrix(specialists(), deps.state().registry.catalog));
   });
 
   router.get("/runs", (request: Request, response: Response) => {
@@ -173,7 +288,8 @@ export function managementRouter(deps: ManagementDeps): Router {
    */
   router.post("/agents/preview", (request: Request, response: Response) => {
     try {
-      const { change, generated } = proposeAgentChange({ draft: request.body as AgentDraft, requestedBy: request.identity?.subject ?? "unknown", update: deps.registry.getSpecialist((request.body as AgentDraft)?.name ?? "") !== undefined, knownAgents: deps.registry.listSpecialists().map((agent) => agent.name) });
+      const registry = deps.state().registry;
+      const { change, generated } = proposeAgentChange({ draft: request.body as AgentDraft, requestedBy: request.identity?.subject ?? "unknown", update: registry.getSpecialist((request.body as AgentDraft)?.name ?? "") !== undefined, knownAgents: registry.listSpecialists().map((agent) => agent.name) });
       response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: generated.files, diff: diffAgainstDisk(generated.files) });
     } catch (error) {
       respondDraftError(response, error);
@@ -186,7 +302,7 @@ export function managementRouter(deps: ManagementDeps): Router {
    * credential so it cannot write. The management plane opens the pull request.
    */
   router.post("/agents/:id/prompt/preview", (request: Request, response: Response) => {
-    const agent = deps.registry.getSpecialist(request.params.id as string);
+    const agent = deps.state().registry.getSpecialist(request.params.id as string);
     if (agent === undefined) { response.status(404).json({ code: "NOT_FOUND", message: "No such agent" }); return; }
     try {
       const prompt = (request.body as { prompt?: unknown })?.prompt;
@@ -208,8 +324,9 @@ export function managementRouter(deps: ManagementDeps): Router {
    * rather than trusting a document loaded earlier.
    */
   router.get("/agents/:id/avatar", (request: Request, response: Response) => {
-    const agent = deps.registry.getSpecialist(request.params.id as string);
-    const avatar = agent?.avatar ?? (request.params.id === "manager" ? deps.registry.manager.avatar : undefined);
+    const registry = deps.state().registry;
+    const agent = registry.getSpecialist(request.params.id as string);
+    const avatar = agent?.avatar ?? (request.params.id === "manager" ? registry.manager.avatar : undefined);
     if (avatar === undefined) { notFound(response, "avatar"); return; }
     if (!isManagedAvatarPath(avatar.asset) && !/^assets\/icons\/[a-z][a-z0-9-]*\.(png|jpg|webp)$/u.test(avatar.asset)) {
       notFound(response, "avatar");
@@ -263,7 +380,8 @@ export function managementRouter(deps: ManagementDeps): Router {
    * document that has no identity, access or routing vocabulary.
    */
   router.get("/manager", (_request: Request, response: Response) => {
-    response.json(managerDetail(deps.registry, deps.deployment));
+    const state = deps.state();
+    response.json(managerDetail(state.registry, { environment: state.environment, enabledAgentIds: state.enabledAgentIds }));
   });
 
   /**
@@ -300,7 +418,7 @@ export function managementRouter(deps: ManagementDeps): Router {
   /** Render the Manager change-set. PURE, exactly like /agents/preview. */
   router.post("/manager/preview", (request: Request, response: Response) => {
     try {
-      const { change, generated } = proposeManagerChange({ draft: request.body as ManagerDraft, current: deps.registry.manager, requestedBy: request.identity?.subject ?? "unknown" });
+      const { change, generated } = proposeManagerChange({ draft: request.body as ManagerDraft, current: deps.state().registry.manager, requestedBy: request.identity?.subject ?? "unknown" });
       response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: generated.files, diff: diffAgainstDisk(generated.files) });
     } catch (error) {
       respondDraftError(response, error);

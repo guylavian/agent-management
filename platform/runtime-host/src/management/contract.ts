@@ -3,13 +3,16 @@ import type {
   AgentSummary,
   ChangePreview,
   McpAccessView as ContractMcpAccessView,
+  AgentReconciliation as ContractAgentReconciliation,
+  ManagerDetail,
   McpServer,
   PermissionMatrix,
   RunDetail,
   RunSummary as ContractRunSummary,
   ToolView as ContractToolView,
 } from "@sre/management-api-contract";
-import type { AgentDetailView, AgentSummaryView, McpAccessView, McpServerView, ToolView } from "./view-model.ts";
+import type { AgentDetailView, AgentSummaryView, ManagerDetailView, McpAccessView, McpServerView, ToolView } from "./view-model.ts";
+import type { AgentReconciliation } from "./reconciliation.ts";
 import type { RunRecord, RunSummary } from "./run-store.ts";
 import type { GeneratedChange, ProposedChange } from "./yaml.ts";
 
@@ -31,6 +34,8 @@ export type _ToolView = Conforms<ToolView, ContractToolView>;
 export type _McpAccessView = Conforms<McpAccessView, ContractMcpAccessView>;
 export type _AgentSummary = Conforms<AgentSummaryView, AgentSummary>;
 export type _AgentDetail = Conforms<AgentDetailView, AgentDetail>;
+export type _ManagerDetail = Conforms<ManagerDetailView, ManagerDetail>;
+export type _AgentReconciliation = Conforms<AgentReconciliation, ContractAgentReconciliation>;
 export type _McpServer = Conforms<McpServerView, McpServer>;
 export type _RunSummary = Conforms<RunSummary, ContractRunSummary>;
 export type _RunDetail = Conforms<RunRecord, RunDetail>;

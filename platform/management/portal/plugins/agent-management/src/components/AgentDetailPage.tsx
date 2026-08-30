@@ -14,6 +14,8 @@ import {
   DefinitionList,
   EmptyState,
   LifecycleBadge,
+  ReconciliationBadge,
+  ReconciliationPanel,
   ModeBadge,
   Mono,
   Muted,
@@ -49,7 +51,11 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.2px' }}>{value.displayName}</div>
-                  <StatusPill tone={lifecycleTone(value.lifecycle)}>{value.lifecycle}</StatusPill>
+                  {/* the MANAGED status leads; the document's lifecycle is one
+                      of its inputs, not a synonym for it */}
+                  {value.reconciliation === undefined
+                    ? <StatusPill tone={lifecycleTone(value.lifecycle)}>{value.lifecycle}</StatusPill>
+                    : <ReconciliationBadge reconciliation={value.reconciliation} />}
                   <Chip mono>{value.modelProfile}</Chip>
                 </div>
                 <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4 }}>{value.id} · owner {value.owner} · workload {value.identity.clientId}</div>
@@ -93,11 +99,10 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
   const health = useAgentHealth(agent.id);
   const metrics = useAgentMetrics(agent.id);
   const notConfigured = (metrics.value as { status?: string } | undefined)?.status === 'not-configured';
-  // three DIFFERENT facts, and the console had been blurring them into one
-  // "status": what the Agent is declared to be, whether the Manager will route
-  // to it, and whether anything has actually reached it. Only the first two are
-  // known here; the third is `unknown` until a health probe exists, and saying
-  // "healthy" without having asked would be fabricated telemetry.
+  // four DIFFERENT facts, and the console had been blurring them into one
+  // "status": what Git declares, whether Argo reconciled it, whether the pod
+  // answers, and whether the Manager will route to it. Any of them this
+  // deployment cannot observe reads `unknown` with the reason, never a colour.
   const routable = (health.value as { routable?: boolean } | undefined)?.routable;
   const reachability = (health.value as { reachability?: string } | undefined)?.reachability;
   const reachabilityReason = (health.value as { reason?: string } | undefined)?.reason;
@@ -112,7 +117,7 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
         <StatCard
           label="Routable"
           value={routable === undefined ? '—' : routable ? 'yes' : 'no'}
-          sub={routable === undefined ? 'asking the runtime' : routable ? "in the Manager's allowed list" : "not in the Manager's allowed list"}
+          sub={routable === undefined ? 'asking the runtime' : routable ? "in the Manager's effective catalog" : 'not in the effective catalog for this environment'}
         />
         <StatCard label="Reachability" value={String(reachability ?? '—')} sub={reachabilityReason ?? 'asking the runtime'} />
         <StatCard label="Requests" value={notConfigured ? 'n/a' : String(requestCount ?? '—')} sub={notConfigured ? 'no runs recorded' : 'this runtime process'} />
@@ -122,6 +127,15 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
           sub={notConfigured ? 'no runs recorded' : `p95 ${p95 ?? '—'} ms`}
         />
       </StatGrid>
+
+      {/* THE DIAGNOSIS PANEL. An Agent that merged and failed to deploy stays on
+          this page, and this is where it says which of the four steps stopped. */}
+      <div style={{ marginBottom: 14 }}>
+        <Panel>
+          <SectionTitle>Reconciliation</SectionTitle>
+          <ReconciliationPanel {...(agent.reconciliation === undefined ? {} : { reconciliation: agent.reconciliation })} />
+        </Panel>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 14, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

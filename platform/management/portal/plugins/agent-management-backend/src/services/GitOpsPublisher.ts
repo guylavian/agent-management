@@ -49,9 +49,49 @@ export interface PullRequestOutcome {
   reason?: string;
 }
 
+/**
+ * An Agent that has been PROPOSED but not merged.
+ *
+ * Only the management plane can see one. The runtime reads the repository as
+ * Argo synced it, so an open branch does not exist to it at all — which is why
+ * "Pending merge" could previously only be a badge on the page that had just
+ * opened the pull request, and vanished the moment the operator navigated away.
+ *
+ * The agent id is recovered from the BRANCH, which the runtime derives from the
+ * agent name (`agent/add-<name>`). That is the only part of a proposal this
+ * plane may read: opening the diff to parse the YAML would put the canonical
+ * Agent schema in the management plane, which is the boundary the whole design
+ * keeps.
+ */
+export interface AgentProposal {
+  agentId: string;
+  /** "add" or "update" — an update is a change to an Agent that already exists */
+  kind: 'add' | 'update';
+  branch: string;
+  title: string;
+  url?: string;
+  number?: number;
+}
+
 export interface GitOpsPublisher {
   readonly configured: boolean;
   createPullRequest(input: PullRequestInput): Promise<PullRequestOutcome>;
+  /**
+   * Open Agent proposals, or an empty list when this deployment has no Git
+   * credential. Empty is honest here: with no credential nothing was observed,
+   * and the console says so at the page level rather than per row.
+   */
+  listProposals(): Promise<AgentProposal[]>;
+}
+
+/** `agent/add-kafka` → kafka. Anything else on the branch list is not ours. */
+export function proposalFromBranch(branch: string, title: string, extra: { url?: string; number?: number } = {}): AgentProposal | undefined {
+  const match = /^agent\/(add|update)-(?<name>[a-z][a-z0-9-]*)$/u.exec(branch);
+  const name = match?.groups?.name;
+  // `agent/update-manager` and `agent/<name>-prompt` are changes to something
+  // that already exists; neither is an Agent waiting to appear
+  if (name === undefined || name === 'manager') return undefined;
+  return { agentId: name, kind: match?.[1] === 'update' ? 'update' : 'add', branch, title, ...extra };
 }
 
 export interface GitHubGitOpsSettings {
@@ -75,6 +115,9 @@ export class UnconfiguredGitOpsPublisher implements GitOpsPublisher {
   }
   async createPullRequest(): Promise<PullRequestOutcome> {
     return { status: 'not-configured', reason: this.#reason };
+  }
+  async listProposals(): Promise<AgentProposal[]> {
+    return [];
   }
 }
 
@@ -137,6 +180,14 @@ export class GitHubGitOpsPublisher implements GitOpsPublisher {
         return { data: { html_url: existing.html_url, number: existing.number } };
       });
     return { status: 'created', url: pull.data.html_url, number: pull.data.number };
+  }
+
+  async listProposals(): Promise<AgentProposal[]> {
+    const { owner, repo } = this.#settings;
+    const open = await this.#octokit.pulls.list({ owner, repo, state: 'open', per_page: 100 });
+    return open.data
+      .map(pull => proposalFromBranch(pull.head.ref, pull.title, { url: pull.html_url, number: pull.number }))
+      .filter((proposal): proposal is AgentProposal => proposal !== undefined);
   }
 }
 
@@ -242,6 +293,22 @@ export class BitbucketServerGitOpsPublisher implements GitOpsPublisher {
       if (existing) return { status: 'created', number: existing.id, ...(existing.links?.self?.[0]?.href ? { url: existing.links.self[0].href } : {}) };
     }
     throw this.#asError(pull.status, body, 'create pull request');
+  }
+
+  async listProposals(): Promise<AgentProposal[]> {
+    // Data Center's own pagination and state filter; `fromRef.displayId` is the
+    // branch short name, which is what the runtime derived the id from
+    const response = await this.#call('GET', '/pull-requests?state=OPEN&limit=100');
+    if (!response.ok) throw this.#asError(response.status, await response.text().catch(() => ''), 'list pull requests');
+    const body = (await response.json()) as {
+      values?: Array<{ id: number; title: string; fromRef?: { displayId?: string }; links?: { self?: Array<{ href: string }> } }>;
+    };
+    return (body.values ?? [])
+      .map(pull => proposalFromBranch(pull.fromRef?.displayId ?? '', pull.title, {
+        number: pull.id,
+        ...(pull.links?.self?.[0]?.href ? { url: pull.links.self[0].href } : {}),
+      }))
+      .filter((proposal): proposal is AgentProposal => proposal !== undefined);
   }
 
   #asError(status: number, body: string, action: string): Error {

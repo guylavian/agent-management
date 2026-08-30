@@ -1,5 +1,5 @@
 // backstage-cli package test runs jest; describe/it/expect are global.
-import { BitbucketServerGitOpsPublisher, GitHubGitOpsPublisher } from './GitOpsPublisher';
+import { BitbucketServerGitOpsPublisher, GitHubGitOpsPublisher, UnconfiguredGitOpsPublisher, proposalFromBranch } from './GitOpsPublisher';
 
 /**
  * Amending a proposal is the normal case, not the exceptional one: the branch
@@ -161,5 +161,81 @@ describe('BitbucketServerGitOpsPublisher', () => {
     const double = bitbucketFetch({ pull: () => new Response('boom', { status: 500 }) });
     const publisher = new BitbucketServerGitOpsPublisher(bbSettings, double.impl);
     await expect(publisher.createPullRequest(input)).rejects.toThrow(/failed \(500\)/);
+  });
+});
+
+/**
+ * PENDING MERGE, observed rather than remembered.
+ *
+ * The runtime reads the repository as Argo synced it, so an Agent whose pull
+ * request is still open does not exist to it. Only this plane holds the Git
+ * credential, so only this plane can see one — and before it did, "Pending
+ * merge" was a badge that lived on the page which had just created the
+ * proposal and vanished the moment the operator navigated away.
+ */
+describe('proposalFromBranch', () => {
+  it('recovers the agent id from the branch the runtime derived it into', () => {
+    expect(proposalFromBranch('agent/add-kafka', 'Add kafka')).toMatchObject({ agentId: 'kafka', kind: 'add' });
+    expect(proposalFromBranch('agent/update-kafka', 'Update kafka')).toMatchObject({ agentId: 'kafka', kind: 'update' });
+  });
+
+  it('ignores branches that are not an Agent waiting to appear', () => {
+    // a prompt edit and a Manager edit both change something that ALREADY
+    // exists; listing either as pending-merge would invent a second row for an
+    // agent that is on the page already
+    expect(proposalFromBranch('agent/kafka-prompt', 'Prompt')).toBeUndefined();
+    expect(proposalFromBranch('agent/update-manager', 'Manager')).toBeUndefined();
+    expect(proposalFromBranch('feature/unrelated', 'Something else')).toBeUndefined();
+    // and never trusts the branch to be a legal agent name
+    expect(proposalFromBranch('agent/add-../../etc/passwd', 'Nope')).toBeUndefined();
+    expect(proposalFromBranch('agent/add-Kafka', 'Nope')).toBeUndefined();
+  });
+});
+
+describe('listing open proposals', () => {
+  it('reads them from GitHub without a second credential', async () => {
+    const octokit = octokitDouble({
+      pullsList: jest.fn().mockResolvedValue({
+        data: [
+          { head: { ref: 'agent/add-kafka' }, title: 'Add kafka', html_url: 'http://pr/1', number: 1 },
+          { head: { ref: 'chore/bump' }, title: 'Bump', html_url: 'http://pr/2', number: 2 },
+        ],
+      }),
+    });
+    const publisher = new GitHubGitOpsPublisher(settings, octokit);
+    await expect(publisher.listProposals()).resolves.toEqual([
+      { agentId: 'kafka', kind: 'add', branch: 'agent/add-kafka', title: 'Add kafka', url: 'http://pr/1', number: 1 },
+    ]);
+  });
+
+  it('reads them from Bitbucket Data Center with its own grammar', async () => {
+    // `fromRef.displayId` and `/rest/api/1.0`, not the Cloud 2.0 shape: the
+    // provider abstraction has to stay usable on Data Center
+    const calls: string[] = [];
+    const publisher = new BitbucketServerGitOpsPublisher(
+      { projectKey: 'SRE', repo: 'platform', baseBranch: 'main', token: 't', apiBaseUrl: 'https://bb/rest/api/1.0' },
+      (async (url: string) => {
+        calls.push(String(url));
+        return new Response(
+          JSON.stringify({
+            values: [
+              { id: 7, title: 'Add kafka', fromRef: { displayId: 'agent/add-kafka' }, links: { self: [{ href: 'https://bb/pr/7' }] } },
+              { id: 8, title: 'Release', fromRef: { displayId: 'release/1.2' } },
+            ],
+          }),
+          { status: 200 },
+        );
+      }) as never,
+    );
+    await expect(publisher.listProposals()).resolves.toEqual([
+      { agentId: 'kafka', kind: 'add', branch: 'agent/add-kafka', title: 'Add kafka', url: 'https://bb/pr/7', number: 7 },
+    ]);
+    expect(calls[0]).toContain('/projects/SRE/repos/platform/pull-requests?state=OPEN');
+  });
+
+  it('answers with an empty list, not an error, when no Git credential is configured', async () => {
+    // the page-level message says proposals were not observed; a throw here
+    // would take the whole Agents view down over a feature that only adds rows
+    await expect(new UnconfiguredGitOpsPublisher('no token').listProposals()).resolves.toEqual([]);
   });
 });

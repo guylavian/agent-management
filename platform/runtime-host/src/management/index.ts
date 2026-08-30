@@ -3,6 +3,8 @@ export * from "./contract.ts";
 export * from "./diff.ts";
 export * from "./manager-yaml.ts";
 export * from "./prompt-assist.ts";
+export * from "./reconciliation.ts";
+export * from "./routes.ts";
 export * from "./run-diagnosis.ts";
 export * from "./run-graph.ts";
 export * from "./run-store.ts";

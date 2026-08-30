@@ -49,6 +49,29 @@ export interface AgentSummary {
   workloadClientId: string;
   readOnly: boolean;
   avatar?: AgentAvatar;
+  reconciliation?: AgentReconciliation;
+}
+
+/**
+ * One observation. `unknown` means this deployment cannot see the signal and `detail` says why — it is never a stand-in for a failure, and no signal is ever invented. `detail` is required because a state with no explanation is not diagnosable.
+ */
+
+export interface Signal {
+  state: "ok" | "pending" | "degraded" | "unknown";
+  detail: string;
+}
+
+/**
+ * Git desired state joined to actual state, kept separate on purpose. Merged-but-not-synced, synced-but-not-ready and ready-but-not-routable are four different problems with four different fixes.
+ */
+
+export interface AgentReconciliation {
+  /** The Agent lifecycle: draft → pending-merge → reconciling → active, with degraded and failed as the branches where actual or desired state is broken, and active → reconciling → disabled when an Agent is turned off. `draft` is desired state like any other: the Agent document is merged, but its own lifecycle says it is not meant to run yet. It is deliberately distinct from `disabled`, where something WAS turned off and an operator might go looking for what broke. `pending-merge` is never served by the RUNTIME, which reads the repository as Argo synced it and so cannot see an unmerged branch. It is contributed by the management plane, which holds the Git credential and asks the provider for open proposals. */
+  status: "draft" | "pending-merge" | "reconciling" | "active" | "disabled" | "degraded" | "failed";
+  git: Signal;
+  argo: Signal;
+  runtime: Signal;
+  manager: Signal;
 }
 
 /**
@@ -95,6 +118,7 @@ export interface AgentDetail {
   limits: Record<string, number>;
   access: Array<McpAccessView>;
   identity: AgentIdentityView;
+  reconciliation?: AgentReconciliation;
 }
 
 /**
@@ -130,14 +154,12 @@ export interface ManagerDetail {
   modelTier: string;
   promptFile: string;
   prompt: string;
-  /** The routing table — specialists the Manager may dispatch to. */
-  allowed: Array<string>;
+  /** The routing table, DERIVED: every Agent whose own document is active and whose deployment overlay enables it in this environment. It is the same set the orchestrator offers the Manager. There is no authored allowlist any more — onboarding an Agent required a second pull request against one, and nothing checked that anyone did it. */
+  routable: Array<string>;
   /** Specialists that exist but are not routable. Listed rather than omitted, so "not shown" and "not reachable" cannot look alike. */
   notRouted: Array<string>;
-  /** The deployment environment this runtime serves. Absent when none is mounted, so a console can say nothing rather than imply everything is deployed. */
-  environment?: string;
-  /** Allowed specialists this environment does not run. Being in the routing table is only half of being reachable: the effective catalog is the allowlist intersected with what the environment enables, and an agent listed here is never offered to the Manager at all. */
-  notDeployed?: Array<string>;
+  /** The deployment environment this runtime serves; `routable` is relative to it. */
+  environment: string;
   execution: Record<string, number>;
   /** Stated, so the console shows no blank where a client id would be. */
   identity: {
@@ -147,11 +169,10 @@ export interface ManagerDetail {
 }
 
 /**
- * What the portal collects to update the Manager. `maxRounds` is absent by design: a second Manager loop is a runtime feature, never configuration, and the schema pins it to 1.
+ * What the portal collects to update the Manager. `maxRounds` is absent by design: a second Manager loop is a runtime feature, never configuration, and the schema pins it to 1. A routing table is absent for a different reason: routing is derived from the effective catalog, so no edit here can make an Agent reachable or unreachable.
  */
 
 export interface ManagerDraft {
-  allowed: Array<string>;
   modelProfile: string;
   prompt: string;
   owner?: string;
@@ -168,9 +189,12 @@ export interface ManagerDraft {
 export interface AgentHealth {
   agentId: string;
   lifecycle: AgentLifecycle;
+  /** In the effective catalog — the set the orchestrator routes from. */
   routable: boolean;
-  reachability: "unknown";
+  /** `unknown` when no probe is configured. It is never reported as `ready` without something having answered. */
+  reachability: "ready" | "unavailable" | "unknown";
   reason: string;
+  reconciliation: AgentReconciliation;
 }
 
 export interface AgentMetrics {

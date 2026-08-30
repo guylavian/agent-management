@@ -109,7 +109,7 @@ describe("GitOps change flow", () => {
 
   it("previews canonical YAML without changing anything", async () => {
     const { app, token, deps } = await managerApp();
-    const before = deps.managementRegistry?.listSpecialists().length;
+    const before = deps.desiredState.current().registry.listSpecialists().length;
     const response = await post(app, "/management/agents/preview", token, draft);
     expect(response.statusCode).toBe(200);
     const body = response.json() as { path: string; yaml: string; effects: string[] };
@@ -117,7 +117,7 @@ describe("GitOps change flow", () => {
     expect(body.yaml).toContain("clientId: sre-agent-check-point");
     expect(body.yaml).toContain("audience: sre-toolhive:wiki");
     expect(body.effects.some((effect) => effect.includes("Keycloak"))).toBe(true);
-    expect(deps.managementRegistry?.listSpecialists().length).toBe(before);
+    expect(deps.desiredState.current().registry.listSpecialists().length).toBe(before);
   });
 
   it("rejects an invalid draft with issues instead of generating a file", async () => {

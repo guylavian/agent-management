@@ -18,7 +18,7 @@ const bodySchema = z.object({ question: z.string().min(1).max(8_000), environmen
  */
 function recordRun(deps: ManagerDependencies, input: { requestId: string; identity: { subject: string }; environment: string; startedAt: Date; result: AssistantResponse; specialistResults: SpecialistResultLike[]; routing?: RoutingTrace }): void {
   try {
-    const specialists = deps.managementRegistry;
+    const specialists = deps.desiredState.current().registry;
     deps.runs.record(buildRunRecord({
       requestId: input.requestId,
       userSubjectHash: subjectHash(input.identity.subject),
@@ -27,8 +27,8 @@ function recordRun(deps: ManagerDependencies, input: { requestId: string; identi
       durationMs: Date.now() - input.startedAt.getTime(),
       routedAgents: input.result.metadata.routedAgents,
       results: input.specialistResults,
-      workloadFor: (agentId) => specialists?.getSpecialist(agentId)?.spec.identity.clientId,
-      modelProfileFor: (agentId) => specialists?.getSpecialist(agentId)?.spec.model.profile,
+      workloadFor: (agentId) => specialists.getSpecialist(agentId)?.spec.identity.clientId,
+      modelProfileFor: (agentId) => specialists.getSpecialist(agentId)?.spec.model.profile,
       status: input.result.error ? "failed" : input.result.degraded ? "partial" : "complete",
       evidenceCount: input.result.citations.length,
       synthesized: input.result.metadata.tierLUsed,
@@ -89,7 +89,11 @@ export function registerManagerRoutes(app: Express, deps: ManagerDependencies): 
       const result = await withSpan("sre.query", { "request.id": requestId, "user.subject_hash": subjectHash(identity.subject), environment }, () => executeRequest(
         { question: bodyResult.data.question, environment: bodyResult.data.environment, identity, ...(conversation ? { conversation } : {}) },
         {
-          manager: deps.agent,
+          // the LIVE Manager document, not the copy loaded at boot. `deps.agent`
+          // is what this process started as; the console edits and displays the
+          // document on disk, and two different answers to "what are the
+          // Manager's limits" is exactly the divergence this work removes.
+          manager: deps.desiredState.current().registry.manager,
           registry: deps.registry,
           agentClient: deps.agentClient,
           identityIssuer: deps.identityIssuer,

@@ -63,9 +63,17 @@ async function executeWithinDeadline(req: UserRequest, deps: RuntimeDependencies
 
 async function route(req: UserRequest, deps: RuntimeDependencies, deadline: number, signal: AbortSignal, modelSafeQuestion: string, trace: RoutingTrace): Promise<AssistantResponse> {
   const environment = req.environment ?? deps.defaultEnvironment;
-  const configured = new Set(deps.manager.spec.agents.allowed);
-  const enabledAllowed = deps.registry.listEnabled(environment).filter((agent) => configured.has(agent.agentId));
-  const allAgentIds = enabledAllowed.map((agent) => agent.agentId);
+  /*
+   * The routing table IS the effective catalog.
+   *
+   * `listEnabled` is already the intersection of the canonical Agent document
+   * (lifecycle active) with this environment's deployment overlay (enabled) —
+   * both of which are Git desired state. There used to be a second filter here
+   * against a hand-written `manager.spec.agents.allowed`, which meant a merged,
+   * deployed, healthy Agent could still be unreachable because nobody had
+   * edited a third file. Enabling an Agent is now one decision in one place.
+   */
+  const allAgentIds = deps.registry.listEnabled(environment).map((agent) => agent.agentId);
   const authorizedCandidates = deps.registry.filterAuthorized(allAgentIds, req.identity.roles, environment);
   const defaultTask = `Investigate this request within your domain and return cited evidence: ${modelSafeQuestion}`.slice(0, 2000);
 
@@ -93,8 +101,8 @@ async function route(req: UserRequest, deps: RuntimeDependencies, deadline: numb
     incrementMetric("sre_manager_invocations_total");
     // the Manager LLM call shares the request deadline signal
     /*
-     * The Manager is offered every ENABLED agent the allowlist permits, not
-     * only the ones this principal may use.
+     * The Manager is offered every agent this environment ENABLES, not only
+     * the ones this principal may use.
      *
      * Selection and authorization are different questions, and collapsing them
      * makes the answer worse: pre-filtering meant a request the caller was not
@@ -149,7 +157,6 @@ async function route(req: UserRequest, deps: RuntimeDependencies, deadline: numb
     entities,
     budgetUsed: false,
     maxAgentsPerRequest: deps.manager.spec.execution.maxAgentsPerRequest,
-    allowedManagerAgents: deps.manager.spec.agents.allowed,
   }));
   const rejectionEvidence = followupRejectionEvidence(followup.rejections, ctx);
   if (rejectionEvidence.length > 0 && results[0] !== undefined) results[0].evidence.push(...rejectionEvidence);
