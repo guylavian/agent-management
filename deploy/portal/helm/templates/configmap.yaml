@@ -1,0 +1,39 @@
+# Cluster-specific Backstage configuration layered over the image's
+# app-config.yaml + app-config.production.yaml. Nothing here is a secret:
+# BACKEND_SECRET is substituted by Backstage from the environment at startup.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sre-agent-portal-config
+  labels:
+    app.kubernetes.io/name: sre-agent-portal
+    app.kubernetes.io/component: management-plane
+data:
+  app-config.cluster.yaml: |
+    app:
+      baseUrl: {{ required "baseUrl is required" .Values.baseUrl | quote }}
+    backend:
+      baseUrl: {{ .Values.baseUrl | quote }}
+      auth:
+        keys:
+          - secret: ${BACKEND_SECRET}
+      {{- if .Values.postgres.ssl }}
+      database:
+        connection:
+          ssl:
+            ca:
+              $file: {{ printf "%s/%s" .Values.caBundle.mountPath .Values.caBundle.key | quote }}
+      {{- end }}
+    permission:
+      agentManagement:
+        adminGroups: {{- toYaml .Values.adminGroups | nindent 10 }}
+{{- if and .Values.caBundle.enabled .Values.caBundle.create }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.caBundle.configMap | quote }}
+  labels:
+    config.openshift.io/inject-trusted-cabundle: "true"
+    app.kubernetes.io/name: sre-agent-portal
+{{- end }}

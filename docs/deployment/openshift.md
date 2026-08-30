@@ -40,3 +40,8 @@ ToolHive/RAG — it never aggregates the specialists' data-plane access.
 
 Prerequisite secret per namespace: `sre-agent-integrations` (see
 `deploy/runtime/helm/values.yaml` for the required keys per mode).
+
+On a real OpenShift cluster the chart needs cluster-specific values (no pinned
+uid, CA bundle, Route, CoreDNS port, internal registry); the complete set with
+the reasons is `deploy/on-prem/ON_PREM_REQUIRED_VALUES.md`, the procedure
+`deploy/on-prem/INSTALL.md`.

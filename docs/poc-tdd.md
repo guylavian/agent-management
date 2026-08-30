@@ -431,11 +431,9 @@ spec:
   prompt:
     systemFile: prompts/manager.md
 
-  agents:
-    allowed:
-      - active-directory
-      - openshift
-      - network-observability
+  # No routing table. Which specialists the Manager may dispatch to is DERIVED
+  # from each Agent's own lifecycle intersected with the environment's
+  # deployment overlay, so onboarding an Agent never means editing this file.
 
   execution:
     maxAgentsPerRequest: 3

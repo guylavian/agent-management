@@ -19,6 +19,27 @@ image:
   tag: 0.2.0
   pullPolicy: IfNotPresent
 
+# pull secrets for a private/internal registry, e.g. [{ name: internal-registry }]
+imagePullSecrets: []
+
+# Enterprise CA bundle. The runtime verifies TLS against it (NODE_EXTRA_CA_CERTS);
+# TLS verification is never disabled. On OpenShift the ConfigMap is filled by
+# the cluster when it carries the label
+#   config.openshift.io/inject-trusted-cabundle: "true"
+# and `create: true` makes this release create that labelled (empty) ConfigMap.
+caBundle:
+  enabled: false
+  configMap: sre-agent-trusted-ca
+  key: ca-bundle.crt
+  create: false
+  mountPath: /etc/pki/ca-trust/extracted/pem
+
+# Inline deploy/environments/<deploymentEnvironment>/environment.yaml. The file
+# is baked into the image; setting this mounts a ConfigMap over it so the
+# namespace / endpointTemplate can follow the cluster without an image rebuild.
+# Must be the full document (apiVersion, kind, environment, namespace, endpointTemplate).
+environmentOverride: ""
+
 replicaCount: 2
 
 service:
@@ -69,19 +90,45 @@ clients:
 # ids). Anything credential-shaped belongs in integrationsSecret, never here.
 extraEnv: {}
 
+# Additional envFrom sources, e.g. a ConfigMap holding the non-secret endpoints
+# (SRE_TOOLHIVE_ENDPOINTS_JSON, SRE_OIDC_ISSUER, ...) so the Secret carries only
+# credentials: [{ configMapRef: { name: sre-agent-endpoints } }]
+extraEnvFrom: []
+
+# Extra volumes, e.g. the delegation PUBLIC key specialists verify against
+# (SRE_DELEGATION_PUBLIC_KEY_FILE) or a signed-jwt ToolHive key file
+extraVolumes: []
+extraVolumeMounts: []
+
 # The uid/gid the runtime image's `node` user resolves to. runAsNonRoot alone is
 # not enough: the kubelet refuses a non-numeric USER, so this must match the
 # image or every pod fails to start.
+# On OpenShift leave BOTH null: the restricted SCC assigns a uid from the
+# namespace range and rejects a pod that pins one outside it.
 securityContext:
   runAsUser: 1000
   runAsGroup: 1000
+
+# manager only: an OpenShift Route in front of the manager Service. Ingress
+# traffic then also arrives from the router namespace, which the NetworkPolicy
+# admits via routerNamespaceLabels.
+route:
+  enabled: false
+  host: ""
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  annotations: {}
+  routerNamespaceLabels:
+    network.openshift.io/policy-group: ingress
 
 telemetry:
   # otlp | console — console keeps a cluster without a collector from exporting
   exporter: otlp
   otlpEndpoint: http://otel-collector.sre-observability.svc.cluster.local:4318
 
-# manager only: projected ServiceAccount token presented to specialist services
+# projected ServiceAccount token: the manager presents it to specialist services;
+# a specialist only needs it to pass the same fail-closed startup validation
 workloadIdentity:
   audience: sre-agent-runtime
   expirationSeconds: 600
@@ -104,6 +151,10 @@ networkPolicy:
   platformNamespaceLabel: sre.ai/platform-service
   # namespaces labelled <key>: "true" may call the manager (API gateway / route)
   apiClientNamespaceLabel: sre.ai/api-client
+  # cluster DNS ports the egress rule admits. OpenShift's CoreDNS pods listen
+  # on 5353 (the dns-default Service maps 53 -> 5353 and NetworkPolicy matches
+  # the pod port), so add it there.
+  dnsPorts: [53]
   # TCP ports the agent may reach in platform-service namespaces; set per
   # environment to the actual service ports.
   # manager: IdP/HTTPS 443, OTLP 4318, PostgreSQL 5432, vLLM 8000

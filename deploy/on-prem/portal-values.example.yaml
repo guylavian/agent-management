@@ -1,0 +1,68 @@
+# Values for deploy/portal/helm. Copy to deploy/environments/production/portal-values.yaml
+# in your Bitbucket copy of this repository (deploy/argocd/applications/portal.yaml
+# reads it). No secrets here — see secrets.example.yaml. Placeholders throughout.
+
+image:
+  repository: registry.example.internal/sre/sre-agent-portal
+  tag: 0.1.0
+imagePullSecrets:
+  - name: internal-registry
+
+replicaCount: 2
+
+# what browsers use; equals the Route URL
+baseUrl: https://sre-portal.apps.cluster.example.internal
+route:
+  enabled: true
+  host: sre-portal.apps.cluster.example.internal
+
+caBundle:
+  enabled: true
+  create: true
+  configMap: sre-agent-portal-trusted-ca   # distinct name: each chart owns its ConfigMap
+
+runtime:
+  # the Manager Service: http://sre-agent-manager.<namespace>.svc.cluster.local
+  managementApiUrl: http://sre-agent-manager.sre-assistant.svc.cluster.local
+  oidc:
+    tokenUrl: https://rhbk.example.internal/realms/sre/protocol/openid-connect/token
+    clientId: sre-agent-portal-runtime
+    secretRef: sre-agent-portal-runtime-oidc
+
+# human sign-in (Keycloak realm for people, NOT the agent workload realm)
+oidc:
+  metadataUrl: https://rhbk.example.internal/realms/sre-users/.well-known/openid-configuration
+  clientId: sre-agent-portal
+  clientSecretRef: sre-agent-portal-oidc
+
+# groups (as Backstage entity refs) allowed to propose Agent changes
+adminGroups:
+  - group:default/sre-platform
+
+backendSecretRef: sre-agent-portal-backend
+
+gitops:
+  provider: bitbucketServer
+  host: bitbucket.example.internal       # API base becomes https://<host>/rest/api/1.0
+  owner: SRE                             # Bitbucket PROJECT KEY
+  repo: sre-agent-platform               # repository slug
+  baseBranch: main
+  tokenSecretRef: sre-agent-portal-gitops
+
+postgres:
+  connectionSecretRef: sre-agent-portal-postgres
+  ssl: true
+
+networkPolicy:
+  enabled: true
+  dnsPorts: [53, 5353]
+  allowEgressTo: [sre-agent-manager]     # in-namespace pods only
+  # Keycloak, PostgreSQL and Bitbucket live elsewhere: name their namespaces + ports
+  extraEgress:
+    - to: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: rhbk } } }]
+      ports: [{ protocol: TCP, port: 8443 }]
+    - to: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: postgres } } }]
+      ports: [{ protocol: TCP, port: 5432 }]
+    # Bitbucket outside the cluster: an ipBlock for its address
+    - to: [{ ipBlock: { cidr: 10.0.0.0/8 } }]
+      ports: [{ protocol: TCP, port: 443 }]

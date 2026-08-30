@@ -14,6 +14,11 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels: { {{ .Values.networkPolicy.apiClientNamespaceLabel }}: "true" }
+        {{- if .Values.route.enabled }}
+        # the OpenShift router terminates the Route and forwards from its namespace
+        - namespaceSelector:
+            matchLabels: {{- toYaml .Values.route.routerNamespaceLabels | nindent 14 }}
+        {{- end }}
       ports:
         - { protocol: TCP, port: 3000 }
     {{- else }}
@@ -30,8 +35,10 @@ spec:
   egress:
     # cluster DNS
     - ports:
-        - { protocol: UDP, port: 53 }
-        - { protocol: TCP, port: 53 }
+        {{- range .Values.networkPolicy.dnsPorts }}
+        - { protocol: UDP, port: {{ . }} }
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
     {{- if eq .Values.agent.mode "manager" }}
     # manager → specialist services in this namespace
     - to:

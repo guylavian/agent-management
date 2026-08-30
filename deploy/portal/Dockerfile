@@ -18,7 +18,13 @@
 # Alternatively, there is also a multi-stage Dockerfile documented here:
 # https://backstage.io/docs/deployment/docker#multi-stage-build
 
-FROM node:24-trixie-slim
+# Air-gap: BASE_IMAGE from the internal mirror; YARN_NPM_REGISTRY_SERVER for
+# the in-image `yarn workspaces focus`; apt runs against the base image's
+# configured sources, so mirror Debian too or pre-bake libsqlite3-dev.
+ARG BASE_IMAGE=node:24-trixie-slim
+FROM ${BASE_IMAGE}
+ARG NPM_REGISTRY=https://registry.yarnpkg.com
+ENV YARN_NPM_REGISTRY_SERVER=${NPM_REGISTRY}
 
 # Install sqlite3 dependencies. You can skip this if you don't use sqlite3 in the image,
 # in which case you should also move better-sqlite3 to "devDependencies" in package.json.

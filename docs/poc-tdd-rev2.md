@@ -77,7 +77,8 @@ Request/response schemas and limits: see the contract document.
 ```ts
 async function executeRequest(req, deps): Promise<AssistantResponse> {
   const safeQuestion = redactText(req.question);
-  const candidates = deps.registry.listEnabled(env) ∩ deps.manager.spec.agents.allowed;
+  // the effective catalog IS the routing table; there is no second allowlist
+  const candidates = deps.registry.listEnabled(env);
   const stage1 = deterministicRoute(safeQuestion, candidates);
   const routing = stage1.resolved ? stage1.decision
                 : managerRouter.selectAgents(safeQuestion, filterAuthorized(candidates));

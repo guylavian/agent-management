@@ -1,0 +1,68 @@
+# Cluster-wide values for deploy/runtime/helm, applied to EVERY agent release
+# (manager and specialists). Copy to deploy/environments/production/runtime-values.yaml
+# in your Bitbucket copy of this repository; the ApplicationSet feeds it to the
+# chart before the per-agent rendered file. No secrets here — see secrets.example.yaml.
+# Every value below is a placeholder to replace; none is a working default.
+
+image:
+  repository: registry.example.internal/sre/sre-agent-runtime
+  tag: 0.2.0
+  pullPolicy: IfNotPresent
+imagePullSecrets:
+  - name: internal-registry
+
+# OpenShift restricted SCC assigns the uid; pinning 1000 makes every pod fail admission
+securityContext:
+  runAsUser: null
+  runAsGroup: null
+
+# enterprise CA (proxy / internal PKI). create: true lets OpenShift inject the cluster bundle.
+caBundle:
+  enabled: true
+  create: true
+  configMap: sre-agent-trusted-ca
+
+# The namespace and endpoint convention the Manager resolves specialists by.
+# Must equal the Argo destination namespace (deploy/on-prem/argocd/params.env).
+# Omit entirely to keep the image's deploy/environments/production/environment.yaml
+# (namespace sre-assistant).
+environmentOverride: |
+  apiVersion: sre.ai/v1alpha1
+  kind: DeploymentEnvironment
+  environment: production
+  namespace: sre-assistant
+  endpointTemplate: http://sre-agent-{agentId}.{namespace}.svc.cluster.local
+
+# Non-secret endpoints shared by every agent live in a ConfigMap (secrets.example.yaml
+# lists the keys); credentials stay in integrationsSecret.
+integrationsSecret: sre-agent-integrations
+extraEnvFrom:
+  - configMapRef: { name: sre-agent-endpoints }
+# Delegation public key (not secret): specialists verify Manager-issued
+# delegation tokens from a file, because their NetworkPolicy never allows a
+# specialist to dial the Manager for a JWKS.
+extraVolumes:
+  - name: delegation-public-key
+    configMap: { name: sre-agent-delegation-public-key }
+extraVolumeMounts:
+  - { name: delegation-public-key, mountPath: /etc/sre/delegation, readOnly: true }
+
+telemetry:
+  exporter: otlp                       # console if the cluster has no collector
+  otlpEndpoint: http://otel-collector.observability.svc.cluster.local:4318
+
+# manager only: expose the API through an OpenShift Route (edge TLS by the router)
+route:
+  enabled: true
+  host: sre-agent.apps.cluster.example.internal
+
+networkPolicy:
+  enabled: true
+  dnsPorts: [53, 5353]                 # OpenShift CoreDNS pod port is 5353
+  # label the namespaces hosting vLLM, ToolHive, RHBK, PostgreSQL, OTel with
+  #   oc label ns <ns> sre.ai/platform-service=true
+  platformNamespaceLabel: sre.ai/platform-service
+  apiClientNamespaceLabel: sre.ai/api-client
+  # the actual Service ports of those platform services
+  managerPlatformPorts: [443, 8443, 4318, 5432, 8000]
+  specialistPlatformPorts: [443, 8443, 4318, 8000]

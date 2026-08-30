@@ -1,4 +1,13 @@
-FROM node:24-alpine
+# Air-gap: point both at the internal mirror, e.g.
+#   docker build -f deploy/runtime/Dockerfile \
+#     --build-arg BASE_IMAGE=registry.internal/mirror/node:24-alpine \
+#     --build-arg NPM_REGISTRY=https://nexus.internal/repository/npm/ .
+# package-lock.json integrity hashes still apply; npm rewrites the locked
+# registry.npmjs.org URLs to NPM_REGISTRY (replace-registry-host, default).
+ARG BASE_IMAGE=node:24-alpine
+FROM ${BASE_IMAGE}
+ARG NPM_REGISTRY=https://registry.npmjs.org/
+ENV npm_config_registry=${NPM_REGISTRY}
 WORKDIR /app
 
 # Build context is the REPOSITORY ROOT, because the runtime spans three

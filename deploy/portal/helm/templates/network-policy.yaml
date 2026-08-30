@@ -20,6 +20,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: sre-ingress
+        {{- if .Values.route.enabled }}
+        - namespaceSelector:
+            matchLabels: {{- toYaml .Values.route.routerNamespaceLabels | nindent 14 }}
+        {{- end }}
       ports:
         - protocol: TCP
           port: {{ .Values.service.port }}
@@ -30,10 +34,17 @@ spec:
             matchLabels:
               app.kubernetes.io/name: {{ . }}
     {{- end }}
+    {{- with .Values.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
     # DNS only; no general internet egress in an air-gapped target
     - to:
         - namespaceSelector: {}
       ports:
+        {{- range .Values.networkPolicy.dnsPorts }}
         - protocol: UDP
-          port: 53
+          port: {{ . }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
 {{- end }}

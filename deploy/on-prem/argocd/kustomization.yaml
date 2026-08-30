@@ -1,0 +1,63 @@
+# On-prem bootstrap: the SAME desired-state objects as ../projects,
+# ../applicationsets/runtime.yaml and ../applications/portal.yaml, re-pointed at
+# this environment. Edit params.env only; nothing else here is site-specific.
+#
+#   kubectl kustomize deploy/on-prem/argocd | oc apply -f -
+#
+# Applied exactly once (by the platform team, with permission to create
+# AppProjects/ApplicationSets in the Argo CD namespace). Everything under
+# sre-assistant is owned by Argo CD from then on.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Argo CD namespace: `openshift-gitops` for the OpenShift GitOps operator.
+namespace: openshift-gitops
+
+resources:
+  - ../../argocd
+
+configMapGenerator:
+  - name: sre-agent-argocd-params
+    envs: [params.env]
+    options: { disableNameSuffixHash: true }
+
+# kustomize replacements pull the values out of params.env. The small
+# ConfigMap is applied alongside (kustomize runs patches before replacements,
+# so it cannot be dropped here); it holds no secret and records the site params.
+replacements:
+  - source: { kind: ConfigMap, name: sre-agent-argocd-params, fieldPath: data.GIT_REPO_URL }
+    targets:
+      - select: { kind: AppProject }
+        fieldPaths: [spec.sourceRepos.0]
+      - select: { kind: ApplicationSet }
+        fieldPaths:
+          - spec.generators.0.git.repoURL
+          - spec.template.spec.sources.0.repoURL
+          - spec.template.spec.sources.1.repoURL
+      - select: { kind: Application }
+        fieldPaths: [spec.sources.0.repoURL, spec.sources.1.repoURL]
+  - source: { kind: ConfigMap, name: sre-agent-argocd-params, fieldPath: data.GIT_REVISION }
+    targets:
+      - select: { kind: ApplicationSet }
+        fieldPaths:
+          - spec.generators.0.git.revision
+          - spec.template.spec.sources.0.targetRevision
+          - spec.template.spec.sources.1.targetRevision
+      - select: { kind: Application }
+        fieldPaths: [spec.sources.0.targetRevision, spec.sources.1.targetRevision]
+  - source: { kind: ConfigMap, name: sre-agent-argocd-params, fieldPath: data.TARGET_NAMESPACE }
+    targets:
+      - select: { kind: AppProject }
+        fieldPaths: [spec.destinations.0.namespace]
+      - select: { kind: ApplicationSet }
+        fieldPaths: [spec.template.spec.destination.namespace]
+      - select: { kind: Application }
+        fieldPaths: [spec.destination.namespace]
+
+patches:
+  # the project lists a second (GitHub) repo for the reference deployment; an
+  # on-prem project trusts exactly one Git host
+  - target: { kind: AppProject }
+    patch: |
+      - op: remove
+        path: /spec/sourceRepos/1

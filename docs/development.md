@@ -71,12 +71,44 @@ Request). By hand:
 2. write `config/prompts/<name>.md`
 3. if a new MCP server is involved, add `config/mcp-servers/<server>.yaml`; only
    `readOnlyVerified` tools may be approved
-4. add `<name>` to `config/agents/manager.yaml` under `spec.agents.allowed`
-5. enable it where it should run: `deploy/environments/<env>/agents/<name>.yaml`
-6. `npm run render:deploy && npm run check`
+4. enable it where it should run: `deploy/environments/<env>/agents/<name>.yaml`
+5. `npm run render:deploy && npm run check`
 
-There is deliberately no routing registry to update: the Manager's catalog is
-derived from step 1 intersected with step 5.
+There is deliberately no routing registry to update, and nothing to add to
+`config/agents/manager.yaml`: the Manager's catalog is derived from step 1
+(the Agent's own `lifecycle`) intersected with step 4 (`enabled` in that
+environment). The Manager document has no `agents.allowed` field, and a
+leftover one is a schema error rather than a silently ignored block.
+
+The Manager re-reads both while it runs, so a merged pull request takes effect
+without a restart.
+
+### Lifecycle
+
+    draft ─▶ pending-merge ─▶ reconciling ─▶ active
+                                  │             │
+                                  ├─▶ degraded ─┤   actual state failed
+                                  └─▶ failed        desired state invalid
+
+    active ─▶ reconciling ─▶ disabled                 (and back on re-enable)
+
+- **draft** — the Agent document is merged, but its own `lifecycle` says it is
+  not meant to run. Distinct from *disabled*: nothing was turned off.
+- **pending-merge** — an open pull request. Only the management plane can see
+  this; the runtime reads the repository as Argo synced it.
+- **reconciling** — desired and actual state do not agree yet. A *disable* also
+  passes through here: while Argo still holds the Application the workload is
+  being pruned, and reporting `disabled` then would claim a pod is gone while
+  it is still serving.
+- **degraded / failed** — a merged Agent whose deployment failed stays listed
+  with the signal that caused it, rather than disappearing.
+
+Routing is `lifecycle active ∩ enabled here ∩ not observed failing`. The last
+term fails OPEN on `unknown`: a deployment with no probe wired observes nothing,
+and treating that as unavailable would empty the catalog. Only a positive
+observation of failure removes an Agent. Set `SRE_RUNTIME_PROBE=on` and
+`SRE_ARGOCD_BASE_URL`/`SRE_ARGOCD_TOKEN` to have actual state observed at all;
+without them the console reports `unknown` with the reason rather than a colour.
 
 The workload client id and ToolHive audience are derived; do not invent them.
 Reconcile Keycloak with `@sre/keycloak-provisioning` (idempotent; dry-run first).

@@ -21,7 +21,9 @@ spec:
   # ClusterRoles, CRDs or namespaces.
   clusterResourceWhitelist: []
   namespaceResourceWhitelist:
+    - { group: "", kind: ConfigMap }
     - { group: "", kind: Service }
+    - { group: route.openshift.io, kind: Route }
     - { group: "", kind: ServiceAccount }
     - { group: apps, kind: Deployment }
     - { group: autoscaling, kind: HorizontalPodAutoscaler }

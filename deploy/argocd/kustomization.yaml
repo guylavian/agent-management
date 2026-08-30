@@ -1,0 +1,8 @@
+# Base for overlays (deploy/argocd/on-prem). The raw files stay the reference
+# desired state; bootstrap-local.sh applies them directly.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - projects/sre-agent-platform.yaml
+  - applicationsets/runtime.yaml
+  - applications/portal.yaml

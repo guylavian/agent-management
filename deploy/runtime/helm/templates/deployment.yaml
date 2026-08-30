@@ -12,6 +12,9 @@ spec:
       labels: {{- include "sre-agent.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "sre-agent.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: runtime
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -47,12 +50,18 @@ spec:
             {{- range $name, $value := .Values.extraEnv }}
             - { name: {{ $name }}, value: {{ $value | quote }} }
             {{- end }}
+            {{- if .Values.caBundle.enabled }}
+            - { name: NODE_EXTRA_CA_CERTS, value: {{ printf "%s/%s" .Values.caBundle.mountPath .Values.caBundle.key | quote }} }
+            {{- end }}
             {{- if eq .Values.agent.mode "manager" }}
             # the Manager derives its effective catalog from config/agents intersected
             # with this environment's deployment state; there is no registry file
             - { name: SRE_DEPLOYMENT_ENVIRONMENT_DIR, value: {{ printf "../deploy/environments/%s" .Values.deploymentEnvironment | quote }} }
-            - { name: SRE_WORKLOAD_TOKEN_FILE, value: {{ printf "%s/token" .Values.workloadIdentity.mountPath | quote }} }
             {{- end }}
+            # Both modes: loadAppConfig requires a workload credential whenever the
+            # agent client is real, and a specialist runs the same validation. The
+            # token is the pod's OWN identity; a specialist still never dials another agent.
+            - { name: SRE_WORKLOAD_TOKEN_FILE, value: {{ printf "%s/token" .Values.workloadIdentity.mountPath | quote }} }
             # logical model profile -> served model id, rendered from
             # deploy/environments/<env>/model-bindings.yaml. Endpoints and API
             # keys stay in the Secret below; nothing credential-shaped is rendered.
@@ -61,6 +70,9 @@ spec:
             {{- end }}
           envFrom:
             - secretRef: { name: {{ .Values.integrationsSecret | quote }} }
+            {{- with .Values.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           livenessProbe: { httpGet: { path: /health/live, port: http } }
           readinessProbe: { httpGet: { path: /health/ready, port: http } }
           resources: {{- toYaml .Values.resources | nindent 12 }}
@@ -72,19 +84,31 @@ spec:
             # against runAsNonRoot because it is a name, not a uid — the pod
             # fails CreateContainerConfigError. State the numeric uid the image
             # actually resolves that name to (node:24-alpine -> 1000).
-            runAsUser: {{ .Values.securityContext.runAsUser }}
-            runAsGroup: {{ .Values.securityContext.runAsGroup }}
+            # Both omitted (null) on OpenShift, where the SCC assigns the uid.
+            {{- with .Values.securityContext.runAsUser }}
+            runAsUser: {{ . }}
+            {{- end }}
+            {{- with .Values.securityContext.runAsGroup }}
+            runAsGroup: {{ . }}
+            {{- end }}
             seccompProfile: { type: RuntimeDefault }
             capabilities: { drop: [ALL] }
           volumeMounts:
-            {{- if eq .Values.agent.mode "manager" }}
             - { name: workload-identity, mountPath: {{ .Values.workloadIdentity.mountPath | quote }}, readOnly: true }
-            {{- end }}
             {{- if .Values.agent.configOverride }}
             - { name: agent-config, mountPath: /config, readOnly: true }
             {{- end }}
+            {{- if .Values.environmentOverride }}
+            # WORKDIR is /app/platform; SRE_DEPLOYMENT_ENVIRONMENT_DIR is ../deploy/environments/<env>
+            - { name: environment-config, mountPath: {{ printf "/app/deploy/environments/%s/environment.yaml" .Values.deploymentEnvironment | quote }}, subPath: environment.yaml, readOnly: true }
+            {{- end }}
+            {{- if .Values.caBundle.enabled }}
+            - { name: trusted-ca, mountPath: {{ .Values.caBundle.mountPath | quote }}, readOnly: true }
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
       volumes:
-        {{- if eq .Values.agent.mode "manager" }}
         - name: workload-identity
           projected:
             sources:
@@ -92,8 +116,20 @@ spec:
                   path: token
                   audience: {{ .Values.workloadIdentity.audience | quote }}
                   expirationSeconds: {{ .Values.workloadIdentity.expirationSeconds }}
-        {{- end }}
         {{- if .Values.agent.configOverride }}
         - name: agent-config
           configMap: { name: {{ include "sre-agent.fullname" . }}-config }
+        {{- end }}
+        {{- if .Values.environmentOverride }}
+        - name: environment-config
+          configMap: { name: {{ include "sre-agent.fullname" . }}-environment }
+        {{- end }}
+        {{- if .Values.caBundle.enabled }}
+        - name: trusted-ca
+          configMap:
+            name: {{ .Values.caBundle.configMap | quote }}
+            items: [{ key: {{ .Values.caBundle.key | quote }}, path: {{ .Values.caBundle.key | quote }} }]
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}

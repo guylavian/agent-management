@@ -15,7 +15,15 @@ spec:
       labels:
         app.kubernetes.io/name: sre-agent-portal
         app.kubernetes.io/component: management-plane
+      annotations:
+        # roll the pods when the cluster config changes
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
+      serviceAccountName: {{ default "sre-agent-portal" .Values.serviceAccount.name }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         seccompProfile:
@@ -23,13 +31,23 @@ spec:
       containers:
         - name: portal
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          {{- if eq .Values.gitops.provider "bitbucketServer" }}
           # the image's CMD loads app-config.yaml + app-config.production.yaml;
-          # the Bitbucket SCM integration is a separate layer, joined only when
-          # this deployment actually targets Bitbucket, because an integrations
-          # entry with unset env vars would fail config validation everywhere else
-          args: ["packages/backend", "--config", "app-config.yaml", "--config", "app-config.production.yaml", "--config", "app-config.bitbucket.yaml"]
-          {{- end }}
+          # the cluster layer (base URL, backend key, admin groups) is a ConfigMap
+          # rendered by this chart, and the Bitbucket SCM integration is joined
+          # only when this deployment actually targets Bitbucket, because an
+          # integrations entry with unset env vars would fail config validation
+          args:
+            - packages/backend
+            - --config
+            - app-config.yaml
+            - --config
+            - app-config.production.yaml
+            {{- if eq .Values.gitops.provider "bitbucketServer" }}
+            - --config
+            - app-config.bitbucket.yaml
+            {{- end }}
+            - --config
+            - /config/app-config.cluster.yaml
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -43,8 +61,20 @@ spec:
             # the execution plane's read-only API; the portal has no other path to runtime state
             - name: SRE_MANAGEMENT_API_URL
               value: {{ .Values.runtime.managementApiUrl | quote }}
+            {{- if .Values.runtime.oidc.tokenUrl }}
+            - name: SRE_MANAGEMENT_OIDC_TOKEN_URL
+              value: {{ .Values.runtime.oidc.tokenUrl | quote }}
+            - name: SRE_MANAGEMENT_OIDC_CLIENT_ID
+              value: {{ .Values.runtime.oidc.clientId | quote }}
+            - name: SRE_MANAGEMENT_OIDC_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: {{ .Values.runtime.oidc.secretRef }}, key: client-secret } }
+            - name: SRE_MANAGEMENT_OIDC_USERNAME
+              valueFrom: { secretKeyRef: { name: {{ .Values.runtime.oidc.secretRef }}, key: username } }
+            - name: SRE_MANAGEMENT_OIDC_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.runtime.oidc.secretRef }}, key: password } }
+            {{- end }}
             - name: SRE_PORTAL_OIDC_METADATA_URL
-              value: {{ .Values.oidc.metadataUrl | quote }}
+              value: {{ required "oidc.metadataUrl is required" .Values.oidc.metadataUrl | quote }}
             - name: SRE_PORTAL_OIDC_CLIENT_ID
               value: {{ .Values.oidc.clientId | quote }}
             # every credential arrives by secret reference — never from values or Git
@@ -53,6 +83,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.oidc.clientSecretRef }}
                   key: client-secret
+            - name: BACKEND_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backendSecretRef }}
+                  key: secret
             - name: SRE_GITOPS_PROVIDER
               value: {{ .Values.gitops.provider | quote }}
             {{- if ne .Values.gitops.provider "none" }}
@@ -83,16 +118,31 @@ spec:
                   name: {{ .Values.gitops.tokenSecretRef }}
                   key: token
             {{- end }}
-            - name: POSTGRES_CONNECTION
+            # the names app-config.production.yaml reads (backend.database.connection)
+            {{- range $key := list "host" "port" "user" "password" }}
+            - name: POSTGRES_{{ upper $key }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.postgres.connectionSecretRef }}
-                  key: connection-string
+                  name: {{ $.Values.postgres.connectionSecretRef }}
+                  key: {{ $key }}
+            {{- end }}
+            {{- if .Values.caBundle.enabled }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: {{ printf "%s/%s" .Values.caBundle.mountPath .Values.caBundle.key | quote }}
+            {{- end }}
           resources:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: cluster-config
+              mountPath: /config
+              readOnly: true
+            {{- if .Values.caBundle.enabled }}
+            - name: trusted-ca
+              mountPath: {{ .Values.caBundle.mountPath | quote }}
+              readOnly: true
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /healthcheck
@@ -106,3 +156,12 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: cluster-config
+          configMap:
+            name: sre-agent-portal-config
+        {{- if .Values.caBundle.enabled }}
+        - name: trusted-ca
+          configMap:
+            name: {{ .Values.caBundle.configMap | quote }}
+            items: [{ key: {{ .Values.caBundle.key | quote }}, path: {{ .Values.caBundle.key | quote }} }]
+        {{- end }}

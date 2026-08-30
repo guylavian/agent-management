@@ -1,0 +1,21 @@
+{{- if .Values.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: sre-agent-portal
+  labels:
+    app.kubernetes.io/name: sre-agent-portal
+    app.kubernetes.io/component: management-plane
+  {{- with .Values.route.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.route.host }}
+  host: {{ . | quote }}
+  {{- end }}
+  to: { kind: Service, name: sre-agent-portal }
+  port: { targetPort: http }
+  tls:
+    termination: {{ .Values.route.tls.termination }}
+    insecureEdgeTerminationPolicy: {{ .Values.route.tls.insecureEdgeTerminationPolicy }}
+{{- end }}

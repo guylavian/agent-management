@@ -69,12 +69,22 @@ is what permits mocks; `loadAppConfig` independently rejects every one of them
 under `production`/`real-poc`, so an overlay cannot widen what the runtime
 accepts — only narrow what a local cluster wires up.
 
-## Moving off GitHub
+## Moving off GitHub / on-prem
 
 The Git provider appears in exactly two places: `sourceRepos` in
-`projects/sre-agent-platform.yaml` and `repoURL` in the ApplicationSets. No
-manifest, chart or rendered value calls a provider API, so moving to Bitbucket
-is an edit to those URLs and a new token in the Secret.
+`projects/sre-agent-platform.yaml` and `repoURL` in the ApplicationSets and
+`applications/portal.yaml`. No manifest, chart or rendered value calls a
+provider API. For a Bitbucket Data Center + OpenShift GitOps target do not edit
+those files: `deploy/on-prem/argocd` is a kustomize overlay over
+`deploy/argocd/kustomization.yaml` that re-points repo URL, branch, Argo CD
+namespace and destination namespace from `params.env`. Full procedure:
+`deploy/on-prem/INSTALL.md`.
+
+`applicationsets/runtime.yaml` also feeds the chart an optional
+`deploy/environments/production/runtime-values.yaml` (cluster-wide image,
+registry, CA, Route, uid values) ahead of each agent's rendered file, and
+`applications/portal.yaml` deploys the management console from
+`deploy/environments/production/portal-values.yaml`.
 
 ## Known local-only gaps
 

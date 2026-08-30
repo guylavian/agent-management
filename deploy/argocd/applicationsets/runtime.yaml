@@ -28,17 +28,28 @@ spec:
         sre.ai/mode: "{{ .agent.mode }}"
     spec:
       project: sre-agent-platform
-      source:
-        repoURL: https://git.internal/sre/sre-agent-platform.git
-        targetRevision: main
-        # ONE runtime chart and ONE runtime image for every role. The Manager and
-        # every Specialist differ only by agent configuration, which is what stops
-        # Manager/Specialist version skew.
-        path: deploy/runtime/helm
-        helm:
-          valueFiles:
-            - $values/deploy/environments/production/rendered/agents/{{ .agent.name }}.yaml
-      sources: []
+      # Two refs to the SAME repo: the chart, and the values it is fed. `$values`
+      # only resolves in a multi-source Application, which is why this is not
+      # a single `source:`.
+      sources:
+        - repoURL: https://git.internal/sre/sre-agent-platform.git
+          targetRevision: main
+          ref: values
+        - repoURL: https://git.internal/sre/sre-agent-platform.git
+          targetRevision: main
+          # ONE runtime chart and ONE runtime image for every role. The Manager and
+          # every Specialist differ only by agent configuration, which is what stops
+          # Manager/Specialist version skew.
+          path: deploy/runtime/helm
+          helm:
+            # cluster-wide, hand-written values (image, registry, CA, Route,
+            # OpenShift uid, DNS ports) apply to every agent; the rendered file
+            # per agent comes last and wins. Absent runtime-values.yaml = chart
+            # defaults, which is how a fresh checkout still renders.
+            ignoreMissingValueFiles: true
+            valueFiles:
+              - $values/deploy/environments/production/runtime-values.yaml
+              - $values/deploy/environments/production/rendered/agents/{{ .agent.name }}.yaml
       destination:
         server: https://kubernetes.default.svc
         # must equal deploy/environments/production/environment.yaml `namespace`,

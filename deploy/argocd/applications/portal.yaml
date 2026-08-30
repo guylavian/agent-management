@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sre-agent-portal
+  namespace: argocd
+spec:
+  project: sre-agent-platform
+  sources:
+    - repoURL: https://git.internal/sre/sre-agent-platform.git
+      targetRevision: main
+      ref: values
+    - repoURL: https://git.internal/sre/sre-agent-platform.git
+      targetRevision: main
+      path: deploy/portal/helm
+      helm:
+        # hand-written per environment (see deploy/on-prem/portal-values.example.yaml);
+        # the chart's own defaults do not carry an OIDC metadata URL, so the
+        # Application stays OutOfSync/Degraded rather than rendering a portal
+        # nobody can sign in to
+        valueFiles:
+          - $values/deploy/environments/production/portal-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sre-assistant
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=false]

@@ -1,0 +1,19 @@
+{{- if and .Values.route.enabled (eq .Values.agent.mode "manager") }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "sre-agent.fullname" . }}
+  labels: {{- include "sre-agent.labels" . | nindent 4 }}
+  {{- with .Values.route.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.route.host }}
+  host: {{ . | quote }}
+  {{- end }}
+  to: { kind: Service, name: {{ include "sre-agent.fullname" . }} }
+  port: { targetPort: http }
+  tls:
+    termination: {{ .Values.route.tls.termination }}
+    insecureEdgeTerminationPolicy: {{ .Values.route.tls.insecureEdgeTerminationPolicy }}
+{{- end }}

@@ -29,3 +29,27 @@ data:
   agent.yaml: |
 {{ .Values.agent.configOverride | indent 4 }}
 {{- end }}
+{{- if .Values.environmentOverride }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sre-agent.fullname" . }}-environment
+  labels: {{- include "sre-agent.labels" . | nindent 4 }}
+data:
+  environment.yaml: |
+{{ .Values.environmentOverride | indent 4 }}
+{{- end }}
+{{- if and .Values.caBundle.enabled .Values.caBundle.create }}
+---
+# Empty on purpose: OpenShift's network operator fills `ca-bundle.crt` with the
+# cluster-wide trusted bundle because of the label. Off OpenShift, create the
+# ConfigMap yourself and set caBundle.create=false.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.caBundle.configMap | quote }}
+  labels:
+    config.openshift.io/inject-trusted-cabundle: "true"
+    {{- include "sre-agent.labels" . | nindent 4 }}
+{{- end }}

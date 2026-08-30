@@ -6,15 +6,54 @@ image:
   tag: 0.1.0
   pullPolicy: IfNotPresent
 
+# pull secrets for a private/internal registry, e.g. [{ name: internal-registry }]
+imagePullSecrets: []
+
 replicaCount: 2
 
 service:
   port: 7007
 
+# empty name = the release creates sre-agent-portal (no API token mounted; the
+# portal never talks to the Kubernetes API)
+serviceAccount:
+  name: ""
+
+# The URL browsers use. Backstage needs it for OIDC callbacks and the frontend
+# bundle; with a Route this is https://<route.host>. Required.
+baseUrl: http://localhost:7007
+
+# OpenShift Route in front of the portal Service.
+route:
+  enabled: false
+  host: ""
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  annotations: {}
+  routerNamespaceLabels:
+    network.openshift.io/policy-group: ingress
+
+# Enterprise CA bundle (NODE_EXTRA_CA_CERTS); see the runtime chart for the
+# OpenShift injection label. Also used for the PostgreSQL server certificate
+# when postgres.ssl is true.
+caBundle:
+  enabled: false
+  configMap: sre-agent-trusted-ca
+  key: ca-bundle.crt
+  create: false
+  mountPath: /etc/pki/ca-trust/extracted/pem
+
 # Read-only management API of the execution plane. The portal reaches the
 # Manager over HTTP; it does not share a process or a database with it.
 runtime:
   managementApiUrl: http://sre-agent-manager.sre-assistant.svc.cluster.local
+  # Service credential the portal uses to mint short-lived tokens for that API
+  # (sreAgent.managementApi.oidc). Secret keys: client-secret, username, password.
+  oidc:
+    tokenUrl: ""
+    clientId: sre-agent-portal-runtime
+    secretRef: sre-agent-portal-runtime-oidc
 
 # Human sign-in. A DIFFERENT authorization domain from Agent workload identity:
 # signing in here never grants an Agent access to an MCP.
@@ -23,6 +62,16 @@ oidc:
   clientId: sre-agent-portal
   # secret name holding SRE_PORTAL_OIDC_CLIENT_SECRET; never inline a secret here
   clientSecretRef: sre-agent-portal-oidc
+
+# Backstage group refs whose members may PROPOSE an Agent change. Empty means
+# every write is denied (unmapped must not mean unrestricted).
+adminGroups:
+  - group:default/sre-platform
+
+# Secret (key: secret) signing Backstage's own service-to-service tokens. With
+# more than one replica this MUST be set, or each pod signs with a different
+# random key and requests fail across pods.
+backendSecretRef: sre-agent-portal-backend
 
 # Git host used to open Agent change pull requests. With no token the portal
 # reports "not configured" rather than pretending a PR was opened.
@@ -38,8 +87,11 @@ gitops:
   tokenSecretRef: sre-agent-portal-gitops
 
 postgres:
-  # Backstage catalog storage; the portal keeps no runtime state
+  # Backstage catalog storage; the portal keeps no runtime state.
+  # Secret keys: host, port, user, password.
   connectionSecretRef: sre-agent-portal-postgres
+  # verify the server certificate against the CA bundle (requires caBundle.enabled)
+  ssl: false
 
 resources:
   requests:
@@ -52,7 +104,15 @@ resources:
 # The portal must not be able to reach MCP servers or ToolHive directly.
 networkPolicy:
   enabled: true
+  # pods in THIS namespace the portal may call
   allowEgressTo:
     - sre-agent-manager
     - keycloak
     - postgres
+  # raw extra egress rules for services in other namespaces (Keycloak,
+  # PostgreSQL, Bitbucket), e.g.
+  #   - to: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: rhbk } } }]
+  #     ports: [{ protocol: TCP, port: 8443 }]
+  extraEgress: []
+  # see the runtime chart: OpenShift CoreDNS listens on 5353
+  dnsPorts: [53]
