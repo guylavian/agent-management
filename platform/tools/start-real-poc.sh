@@ -97,12 +97,17 @@ wait_http http://127.0.0.1:8203/mcp "Kubernetes MCP"
 common_env=(
   SRE_ENV=real-poc SRE_CLIENT_OIDC=real SRE_CLIENT_LLM=real SRE_CLIENT_TOOLHIVE=real
   SRE_CLIENT_POSTGRES=disabled SRE_CLIENT_AGENT=real SRE_CLIENT_DELEGATION=real
+  # Keycloak serves BOTH schemes, but configuring TLS makes it redirect cleartext
+  # app requests (http://…:8080 -> https://…:8080, an https scheme on the http
+  # port), so JWKS must be fetched over https. The ISSUER stays http because it
+  # must equal the token's `iss`, which Keycloak derives from KC_HOSTNAME.
+  NODE_EXTRA_CA_CERTS="$repo/deploy/local/keycloak/certs/tls.crt"
   SRE_OIDC_ISSUER="http://localhost:${KEYCLOAK_HTTP_PORT:-8080}/realms/${KEYCLOAK_REALM:-sre-test}"
   SRE_OIDC_AUDIENCE=sre-assistant
-  SRE_OIDC_JWKS_URI="http://127.0.0.1:${KEYCLOAK_HTTP_PORT:-8080}/realms/${KEYCLOAK_REALM:-sre-test}/protocol/openid-connect/certs"
+  SRE_OIDC_JWKS_URI="https://localhost:${KEYCLOAK_HTTPS_PORT:-8443}/realms/${KEYCLOAK_REALM:-sre-test}/protocol/openid-connect/certs"
   SRE_INTERNAL_OIDC_ISSUER="http://localhost:${KEYCLOAK_HTTP_PORT:-8080}/realms/${KEYCLOAK_REALM:-sre-test}"
   SRE_INTERNAL_OIDC_AUDIENCE=sre-agent-runtime
-  SRE_INTERNAL_OIDC_JWKS_URI="http://127.0.0.1:${KEYCLOAK_HTTP_PORT:-8080}/realms/${KEYCLOAK_REALM:-sre-test}/protocol/openid-connect/certs"
+  SRE_INTERNAL_OIDC_JWKS_URI="https://localhost:${KEYCLOAK_HTTPS_PORT:-8443}/realms/${KEYCLOAK_REALM:-sre-test}/protocol/openid-connect/certs"
   SRE_LLM_BASE_URL="$SRE_LLM_BASE_URL" SRE_MODEL_MANAGER="$SRE_MODEL_MANAGER"
   SRE_MODEL_TOOL_CALLER="$SRE_MODEL_TOOL_CALLER" SRE_MODEL_SYNTHESIS="$SRE_MODEL_SYNTHESIS"
   SRE_TOOLHIVE_ENDPOINTS_JSON='{"keycloak":"http://127.0.0.1:8301/mcp","prometheus":"http://127.0.0.1:8302/mcp","wiki":"http://127.0.0.1:8303/mcp","kubernetes":"http://127.0.0.1:8304/mcp"}'
