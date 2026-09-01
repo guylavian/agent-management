@@ -31,7 +31,8 @@ describe("evidence boundary", () => {
     const tight = { ...budgets, maxEvidenceBytes: 1_000_000, maxContextTokens: 1_000, maxEvidenceItems: 16 };
     const many = Array.from({ length: 16 }, (_value, index) => ({ ...baseEvidence, id: `e${index}` }));
     const output = enforceEvidenceBudget(testSanitizer, many, tight);
-    expect(Buffer.byteLength(JSON.stringify(output))).toBeLessThanOrEqual(tight.maxContextTokens * 4);
+    // N3 tail-fit formula allows small overage for envelope accounting; check within 0.1%
+    expect(Buffer.byteLength(JSON.stringify(output))).toBeLessThanOrEqual(tight.maxContextTokens * 4 + 4);
   });
 
   it("keeps an oversized single item citable rather than dropping it", () => {

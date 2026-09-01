@@ -1,6 +1,7 @@
 import { accessServers, audienceFor, type AgentDefinition } from "../agent/definition.ts";
 import type { Principal, ToolCredential } from "../agent/principal.ts";
 import { engineError } from "../errors/index.ts";
+import { withDeadline } from "../guardrails/deadline.ts";
 import type { Telemetry } from "../telemetry/port.ts";
 
 /**
@@ -21,7 +22,8 @@ export interface WorkloadRef {
 }
 
 export interface CredentialProvider {
-  exchange(workload: WorkloadRef | undefined, principal: Principal, audience: string, deadline: number): Promise<ToolCredential>;
+  /** `signal` aborts when the run's deadline expires or the caller cancels; a provider that ignores it is abandoned by the engine's own race. */
+  exchange(workload: WorkloadRef | undefined, principal: Principal, audience: string, deadline: number, signal?: AbortSignal): Promise<ToolCredential>;
 }
 
 export interface CredentialScope {
@@ -31,6 +33,7 @@ export interface CredentialScope {
   deadline: number;
   telemetry: Telemetry;
   exchanger?: CredentialProvider;
+  signal?: AbortSignal;
 }
 
 /**
@@ -57,14 +60,16 @@ export async function exchangeFor(scope: CredentialScope, server: string): Promi
   if (exchanger === undefined) return undefined;
   const audience = audienceFor(scope.agent, server);
   if (audience === undefined) return undefined;
-  // attributes name the workload and the audience; the token itself is never recorded
-  return scope.telemetry.span("workload.token", {
+  // attributes name the workload and the audience; the token itself is never recorded.
+  // The deadline guard lives HERE so both call sites — setup acquisition and the
+  // on-demand exchange during a tool call — are bounded by the same race.
+  return withDeadline(scope.deadline, (signal) => scope.telemetry.span("workload.token", {
     "request.id": scope.requestId,
     "agent.id": scope.agent.id,
     "workload.client_id": scope.agent.workload?.clientId ?? "none",
     "tool.server": server,
     "token.audience": audience,
-  }, () => exchanger.exchange(workloadRef(scope.agent), scope.principal, audience, scope.deadline));
+  }, () => exchanger.exchange(workloadRef(scope.agent), scope.principal, audience, scope.deadline, signal)), scope.signal);
 }
 
 /** The Agent's workload, if it has one, named with the Agent it belongs to. */

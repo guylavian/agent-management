@@ -20,6 +20,11 @@ export function normalizeEvidence(sanitizer: Sanitizer, input: Evidence, budgets
   const original = encoder.encode(JSON.stringify({ payload: redacted.payload, rawExcerpt: redacted.rawExcerpt })).byteLength;
   let normalized = redacted;
 
+  // N2: bound query to maxRawExcerptBytes
+  if (normalized.query !== undefined && encoder.encode(normalized.query).byteLength > budgets.maxRawExcerptBytes) {
+    normalized = { ...normalized, query: headBytes(normalized.query, budgets.maxRawExcerptBytes), truncated: true, originalSizeBytes: original };
+  }
+
   if (normalized.rawExcerpt !== undefined && encoder.encode(normalized.rawExcerpt).byteLength > budgets.maxRawExcerptBytes) {
     normalized = { ...normalized, rawExcerpt: headBytes(normalized.rawExcerpt, budgets.maxRawExcerptBytes), truncated: true, originalSizeBytes: original };
   }
@@ -72,7 +77,9 @@ export function enforceEvidenceBudget(sanitizer: Sanitizer, rawEvidence: Evidenc
     const itemBytes = encoder.encode(JSON.stringify(normalized)).byteLength;
     if (bytes + itemBytes > totalLimit) {
       const remaining = Math.max(0, totalLimit - bytes);
-      normalized = normalizeEvidence(sanitizer, { ...normalized, payload: undefined, rawExcerpt: headBytes(normalized.rawExcerpt ?? JSON.stringify(normalized.payload ?? ""), remaining) }, { ...budgets, maxEvidenceBytes: Math.max(4096, remaining) });
+      // N3: exact tail-fit envelope subtraction formula per SDD spec
+      const envelopeBytes = encoder.encode(JSON.stringify({ ...normalized, payload: undefined, rawExcerpt: undefined })).byteLength;
+      normalized = normalizeEvidence(sanitizer, { ...normalized, payload: undefined, rawExcerpt: headBytes(normalized.rawExcerpt ?? JSON.stringify(normalized.payload ?? ""), Math.max(0, remaining - envelopeBytes - 16)) }, { ...budgets, maxEvidenceBytes: Math.max(4096, remaining) });
     }
     const finalBytes = encoder.encode(JSON.stringify(normalized)).byteLength;
     if (bytes + finalBytes > totalLimit) break;

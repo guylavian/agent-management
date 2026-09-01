@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { DomainHandoff, Evidence, RuntimeError, SpecialistResult } from "@sre/evidence";
 import type { AgentDefinition } from "../agent/definition.ts";
 import type { ToolCredential } from "../agent/principal.ts";
@@ -16,6 +17,16 @@ import { visibleTools } from "../tools/visibility.ts";
 import { CONTROL_TOOLS, parseEnvelope, toStringArray } from "./control.ts";
 import { answerResult, failed, failedWithEvidence, handoffResult, insufficientResult, type ResultScope } from "./result.ts";
 import type { AgentRunContext, EngineDependencies } from "./run.ts";
+
+const agentBudgetsSchema = z.object({
+  maxToolCalls: z.number().int().finite().safe().min(1),
+  maxModelTurns: z.number().int().finite().safe().min(1),
+  timeoutMs: z.number().int().finite().safe().min(1),
+  maxEvidenceBytes: z.number().int().finite().safe().min(1),
+  maxContextTokens: z.number().int().finite().safe().min(1),
+  maxEvidenceItems: z.number().int().finite().safe().min(0),
+  maxRawExcerptBytes: z.number().int().finite().safe().min(1),
+});
 
 /**
  * The bounded investigation loop.
@@ -37,13 +48,11 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
   const budgets = agent.budgets;
   const results: ResultScope = { agentId: agent.id, sanitizer: deps.sanitizer, budgets };
 
-  const agentDecision = await telemetry.span("authorization.check", {
-    "request.id": ctx.requestId,
-    "agent.id": agent.id,
-    "authorization.subject": "agent",
-    "agent.lifecycle": agent.lifecycleLabel ?? "unknown",
-  }, async () => authorizeAgent(ctx.principal, agent));
-  if (!agentDecision.allowed) return failed(agent.id, "AUTHZ_DENIED", "Specialist access denied");
+  // Validate budgets and deadline at entry; fail closed if invalid
+  const budgetValidation = agentBudgetsSchema.safeParse(budgets);
+  if (!budgetValidation.success) return failed(agent.id, "INVALID_BUDGET", "Agent budget configuration is invalid");
+
+  if (!Number.isFinite(ctx.deadline)) return failed(agent.id, "INVALID_BUDGET", "Agent deadline must be a finite number");
 
   // the run's single absolute deadline: the caller's, or the Agent's budget,
   // whichever expires first
@@ -68,13 +77,49 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
     ...(ctx.signal ? { signal: ctx.signal } : {}),
   };
 
-  // discovery is authenticated too: one narrow credential per configured server
-  // before listing; a server whose exchange fails contributes no tools
-  const acquired = await acquireCredentials(scope);
-  for (const [server, credential] of acquired) credentialCache.set(server, credential);
+  // one classification for ANY failure that interrupts the run, setup or loop.
+  // Cancellation is checked first: a caller abort is not a model failure. The
+  // summary is DETERMINISTIC — it reports how the run was interrupted and that
+  // citations exist; it asserts nothing the evidence does not.
+  const interrupted = (error: unknown): SpecialistResult => {
+    const cancelled = ctx.signal?.aborted === true || (error instanceof Error && error.name === "AbortError");
+    const code = cancelled ? ("CANCELLED" as const) : modelFailureCode(error);
+    const usable = evidence.filter((item) => item.status === "ok" || item.status === "empty").length;
+    const grounded = usable > 0
+      ? `The investigation was interrupted (${code}) before a final summary could be produced. ${usable} evidence item(s) were collected and are cited; they answer the question only as far as they go.`
+      : undefined;
+    try {
+      return failedWithEvidence(results, evidence, errors, code, safeModelMessage(code), grounded);
+    } catch {
+      // last resort: typed, evidence-free, no internals — runAgent never rejects
+      return failed(agent.id, code, safeModelMessage(code));
+    }
+  };
 
-  // tool visibility is fixed for the whole loop: policy ∩ published ∩ read-only ∩ authorized
-  const available = await visibleTools(agent, policy, deps.tools, ctx.principal, ctx.environment, credentialCache, ctx.signal);
+  // setup is bounded and classified exactly like the loop: authorization,
+  // credential acquisition (bounded inside exchangeFor) and discovery all obey
+  // the deadline, so a non-cooperative port cannot stall the run before it starts
+  let available: Awaited<ReturnType<typeof visibleTools>>;
+  try {
+    if (Date.now() >= deadline) return failedWithEvidence(results, evidence, errors, "REQUEST_TIMEOUT", "Specialist deadline exhausted");
+    const agentDecision = await telemetry.span("authorization.check", {
+      "request.id": ctx.requestId,
+      "agent.id": agent.id,
+      "authorization.subject": "agent",
+      "agent.lifecycle": agent.lifecycleLabel ?? "unknown",
+    }, async () => authorizeAgent(ctx.principal, agent));
+    if (!agentDecision.allowed) return failed(agent.id, "AUTHZ_DENIED", "Specialist access denied");
+
+    // discovery is authenticated too: one narrow credential per configured server
+    // before listing; a server whose exchange fails contributes no tools
+    const acquired = await acquireCredentials(scope);
+    for (const [server, credential] of acquired) credentialCache.set(server, credential);
+
+    // tool visibility is fixed for the whole loop: policy ∩ published ∩ read-only ∩ authorized
+    available = await withDeadline(deadline, (signal) => visibleTools(agent, policy, deps.tools, ctx.principal, ctx.environment, credentialCache, signal), ctx.signal);
+  } catch (error) {
+    return interrupted(error);
+  }
   // real tools plus the virtual control tools, which terminate the loop and never reach a provider
   const offered: ModelToolSchema[] = [
     ...available.map(({ schema }) => ({ name: schema.name, description: schema.description, inputSchema: schema.inputSchema })),
@@ -107,8 +152,15 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
     evidence.push(outcome.evidence);
     if (outcome.error) errors.push(outcome.error);
     // REDACTION BOUNDARY: never feed a raw tool payload back into the model — redact first
-    const redacted = enforceEvidenceBudget(deps.sanitizer, [outcome.evidence], budgets)[0] ?? outcome.evidence;
-    const rendered = JSON.stringify({ id: redacted.id, status: redacted.status, kind: redacted.kind, content: redacted.payload ?? redacted.rawExcerpt ?? null }).slice(0, 4000);
+    let first: typeof outcome.evidence | undefined;
+    try {
+      first = enforceEvidenceBudget(deps.sanitizer, [outcome.evidence], budgets)[0];
+    } catch {
+      errors.push({ code: "REDACTION_FAILURE", message: "Evidence redaction failed", retryable: false });
+    }
+    const rendered = first === undefined
+      ? JSON.stringify({ id: outcome.evidence.id, status: outcome.evidence.status, kind: outcome.evidence.kind, content: null, note: "evidence content withheld (budget)" })
+      : JSON.stringify({ id: first.id, status: first.status, kind: first.kind, content: first.payload ?? first.rawExcerpt ?? null }).slice(0, 4000);
     if (outcome.evidence.status === "ok" || outcome.evidence.status === "empty") completedCalls.set(callKey, rendered);
     return rendered;
   };
@@ -143,6 +195,12 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
       if (Date.now() >= deadline) return failedWithEvidence(results, evidence, errors, "REQUEST_TIMEOUT", "Specialist deadline exhausted");
       const response = await modelTurn();
       modelTurns += 1;
+
+      // Check if usage exhausts the context budget
+      if (response.usage !== undefined && response.usage.promptTokens > budgets.maxContextTokens) {
+        return insufficientResult(results, evidence, errors, "Context budget exhausted");
+      }
+
       const calls = response.toolCalls ?? [];
 
       if (calls.length === 0) {
@@ -170,15 +228,8 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
     }
     return insufficientResult(results, evidence, errors, "Model-turn budget exhausted before a supported answer could be reached.");
   } catch (error) {
-    const code = modelFailureCode(error);
-    // evidence that was gathered is not voided by a later model failure. The
-    // summary below is DETERMINISTIC — it reports how the run was interrupted
-    // and that citations exist; it asserts nothing the evidence does not.
-    const usable = evidence.filter((item) => item.status === "ok" || item.status === "empty").length;
-    const grounded = usable > 0
-      ? `The investigation was interrupted (${code}) before a final summary could be produced. ${usable} evidence item(s) were collected and are cited; they answer the question only as far as they go.`
-      : undefined;
-    return failedWithEvidence(results, evidence, errors, code, safeModelMessage(code), grounded);
+    // evidence that was gathered is not voided by a later failure
+    return interrupted(error);
   }
 }
 

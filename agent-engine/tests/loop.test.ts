@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runAgent, type ToolCallRequest, type ToolCallResult } from "../src/index.ts";
+import { runAgent, type ToolCallRequest, type ToolCallResult, type Sanitizer, type Model, type ModelRequest, type ModelResponse } from "../src/index.ts";
 import {
   agentDefinition,
   answerAction,
@@ -10,6 +10,7 @@ import {
   nativeCall,
   NativeModel,
   RecordingTelemetry,
+  RespondingModel,
   runContext,
   ScriptedModel,
   toolCallAction,
@@ -101,7 +102,9 @@ describe("bounded investigation loop", () => {
     const model = new ScriptedModel([toolCallAction("alpha_status", alphaArgs), answerAction("done")]);
     await runAgent(budgets({ timeoutMs: 1_000 }), policy, runContext("q", Date.now() + 60_000), dependencies(model, tools));
     for (const call of tools.calls) seen.push(call.timeoutMs);
-    // the per-tool timeout is capped by what remains of the SHORTER of the two deadlines
+    // the per-tool timeout is capped by what remains of the SHORTER of the two deadlines.
+    // at least one call must have happened, or Math.max(...[]) is -Infinity and the bound is vacuous
+    expect(seen.length).toBeGreaterThanOrEqual(1);
     expect(Math.max(...seen)).toBeLessThanOrEqual(1_000);
   });
 
@@ -239,5 +242,196 @@ describe("bounded investigation loop", () => {
     expect(offered).toEqual(expect.arrayContaining(["docs_search", "docs_read", "alpha_status", "alpha_health", "answer", "need_domain", "insufficient_evidence"]));
     expect(offered).not.toContain("beta_status");
     expect(offered).not.toContain("alpha_update_node");
+  });
+
+  describe("C1 — redaction boundary (critical)", () => {
+    it("withholds payload content when budget blocks evidence, using native tool calls", async () => {
+      const canary = "CANARY_SECRET_12345";
+      const tools = new FixtureToolProvider({
+        tools: [{
+          serverId: "alpha",
+          name: "alpha_status",
+          description: "Status",
+          inputSchema: { type: "object", properties: { target: { type: "string" } }, required: ["target"], additionalProperties: false },
+          result: () => ({ secret: canary, data: "status" }),
+        }],
+      });
+      const turns: { turn: number; hasToolMsg: boolean; toolMsgContent?: string }[] = [];
+      const model = new RespondingModel((request, turn) => {
+        const toolMsgs = request.messages.filter((msg) => msg.role === "tool").map((msg) => msg.content);
+        turns.push({ turn, hasToolMsg: toolMsgs.length > 0, toolMsgContent: toolMsgs[0]?.slice(0, 200) });
+
+        // Native model: turn 0 = initial, returns tool calls
+        if (turn === 0) {
+          return { toolCalls: [nativeCall("1", "alpha_status", { target: "n1" })], usage: { promptTokens: 1, completionTokens: 1 } };
+        }
+        // Turn 1+: answer with the control tool
+        return { toolCalls: [{ id: "ans", name: "answer", arguments: { summary: "done", evidenceIds: [] } }], usage: { promptTokens: 1, completionTokens: 1 } };
+      });
+      await runAgent(budgets({ maxEvidenceItems: 0, maxModelTurns: 5 }), policy, runContext("q"), dependencies(model, tools));
+      // Verify turns happened and check what was in tool messages
+      expect(turns.length).toBeGreaterThan(1);
+      if (turns[1]?.hasToolMsg) {
+        expect(turns[1]?.toolMsgContent).not.toContain(canary);
+      }
+    });
+    it("withholds content when maxContextTokens is tiny with native tool calls", async () => {
+      const canary = "CANARY_TINY_TOKEN_BUDGET_999";
+      const tools = new FixtureToolProvider({
+        tools: [{
+          serverId: "alpha",
+          name: "alpha_status",
+          description: "Status",
+          inputSchema: { type: "object", properties: { target: { type: "string" } }, required: ["target"], additionalProperties: false },
+          result: () => ({ secret: canary, data: "very".repeat(1000) }),
+        }],
+      });
+      const model = new RespondingModel((request, turn) => {
+        if (turn >= 1) {
+          const allContent = request.messages.map((msg) => msg.content).join("\n");
+          expect(allContent).not.toContain(canary);
+        }
+        if (turn === 0) {
+          return { toolCalls: [nativeCall("1", "alpha_status", { target: "n1" })], usage: { promptTokens: 1, completionTokens: 1 } };
+        }
+        return { toolCalls: [{ id: "ans", name: "answer", arguments: { summary: "done", evidenceIds: [] } }], usage: { promptTokens: 1, completionTokens: 1 } };
+      });
+      await runAgent(budgets({ maxContextTokens: 10 }), policy, runContext("q"), dependencies(model, tools));
+    });
+
+    it("cached duplicate call result is rendered as placeholder when budget withholds content", async () => {
+      const canary = "CANARY_DUP_CACHE_777";
+      const tools = new FixtureToolProvider({
+        tools: [{
+          serverId: "alpha",
+          name: "alpha_status",
+          description: "Status",
+          inputSchema: { type: "object", properties: { target: { type: "string" } }, required: ["target"], additionalProperties: false },
+          result: () => ({ secret: canary, data: "x" }),
+        }],
+      });
+      const model = new RespondingModel((request, turn) => {
+        // All results should have content withheld
+        if (turn >= 1) {
+          const allContent = request.messages.map((msg) => msg.content).join("\n");
+          expect(allContent).not.toContain(canary);
+        }
+        if (turn === 0) {
+          return { toolCalls: [nativeCall("1", "alpha_status", { target: "n1" })], usage: { promptTokens: 1, completionTokens: 1 } };
+        }
+        if (turn === 1) {
+          // Make the same call again — should be served from cache
+          return { toolCalls: [nativeCall("2", "alpha_status", { target: "n1" })], usage: { promptTokens: 1, completionTokens: 1 } };
+        }
+        return { toolCalls: [{ id: "ans", name: "answer", arguments: { summary: "done", evidenceIds: [] } }], usage: { promptTokens: 1, completionTokens: 1 } };
+      });
+      await runAgent(budgets({ maxEvidenceItems: 0, maxModelTurns: 5 }), policy, runContext("q"), dependencies(model, tools));
+      // Only one actual tool invocation, second was cached
+      expect(tools.calls).toHaveLength(1);
+    });
+  });
+
+  describe("H5 — mislabeled failures; raw exception escape", () => {
+    it("resolves with CANCELLED when the run is aborted mid-execution", async () => {
+      const controller = new AbortController();
+      class AbortableModel implements Model {
+        readonly requests: ModelRequest[] = [];
+        async chat(request: ModelRequest): Promise<ModelResponse> {
+          this.requests.push(request);
+          // Wait until signal is aborted or timeout
+          await new Promise<void>((resolve, reject) => {
+            const timeoutId = setTimeout(() => resolve(), 500);
+            if (request.signal) {
+              request.signal.addEventListener("abort", () => {
+                clearTimeout(timeoutId);
+                reject(request.signal?.reason || new Error("Aborted"));
+              }, { once: true });
+            }
+          });
+          return { toolCalls: [], content: "done", usage: { promptTokens: 1, completionTokens: 1 } };
+        }
+      }
+      // Schedule an abort after a short delay
+      const abortTimer = setTimeout(() => controller.abort(), 50);
+      try {
+        const result = await runAgent(agentDefinition(), policy, runContext("q", Date.now() + 10_000, { signal: controller.signal }), dependencies(new AbortableModel()));
+        expect(result.status).not.toBe("complete");
+        expect((result.errors ?? []).map((error) => error.code)).toContain("CANCELLED");
+      } finally {
+        clearTimeout(abortTimer);
+      }
+    });
+
+    it("circular payload resolves typed with no canary leak to model", async () => {
+      const canary = "CIRCULAR_PAYLOAD_CANARY_555";
+      class CircularProvider extends FixtureToolProvider {
+        override async invoke(call: ToolCallRequest): Promise<ToolCallResult> {
+          // Create a circular reference
+          const obj: Record<string, unknown> = { canary, data: "test" };
+          obj.self = obj;
+          return { content: obj, observedAt: new Date().toISOString() };
+        }
+      }
+      const model = new RespondingModel((request, turn) => {
+        // Check that the canary is never sent to the model
+        const allContent = request.messages.map((msg) => msg.content).join("\n");
+        expect(allContent).not.toContain(canary);
+        if (turn === 0) {
+          return { toolCalls: [nativeCall("1", "alpha_status", { target: "n1" })], usage: { promptTokens: 1, completionTokens: 1 } };
+        }
+        return { toolCalls: [{ id: "ans", name: "answer", arguments: { summary: "done", evidenceIds: [] } }], usage: { promptTokens: 1, completionTokens: 1 } };
+      });
+      const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(model, new CircularProvider()));
+      expect(result).toBeDefined();
+      // Result should still be typed and valid
+      expect(result.agentId).toBe("alpha-agent");
+    });
+
+    it("throwing sanitizer results in typed REDACTION_FAILURE with no internals leaked", async () => {
+      const canary = "SANITIZER_THROW_CANARY_999";
+      const sanitizerError = new Error("Sanitizer processing failed");
+      const badSanitizer: Sanitizer = {
+        text: () => { throw sanitizerError; },
+        evidence: () => { throw sanitizerError; },
+      };
+      class ThrowingProvider extends FixtureToolProvider {
+        override async invoke(call: ToolCallRequest): Promise<ToolCallResult> {
+          return { content: { secret: canary, data: "result" }, observedAt: new Date().toISOString() };
+        }
+      }
+      const model = new RespondingModel((request, turn) => {
+        if (turn === 0) {
+          return { toolCalls: [nativeCall("1", "alpha_status", { target: "n1" })], usage: { promptTokens: 1, completionTokens: 1 } };
+        }
+        return { toolCalls: [{ id: "ans", name: "answer", arguments: { summary: "done", evidenceIds: [] } }], usage: { promptTokens: 1, completionTokens: 1 } };
+      });
+      const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(model, new ThrowingProvider(), undefined, badSanitizer));
+      expect(result).toBeDefined();
+      expect((result.errors ?? []).map((error) => error.code)).toContain("REDACTION_FAILURE");
+      // Verify that neither the canary nor the sanitizer error message appear in the result JSON
+      const resultJson = JSON.stringify(result);
+      expect(resultJson).not.toContain(canary);
+      expect(resultJson).not.toContain("Sanitizer processing failed");
+    });
+
+    it("tool provider and sanitizer both throwing still resolves the result", async () => {
+      const sanitizerError = new Error("Sanitizer broke");
+      const badSanitizer: Sanitizer = {
+        text: () => { throw sanitizerError; },
+        evidence: () => { throw sanitizerError; },
+      };
+      class AlwaysFailsProvider extends FixtureToolProvider {
+        override async invoke(): Promise<ToolCallResult> {
+          throw new Error("Provider always fails");
+        }
+      }
+      const model = new ScriptedModel([toolCallAction("alpha_status", { target: "n1" }), answerAction("impossible")]);
+      // This should not throw; runAgent always resolves
+      const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(model, new AlwaysFailsProvider(), undefined, badSanitizer));
+      expect(result).toBeDefined();
+      expect(result.status).toBe("failed");
+      // Should contain error(s) but not crash
+      expect(Array.isArray(result.errors)).toBe(true);
+    });
   });
 });

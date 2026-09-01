@@ -63,11 +63,12 @@ export function isRetryableModelFailure(code: ModelFailureCode): boolean {
   return code !== "REQUEST_TIMEOUT";
 }
 
-export function safeModelMessage(code: ModelFailureCode): string {
+export function safeModelMessage(code: string): string {
   if (code === "MODEL_RATE_LIMITED") return "The model provider rate-limited the request";
   if (code === "MODEL_INVALID_OUTPUT") return "The model returned invalid structured output";
   if (code === "MODEL_TIMEOUT") return "The model did not respond in time";
   if (code === "REQUEST_TIMEOUT") return "Specialist deadline exhausted";
+  if (code === "CANCELLED") return "Specialist execution was cancelled";
   return "The model provider was unavailable";
 }
 

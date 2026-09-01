@@ -71,7 +71,9 @@ export async function executeTool(scope: ToolExecutionScope, selected: VisibleTo
       return { evidence: toolResultToEvidence(call, result, scope.agent.id, selected.approved.evidenceKind) };
     } catch (error) {
       lastError = error;
-      if (attempt + 1 >= maxAttempts || !isTransient(errorCode(error))) break;
+      // an expired RUN deadline is never "transient": retrying against a spent
+      // budget only delays the honest answer (the per-tool timeout may retry)
+      if (attempt + 1 >= maxAttempts || !isTransient(errorCode(error)) || Date.now() >= scope.deadline) break;
     }
   }
   return failure(call, scope.agent.id, errorCode(lastError));

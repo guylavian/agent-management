@@ -20,16 +20,69 @@ export function argsFingerprint(args: Record<string, unknown>): string {
 
 /** JSON with recursively sorted object keys, so property order cannot split identity. */
 export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left < right ? -1 : 1);
-    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
+  // path-scoped cycle detection: a value on the CURRENT descent is a cycle; the
+  // same object reached twice through different keys is legitimate sharing
+  const path = new WeakSet<object>();
+  const canonical = (val: unknown): string => {
+    if (Array.isArray(val)) {
+      if (path.has(val)) return "[CYCLE]";
+      path.add(val);
+      const out = `[${val.map(canonical).join(",")}]`;
+      path.delete(val);
+      return out;
+    }
+    if (val !== null && typeof val === "object") {
+      if (path.has(val)) return "[CYCLE]";
+      path.add(val);
+      const entries = Object.entries(val as Record<string, unknown>).sort(([left], [right]) => left < right ? -1 : 1);
+      const out = `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;
+      path.delete(val);
+      return out;
+    }
+    return JSON.stringify(val) ?? "null";
+  };
+  return canonical(value);
 }
 
 export function evidenceIdFor(call: Pick<ToolCallRequest, "requestId" | "toolName" | "arguments">): string {
   return `mcp:${call.requestId}:${call.toolName}:${argsFingerprint(call.arguments)}`;
+}
+
+/** Make a payload JSON-safe: circular or unserializable values become a deterministic marker. */
+function toJsonSafePayload(payload: unknown): unknown {
+  // path-scoped, like canonicalJson: only a value on the current descent is a
+  // cycle; shared non-cyclic references are preserved as data
+  const path = new WeakSet<object>();
+  const makeSafe = (val: unknown): unknown => {
+    if (val === null || typeof val === "string" || typeof val === "number" || typeof val === "boolean") return val;
+    if (Array.isArray(val)) {
+      if (path.has(val)) return "[UNSERIALIZABLE_PAYLOAD]";
+      path.add(val);
+      const out = val.map(makeSafe);
+      path.delete(val);
+      return out;
+    }
+    if (typeof val === "object") {
+      if (path.has(val)) return "[UNSERIALIZABLE_PAYLOAD]";
+      path.add(val);
+      const result: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(val as Record<string, unknown>)) {
+        result[key] = makeSafe(value);
+      }
+      path.delete(val);
+      return result;
+    }
+    // functions, symbols, undefined and other non-serializable types
+    return "[UNSERIALIZABLE_PAYLOAD]";
+  };
+  try {
+    const safe = makeSafe(payload);
+    // Verify it's actually JSON-serializable
+    JSON.stringify(safe);
+    return safe;
+  } catch {
+    return "[UNSERIALIZABLE_PAYLOAD]";
+  }
 }
 
 /** A tool result becomes typed, citable Evidence. Nothing else enters the record. */
@@ -37,7 +90,7 @@ export function toolResultToEvidence(call: ToolCallRequest, result: ToolCallResu
   const empty = Array.isArray(result.content) && result.content.length === 0;
   // knowledge evidence records sourceModifiedAt (document version), not observedAt (live-state semantics)
   const isKnowledge = kind === "wiki";
-  return { id: evidenceIdFor(call), kind, source: `${call.serverId}/${call.toolName}`, system: call.serverId, environment: call.environment, ...(isKnowledge ? { sourceModifiedAt: result.observedAt } : { observedAt: result.observedAt }), tool: call.toolName, query: JSON.stringify(call.arguments), payload: result.content, citation: `mcp://${call.serverId}/${call.toolName}?request=${call.requestId}`, status: result.isError ? "failed" : empty ? "empty" : "ok", requestId: call.requestId, agentId };
+  return { id: evidenceIdFor(call), kind, source: `${call.serverId}/${call.toolName}`, system: call.serverId, environment: call.environment, ...(isKnowledge ? { sourceModifiedAt: result.observedAt } : { observedAt: result.observedAt }), tool: call.toolName, query: JSON.stringify(call.arguments), payload: toJsonSafePayload(result.content), citation: `mcp://${call.serverId}/${call.toolName}?request=${call.requestId}`, status: result.isError ? "failed" : empty ? "empty" : "ok", requestId: call.requestId, agentId };
 }
 
 /** A failed call is recorded too: absence of evidence is itself evidence, and must be citable. */

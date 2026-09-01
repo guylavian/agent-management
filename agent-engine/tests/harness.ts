@@ -1,6 +1,7 @@
 import type { Evidence } from "@sre/evidence";
 import type {
   AgentDefinition,
+  CredentialProvider,
   ListToolsOptions,
   Model,
   ModelRequest,
@@ -103,7 +104,7 @@ const objectSchema = (properties: Record<string, unknown>, required: string[] = 
 export const FIXTURE_TOOLS: FixtureTool[] = [
   { serverId: "docs", name: "docs_search", description: "Search documented procedure", inputSchema: objectSchema({ q: { type: "string" }, mode: { type: "string" } }, ["q"]) },
   { serverId: "docs", name: "docs_read", description: "Read one document", inputSchema: objectSchema({ slug: { type: "string" }, mode: { type: "string" } }, ["slug"]) },
-  { serverId: "alpha", name: "alpha_status", description: "Read subsystem status", inputSchema: objectSchema({ target: { type: "string", maxLength: 64 }, peer: { type: "string" }, mode: { type: "string", enum: ["ok", "failure", "timeout", "denied", "empty"] } }, ["target"]) },
+  { serverId: "alpha", name: "alpha_status", description: "Read subsystem status", inputSchema: objectSchema({ target: { type: "string", maxLength: 64 }, peer: { type: "string" }, mode: { type: "string", enum: ["ok", "failure", "timeout", "denied", "empty", "error"] } }, ["target"]) },
   { serverId: "alpha", name: "alpha_health", description: "Read subsystem health", inputSchema: objectSchema({ node: { type: "string" }, mode: { type: "string" } }, ["node"]) },
   // published by the server and approved, but named like a mutation: the read-only backstop must hide it
   { serverId: "alpha", name: "alpha_update_node", description: "Would mutate", inputSchema: objectSchema({ node: { type: "string" } }, ["node"]) },
@@ -147,6 +148,8 @@ export class FixtureToolProvider implements ToolProvider {
       });
     }
     if (mode === "empty") return { content: [], observedAt: new Date().toISOString() };
+    // the provider RETURNED, but the tool itself reports failure — distinct from a thrown transport error
+    if (mode === "error") return { content: { tool: call.toolName, error: "backend reported failure" }, isError: true, observedAt: new Date().toISOString() };
     return { content: tool.result ? tool.result(call) : { tool: call.toolName, ...call.arguments }, observedAt: new Date().toISOString() };
   }
 }
@@ -202,8 +205,8 @@ export function runContext(question: string, deadline = Date.now() + 10_000, ove
   return { question, environment: "prod", requestId: ALICE.requestId, principal: ALICE, deadline, ...overrides };
 }
 
-export function dependencies(model: Model, tools = new FixtureToolProvider(), telemetry = new RecordingTelemetry()) {
-  return { model, tools, sanitizer: testSanitizer, telemetry };
+export function dependencies(model: Model, tools: ToolProvider = new FixtureToolProvider(), telemetry = new RecordingTelemetry(), sanitizer = testSanitizer, credentials?: CredentialProvider) {
+  return { model, tools, sanitizer, telemetry, ...(credentials ? { credentials } : {}) };
 }
 
 /** Mirrors the engine's evidence identity: request + tool + args fingerprint. */
@@ -217,6 +220,57 @@ export const evidenceId = (tool: string, args: Record<string, unknown>, requestI
   for (const char of canonical(args)) { hash ^= char.charCodeAt(0); hash = Math.imul(hash, 0x01000193) >>> 0; }
   return `mcp:${requestId}:${tool}:${hash.toString(16).padStart(8, "0")}`;
 };
+
+/**
+ * A model double whose script SEES each request, so a test can prove what
+ * actually reached model context (containment proofs) and can respond to tool
+ * results fed back in — the seam the audit found missing from every loop test.
+ */
+export class RespondingModel implements Model {
+  readonly requests: ModelRequest[] = [];
+  readonly #respond: (request: ModelRequest, turn: number) => ModelResponse;
+  constructor(respond: (request: ModelRequest, turn: number) => ModelResponse) { this.#respond = respond; }
+  async chat(request: ModelRequest): Promise<ModelResponse> {
+    this.requests.push(request);
+    return this.#respond(request, this.requests.length - 1);
+  }
+}
+
+/** Never settles and ignores its signal: deadlines must hold by racing, not cooperation. */
+export class DeafModel implements Model {
+  chats = 0;
+  chat(): Promise<ModelResponse> {
+    this.chats += 1;
+    return new Promise<never>(() => { /* never settles, deliberately */ });
+  }
+}
+
+/** Wraps a real provider but never settles at one chosen stage, ignoring its signal. */
+export class DeafToolProvider implements ToolProvider {
+  readonly #stage: "list" | "invoke";
+  readonly #inner: ToolProvider;
+  constructor(stage: "list" | "invoke", inner: ToolProvider = new FixtureToolProvider()) {
+    this.#stage = stage;
+    this.#inner = inner;
+  }
+  listTools(serverId: string, principal: Principal, environment: string, options?: ListToolsOptions): Promise<ToolDescriptor[]> {
+    if (this.#stage === "list") return new Promise<never>(() => { /* never settles */ });
+    return this.#inner.listTools(serverId, principal, environment, options);
+  }
+  invoke(call: ToolCallRequest): Promise<ToolCallResult> {
+    if (this.#stage === "invoke") return new Promise<never>(() => { /* never settles */ });
+    return this.#inner.invoke(call);
+  }
+}
+
+/** A credential exchanger that never settles and ignores every input. */
+export class DeafCredentialProvider implements CredentialProvider {
+  exchanges = 0;
+  exchange(): Promise<ToolCredential> {
+    this.exchanges += 1;
+    return new Promise<never>(() => { /* never settles */ });
+  }
+}
 
 /** Fails the first N chat calls with a coded error, then behaves like ScriptedModel. */
 export class FlakyModel implements Model {
