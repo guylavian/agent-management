@@ -33,6 +33,8 @@ async function invoke(identity: RequestIdentity, gateway: MockToolHiveClient, au
     principal: identity,
     credential,
     timeoutMs: 5_000,
+    attempt: 1,
+    idempotencyKey: "conformance",
   };
   await gateway.invoke(call).catch(() => undefined);
   return call;
@@ -64,6 +66,8 @@ describe("Gate #1 — verified delegated identity to ToolHive", () => {
       // the signed `act` claim still says active-directory; the envelope lies
       credential: { ...credential, workloadClientId: "sre-agent-openshift" },
       timeoutMs: 5_000,
+      attempt: 1,
+      idempotencyKey: "conformance",
     };
     await expect(gateway.invoke(call)).rejects.toMatchObject({ code: "TOOL_DENIED" });
     expect(gateway.backendCalls).toHaveLength(0);
@@ -91,6 +95,8 @@ describe("Gate #1 — verified delegated identity to ToolHive", () => {
       principal: alice,
       credential: wrongAudienceCredential,
       timeoutMs: 5_000,
+      attempt: 1,
+      idempotencyKey: "conformance",
     };
     await expect(gateway.invoke(call)).rejects.toMatchObject({ code: "TOOL_DENIED" });
     expect(gateway.backendCalls).toHaveLength(0);
@@ -107,6 +113,8 @@ describe("Gate #1 — verified delegated identity to ToolHive", () => {
       requestId: alice.requestId,
       principal: alice,
       timeoutMs: 5_000,
+      attempt: 1,
+      idempotencyKey: "conformance",
     };
     await expect(gateway.invoke(call)).rejects.toMatchObject({ code: "TOOL_DENIED" });
     expect(gateway.backendCalls).toHaveLength(0);

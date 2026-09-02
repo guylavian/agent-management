@@ -176,7 +176,26 @@ describe("routing needs no vocabulary maintenance", () => {
     const dir = "orchestrator/src/routing";
     for (const file of readdirSync(dir).filter(name => name.endsWith(".ts"))) {
       const source = readFileSync(`${dir}/${file}`, "utf8");
-      for (const id of specialists) expect(source, `${file} names ${id}`).not.toContain(id);
+      for (const id of specialists) {
+        /*
+         * A HARDCODED NAME is one written as a literal the code compares
+         * against — `"openshift"`, `'keycloak'`, `` `network` ``. A bare
+         * substring match cannot express that: an Agent legitimately named
+         * `test`, `config` or `manager` matched ordinary English in comments
+         * and identifiers, so onboarding it failed a test about routing
+         * vocabulary while the routing module was entirely innocent.
+         *
+         * The invariant is that routing decides by MEANING, never by a name
+         * this module knows. Only a quoted literal could do that.
+         */
+        // agent ids are `[a-z][a-z0-9-]*`, so nothing in one is a regex
+        // metacharacter. The quote class is a plain double-quoted string so the
+        // backtick stays literal: under the `u` flag an escaped backtick is an
+        // invalid identity escape, not a quoted backtick.
+        const quote = "[\"'`]";
+        const quoted = new RegExp(`${quote}${id}${quote}`, "u");
+        expect(quoted.test(source), `${file} hardcodes the specialist name ${id}`).toBe(false);
+      }
     }
   });
 });

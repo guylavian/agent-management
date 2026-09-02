@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { CONFIG_PATHS, DEPLOY_ROOT, deployEnvironmentDir, loadApprovedCatalog, loadDeploymentEnvironment } from "@sre/config";
+import { CONFIG_PATHS, DEPLOY_ROOT, deployEnvironmentDir, loadAgentRegistry, loadApprovedCatalog, loadDeploymentEnvironment } from "@sre/config";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 import { grantsByServer, renderAuthzConfig } from "../tools/render-toolhive-authz.ts";
@@ -17,6 +17,8 @@ import { grantsByServer, renderAuthzConfig } from "../tools/render-toolhive-auth
 
 const ENVIRONMENTS = readdirSync(`${DEPLOY_ROOT}/environments`).sort();
 const catalog = loadApprovedCatalog(CONFIG_PATHS.mcpServersDir);
+// the canonical estate, whatever it happens to contain today
+const specialists = loadAgentRegistry(CONFIG_PATHS).listSpecialists();
 
 function policiesFor(environment: string, serverId: string): string[] {
   const parsed = parseYaml(readFileSync(`${DEPLOY_ROOT}/environments/${environment}/rendered/toolhive/${serverId}.authz.yaml`, "utf8")) as {
@@ -34,13 +36,34 @@ describe("ToolHive access policy", () => {
     expect(rendered).toEqual(servers);
   });
 
-  it("grants each Agent exactly the tools its canonical policy allows", () => {
-    const policies = policiesFor("production", "keycloak");
-    const keycloakTools = ["find_user", "get_client", "keycloak_health", "keycloak_read", "list_clients", "list_realms", "resolve_client_uuid"];
-    for (const tool of keycloakTools) {
-      expect(policies.some((policy) => policy.includes(`Tool::"${tool}"`) && policy.includes(`claim_azp == "sre-agent-keycloak"`))).toBe(true);
+  /**
+   * DERIVED FROM THE CANONICAL POLICY, never from a list written here.
+   *
+   * This used to name the seven tools one agent holds on the keycloak MCP and
+   * assert the file had exactly that many policies. Adding any OTHER agent with
+   * keycloak access then failed a test about tool grants — reporting a
+   * correctly rendered policy as a defect, because the expectation was a copy
+   * of the estate as it stood on the day it was written.
+   *
+   * The invariant is a BIJECTION: one Cedar policy per (agent, tool) grant in
+   * the canonical documents — nothing missing, and nothing granted that no
+   * Agent document asks for. That holds for any estate.
+   */
+  it.each(["keycloak", "wiki"])("grants exactly the (agent, tool) pairs the canonical policy allows on %s", (serverId) => {
+    const policies = policiesFor("production", serverId);
+    const expected = specialists.flatMap((agent) =>
+      (agent.spec.access.find((entry) => entry.mcp === serverId)?.tools ?? []).map((tool) => ({ clientId: agent.spec.identity.clientId, tool })),
+    );
+    expect(expected.length).toBeGreaterThan(0);
+    for (const { clientId, tool } of expected) {
+      expect(
+        policies.some((policy) => policy.includes(`Tool::"${tool}"`) && policy.includes(`claim_azp == "${clientId}"`)),
+        `${serverId}: no policy grants ${clientId} the ${tool} tool`,
+      ).toBe(true);
     }
-    expect(policies).toHaveLength(keycloakTools.length);
+    // and NOTHING beyond them: a policy with no canonical grant behind it is
+    // exactly the drift this file exists to catch
+    expect(policies).toHaveLength(expected.length);
   });
 
   /**

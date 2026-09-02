@@ -164,8 +164,67 @@ describe("Create Agent", () => {
     const { change } = proposeAgentChange({ draft, requestedBy: "alice" });
     expect(change.files.map((file) => file.path)).toHaveLength(4);
     expect(change.branch).toBe("agent/add-network-security");
+    // nothing here reaches a cluster: the portal writes Git and Argo does the rest
     expect(change.effects.some((effect) => /deploy now|apply|kubectl/iu.test(effect))).toBe(false);
-    expect(change.effects.some((effect) => effect.includes("Argo CD: sync after merge"))).toBe(true);
+    expect(change.effects.some((effect) => /Argo CD:/u.test(effect))).toBe(true);
+  });
+
+  /**
+   * A REVIEWER MUST BE TOLD WHEN MERGING DEPLOYS NOTHING.
+   *
+   * The effect used to read "Argo CD: sync after merge" unconditionally. For a
+   * draft that is false: the overlay is written with `enabled: false`, the
+   * renderer emits no Application, and Argo does nothing at all. Someone
+   * approved a change whose stated effect was a deployment, watched for it, and
+   * had nothing anywhere to explain the silence.
+   */
+  it("says plainly that a draft deploys nothing, and names the environment when it does", () => {
+    const asDraft = proposeAgentChange({ draft: { ...draft, lifecycle: "draft" }, requestedBy: "alice", targetEnvironment: "local" }).change;
+    expect(asDraft.effects.some((effect) => /NOTHING is deployed/u.test(effect))).toBe(true);
+    expect(asDraft.effects.some((effect) => effect.includes("enabled: false"))).toBe(true);
+
+    const asActive = proposeAgentChange({ draft: { ...draft, lifecycle: "active" }, requestedBy: "alice", targetEnvironment: "local" }).change;
+    expect(asActive.effects.some((effect) => /deploys network-security to local after merge/u.test(effect))).toBe(true);
+    expect(asActive.effects.some((effect) => /NOTHING is deployed/u.test(effect))).toBe(false);
+  });
+
+  /**
+   * THE CHANGE-SET MUST LAND IN THE ENVIRONMENT THIS RUNTIME SERVES.
+   *
+   * The target defaulted to the literal "production", so a runtime serving
+   * `local` wrote its overlay and rendered values into
+   * `deploy/environments/production/`. Nothing in that cluster globs it: the
+   * pull request merged, the portal reported it merged, and Argo never saw an
+   * Application because the files were in an environment nobody deploys.
+   */
+  /**
+   * TWO IMPLEMENTATIONS OF "WHICH AGENTS GET RENDERED" MUST NOT DISAGREE.
+   *
+   * `tools/render-agent-deployment` skips every disabled overlay, so it emits
+   * no rendered values for a draft. This generator used to emit them anyway,
+   * which put a file in the change-set that the canonical renderer deletes on
+   * its next run: a merged pull request left `main` failing its own
+   * `check:generated` gate. The invisible half was worse — had the file
+   * survived, Argo's ApplicationSet globs `rendered/`, so it would have
+   * deployed an Agent whose own document says it is a draft.
+   */
+  it("renders Helm values for an active Agent and none at all for a draft", () => {
+    const active = proposeAgentChange({ draft: { ...draft, lifecycle: "active" }, requestedBy: "alice", targetEnvironment: "local" }).change.files.map((file) => file.path);
+    expect(active).toContain("deploy/environments/local/rendered/agents/network-security.yaml");
+
+    const asDraft = proposeAgentChange({ draft: { ...draft, lifecycle: "draft" }, requestedBy: "alice", targetEnvironment: "local" }).change.files.map((file) => file.path);
+    expect(asDraft.some((path) => path.includes("/rendered/"))).toBe(false);
+    // the document, the prompt and the overlay still travel: a draft is merged
+    // and visible, it is only not deployed
+    expect(asDraft).toContain("deploy/environments/local/agents/network-security.yaml");
+    expect(asDraft).toHaveLength(3);
+  });
+
+  it("writes the overlay and the render into the target environment, not a hardcoded one", () => {
+    const paths = proposeAgentChange({ draft, requestedBy: "alice", targetEnvironment: "local" }).change.files.map((file) => file.path);
+    expect(paths).toContain("deploy/environments/local/agents/network-security.yaml");
+    expect(paths).toContain("deploy/environments/local/rendered/agents/network-security.yaml");
+    expect(paths.every((path) => !path.includes("environments/production"))).toBe(true);
   });
 
   /**

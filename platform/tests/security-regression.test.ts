@@ -70,6 +70,8 @@ describe("an agent cannot reach outside its policy", () => {
         principal: alice,
         credential,
         timeoutMs: 5_000,
+        attempt: 1,
+        idempotencyKey: "conformance",
       }),
     ).rejects.toMatchObject({ code: "TOOL_DENIED" });
   });
@@ -92,6 +94,8 @@ describe("an agent cannot reach outside its policy", () => {
         principal: alice,
         credential: wrongAudience,
         timeoutMs: 5_000,
+        attempt: 1,
+        idempotencyKey: "conformance",
       }),
     ).rejects.toMatchObject({ code: "TOOL_DENIED" });
   });
@@ -110,6 +114,8 @@ describe("an agent cannot reach outside its policy", () => {
         principal: alice,
         credential,
         timeoutMs: 5_000,
+        attempt: 1,
+        idempotencyKey: "conformance",
       }),
     ).rejects.toMatchObject({ code: "TOOL_DENIED" });
   });
@@ -119,7 +125,7 @@ describe("ToolHive remains mandatory", () => {
   it("refuses a tool call with no verified credential", async () => {
     const gateway = new MockToolHiveClient(authority());
     await expect(
-      gateway.invoke({ serverId: "keycloak", toolName: "list_clients", arguments: {}, environment: "prod", requestId: "r", principal: alice, timeoutMs: 5_000 }),
+      gateway.invoke({ serverId: "keycloak", toolName: "list_clients", arguments: {}, environment: "prod", requestId: "r", principal: alice, timeoutMs: 5_000, attempt: 1, idempotencyKey: "conformance" }),
     ).rejects.toMatchObject({ code: "TOOL_DENIED" });
   });
 
