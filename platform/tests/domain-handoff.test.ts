@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 const registry = loadAgentRegistry(CONFIG_PATHS);
 const identity = { subject: "alice", groups: [], roles: ["infra-read", "network-read"], requestId: "req-handoff" };
 const ctx: ExecutionContext = { request: { question: "AD replication has a network dependency", identity }, identity, environment: "prod", intent: "diagnostic", requestId: identity.requestId, deadline: Date.now() + 5000 };
-const result = (agentId: string, needsDomain: string, secret: string): SpecialistResult => ({ agentId, status: "complete", summary: secret, needsDomain: [needsDomain], evidence: [{ id: `${agentId}-e`, kind: "telemetry", source: agentId, system: agentId, environment: "prod", rawExcerpt: secret, payload: { secret }, citation: `mcp://${agentId}`, status: "ok", requestId: identity.requestId, agentId }] });
+const result = (agentId: string, needsHandoff: string, secret: string): SpecialistResult => ({ agentId, status: "complete", summary: secret, needsHandoff: [needsHandoff], evidence: [{ id: `${agentId}-e`, kind: "telemetry", source: agentId, system: agentId, environment: "prod", rawExcerpt: secret, payload: { secret }, citation: `tool://${agentId}`, status: "ok", requestId: identity.requestId, agentId }] });
 
 describe("domain handoff", () => {
   it("builds a scalar-only handoff without summaries, payloads, excerpts, or transcripts", async () => {

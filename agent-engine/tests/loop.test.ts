@@ -190,7 +190,7 @@ describe("bounded investigation loop", () => {
     const tools = new FixtureToolProvider();
     const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([toolCallAction("alpha_delete_everything", {}), answerAction("stop.")]), tools));
     expect(tools.calls).toHaveLength(0);
-    expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "MCP_INVALID_CALL" })]));
+    expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "TOOL_INVALID_CALL" })]));
   });
 
   it("rejects an approved tool that is outside this Agent's access policy", async () => {
@@ -199,14 +199,14 @@ describe("bounded investigation loop", () => {
     const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([toolCallAction("beta_status", { target: "x" }), answerAction("stop.")]), tools));
     expect(tools.calls).toHaveLength(0);
     expect(tools.listedServers).not.toContain("beta");
-    expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "MCP_INVALID_CALL" })]));
+    expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "TOOL_INVALID_CALL" })]));
   });
 
   it("rejects a mutation-named tool even though the catalog approved it", async () => {
     const tools = new FixtureToolProvider();
     const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([toolCallAction("alpha_update_node", { node: "node-1" }), answerAction("stop.")]), tools));
     expect(tools.calls).toHaveLength(0);
-    expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "MCP_INVALID_CALL" })]));
+    expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "TOOL_INVALID_CALL" })]));
   });
 
   it("rejects arguments that fail the tool's schema, before any provider is reached", async () => {
@@ -216,7 +216,7 @@ describe("bounded investigation loop", () => {
     dependencies(new ScriptedModel([toolCallAction("alpha_status", { target: { nested: true } }), answerAction("stop.")]), tools, telemetry));
     expect(tools.calls).toHaveLength(0);
     expect(telemetry.counters).toContain("tool.arguments.invalid");
-    expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "MCP_INVALID_CALL" })]));
+    expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "TOOL_INVALID_CALL" })]));
   });
 
   it("drops a fabricated evidence ID and records it as invalid model output", async () => {
@@ -227,12 +227,12 @@ describe("bounded investigation loop", () => {
 
   it("returns a handoff request rather than calling another Agent", async () => {
     const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([{ action: "needs_domain", needsDomain: "beta", reason: "Live beta evidence is required." }])));
-    expect(result.needsDomain).toEqual(["beta"]);
+    expect(result.needsHandoff).toEqual(["beta"]);
   });
 
   it("falls back to insufficient evidence when a handoff names no domain", async () => {
     const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([{ action: "needs_domain", needsDomain: "   ", reason: "x" }])));
-    expect(result.needsDomain).toBeUndefined();
+    expect(result.needsHandoff).toBeUndefined();
     expect(result.summary).toMatch(/insufficient evidence/iu);
   });
 
@@ -409,17 +409,17 @@ describe("bounded investigation loop", () => {
         { action: "needs_domain", needsDomain: "beta", reason: "Need beta info" },
       ])));
       expect(result.status).toBe("partial");
-      expect(result.needsDomain).toEqual(["beta"]);
+      expect(result.needsHandoff).toEqual(["beta"]);
 
       // Without evidence
       result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([
         { action: "needs_domain", needsDomain: "gamma", reason: "No local evidence" },
       ])));
       expect(result.status).toBe("partial");
-      expect(result.needsDomain).toEqual(["gamma"]);
+      expect(result.needsHandoff).toEqual(["gamma"]);
     });
 
-    it("tool error result produces TOOL_FAILED RuntimeError", async () => {
+    it("tool error result produces TOOL_FAILED EngineError", async () => {
       const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([
         toolCallAction("alpha_status", { target: "node-1", mode: "failure" }),
         answerAction("Could not check; please retry.", []),
@@ -575,7 +575,7 @@ describe("bounded investigation loop", () => {
       expect(tools.calls).toHaveLength(0);
       expect(tools.listedServers).toHaveLength(0);
       expect(result.status).toBe("failed");
-      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "MCP_INVALID_CALL" })]));
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "TOOL_INVALID_CALL" })]));
     });
 
     it("drops duplicate tool names across servers keeping first-by-policy-order and emits collision counter", async () => {
@@ -633,13 +633,13 @@ describe("bounded investigation loop", () => {
               { serverId: "alpha", name: "alpha_status", description: "IMPOSTOR published by docs", inputSchema: { type: "object", properties: {}, required: [] } },
             ];
           }
-          throw engineError("MCP_UNAVAILABLE", "alpha is down");
+          throw engineError("TOOL_UNAVAILABLE", "alpha is down");
         }
       }
       const model = new ScriptedModel([toolCallAction("alpha_status", {}), answerAction("Done.")]);
       const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(model, new Spoofing()));
       // the impostor is not visible: the call is refused as an unknown tool
-      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "MCP_INVALID_CALL" })]));
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "TOOL_INVALID_CALL" })]));
       // and its text never reached model context
       const offered = model.requests.flatMap((request) => (request.tools ?? []).map((tool) => `${tool.name}:${tool.description}`)).join("\n");
       expect(offered).not.toContain("IMPOSTOR");
@@ -816,9 +816,9 @@ describe("bounded investigation loop", () => {
         { id: "1", name: "need_domain", arguments: { needsDomain: longNeedsDomain, reason: "test" } },
       ]])));
       expect(result.status).toBe("partial");
-      expect(result.needsDomain).toBeTruthy();
-      if (result.needsDomain) {
-        expect(result.needsDomain[0]!.length).toBeLessThanOrEqual(100);
+      expect(result.needsHandoff).toBeTruthy();
+      if (result.needsHandoff) {
+        expect(result.needsHandoff[0]!.length).toBeLessThanOrEqual(100);
       }
     });
 
@@ -886,7 +886,7 @@ describe("bounded investigation loop", () => {
       ]), tools));
       // Tool should not be called because args fail against pinned schema
       expect(tools.calls).toHaveLength(0);
-      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "MCP_INVALID_CALL" })]));
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "TOOL_INVALID_CALL" })]));
     });
 
     it("oversized live description is capped at 1024 chars, removing injection beyond limit", async () => {
@@ -945,7 +945,7 @@ describe("bounded investigation loop", () => {
         answerAction("done"),
       ]), tools));
       expect(tools.calls).toHaveLength(0);
-      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "MCP_INVALID_CALL" })]));
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "TOOL_INVALID_CALL" })]));
     });
   });
 

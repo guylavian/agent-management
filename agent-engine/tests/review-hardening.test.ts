@@ -98,7 +98,7 @@ describe("review round — liveness and honesty", () => {
         this.attempts += 1;
         received.push(JSON.parse(JSON.stringify(call.arguments)));
         (call.arguments as Record<string, unknown>).q = { evil: true };
-        if (this.attempts === 1) throw engineError("MCP_TIMEOUT", "transient");
+        if (this.attempts === 1) throw engineError("TOOL_TIMEOUT", "transient");
         return { content: { ok: true }, observedAt: new Date().toISOString() };
       }
     }

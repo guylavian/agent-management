@@ -43,7 +43,7 @@ export class MockSpecialistTransport implements SpecialistTransport {
 
 function mockResponse(agentId: string, request: AgentExecutionRequest): AgentExecutionResponse {
   const source = agentId === "active-directory" ? "ad" : agentId === "openshift" ? "os" : "net";
-  const needsDomain = agentId === "active-directory" && /network dependency/iu.test(request.question) ? ["network-observability"] : undefined;
+  const needsHandoff = agentId === "active-directory" && /network dependency/iu.test(request.question) ? ["network-observability"] : undefined;
   return {
     agentId,
     status: "complete",
@@ -63,13 +63,13 @@ function mockResponse(agentId: string, request: AgentExecutionRequest): AgentExe
         redaction: { applied: false },
       },
       {
-        id: `mcp:${source}:${request.requestId}`,
+        id: `tool:${source}:${request.requestId}`,
         kind: "telemetry",
         source: `${agentId}-live`,
         system: agentId,
         environment: request.environment,
         observedAt: new Date().toISOString(),
-        citation: `mcp://${agentId}/health`,
+        citation: `tool://${agentId}/health`,
         status: "ok",
         requestId: request.requestId,
         agentId,
@@ -77,6 +77,6 @@ function mockResponse(agentId: string, request: AgentExecutionRequest): AgentExe
         redaction: { applied: false },
       },
     ],
-    ...(needsDomain ? { needsDomain } : {}),
+    ...(needsHandoff ? { needsHandoff } : {}),
   };
 }

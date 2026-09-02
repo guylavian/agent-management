@@ -44,7 +44,7 @@ describe("the effective catalog is the routing table", () => {
   it("rejects a Round-2 discovered domain that this environment does not enable", () => {
     const ctx: ExecutionContext = { request: { question: "AD replication has a network dependency", identity }, identity, environment: "prod", intent: "diagnostic", requestId: identity.requestId, deadline: Date.now() + 5000 };
     const plan = planFollowup({
-      results: [{ agentId: "active-directory", status: "complete", needsDomain: ["network-observability"], evidence: [{ id: "e", kind: "telemetry", source: "ad", system: "ad", environment: "prod", citation: "mcp://ad", status: "ok", requestId: identity.requestId, agentId: "active-directory" }] }],
+      results: [{ agentId: "active-directory", status: "complete", needsHandoff: ["network-observability"], evidence: [{ id: "e", kind: "telemetry", source: "ad", system: "ad", environment: "prod", citation: "tool://ad", status: "ok", requestId: identity.requestId, agentId: "active-directory" }] }],
       alreadyRun: ["active-directory"],
       ctx,
       registry: catalogWith({ "network-observability": { enabled: false } }),
@@ -71,7 +71,7 @@ describe("the effective catalog is the routing table", () => {
       mayRequestDomain: (from: string, to: string) => desired.mayRequestDomain(from, to),
     } as never;
     const plan = planFollowup({
-      results: [{ agentId: "active-directory", status: "complete", needsDomain: ["network-observability"], evidence: [{ id: "e", kind: "telemetry", source: "ad", system: "ad", environment: "prod", citation: "mcp://ad", status: "ok", requestId: identity.requestId, agentId: "active-directory" }] }],
+      results: [{ agentId: "active-directory", status: "complete", needsHandoff: ["network-observability"], evidence: [{ id: "e", kind: "telemetry", source: "ad", system: "ad", environment: "prod", citation: "tool://ad", status: "ok", requestId: identity.requestId, agentId: "active-directory" }] }],
       alreadyRun: ["active-directory"],
       ctx,
       registry: unavailable,
@@ -85,7 +85,7 @@ describe("the effective catalog is the routing table", () => {
   it("takes the follow-up when the same domain IS enabled", () => {
     const ctx: ExecutionContext = { request: { question: "AD replication has a network dependency", identity }, identity, environment: "prod", intent: "diagnostic", requestId: identity.requestId, deadline: Date.now() + 5000 };
     const plan = planFollowup({
-      results: [{ agentId: "active-directory", status: "complete", needsDomain: ["network-observability"], evidence: [{ id: "e", kind: "telemetry", source: "ad", system: "ad", environment: "prod", citation: "mcp://ad", status: "ok", requestId: identity.requestId, agentId: "active-directory" }] }],
+      results: [{ agentId: "active-directory", status: "complete", needsHandoff: ["network-observability"], evidence: [{ id: "e", kind: "telemetry", source: "ad", system: "ad", environment: "prod", citation: "tool://ad", status: "ok", requestId: identity.requestId, agentId: "active-directory" }] }],
       alreadyRun: ["active-directory"],
       ctx,
       registry: catalogWith({}),

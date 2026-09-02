@@ -1,4 +1,4 @@
-import type { Evidence } from "@sre/evidence";
+import type { Evidence } from "@sre/engine-contract";
 import type {
   AgentDefinition,
   CredentialProvider,
@@ -144,7 +144,7 @@ export class FixtureToolProvider implements ToolProvider {
     if (mode === "failure") throw engineError("TOOL_FAILED", "backend failure");
     if (mode === "timeout") {
       await new Promise<never>((_resolve, reject) => {
-        const timer = setTimeout(() => reject(engineError("MCP_TIMEOUT", "backend timeout")), Math.min(call.timeoutMs + 5, 50));
+        const timer = setTimeout(() => reject(engineError("TOOL_TIMEOUT", "backend timeout")), Math.min(call.timeoutMs + 5, 50));
         call.signal?.addEventListener("abort", () => { clearTimeout(timer); reject(call.signal?.reason as Error); }, { once: true });
       });
     }
@@ -187,8 +187,9 @@ export function agentDefinition(overrides: Partial<AgentDefinition> = {}): Agent
 
 /** The approved catalog. `beta_status` is approved for the host but not granted to this Agent. */
 export function toolPolicy(): ToolPolicy {
-  const approve = (serverId: string, toolName: string, evidenceKind: "telemetry" | "config" | "wiki" = "telemetry") => ({
+  const approve = (serverId: string, toolName: string, evidenceKind = "telemetry") => ({
     serverId, toolName, readOnlyVerified: true, environments: ["prod"], timeoutMs: 5_000, retryPolicy: "none" as const, evidenceKind,
+    ...(evidenceKind === "wiki" ? { sourceVersioned: true } : {}),
   });
   return {
     tools: [
@@ -293,7 +294,7 @@ export class FlakyModel implements Model {
   }
 }
 
-export const baseEvidence: Evidence = { id: "e1", kind: "telemetry", source: "alpha/alpha_status", system: "alpha", environment: "prod", rawExcerpt: "x".repeat(5000), citation: "mcp://alpha/alpha_status", status: "ok", requestId: "req-1" };
+export const baseEvidence: Evidence = { id: "e1", kind: "telemetry", source: "alpha/alpha_status", system: "alpha", environment: "prod", rawExcerpt: "x".repeat(5000), citation: "tool://alpha/alpha_status", status: "ok", requestId: "req-1" };
 
 export const toolCallAction = (tool: string, args: Record<string, unknown>) => ({ action: "tool_call", purpose: "p", tool, arguments: args });
 export const answerAction = (summary: string, evidenceIds: string[] = []) => ({ action: "answer", summary, evidenceIds });

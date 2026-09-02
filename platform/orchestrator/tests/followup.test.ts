@@ -6,7 +6,7 @@ import { distributedRuntime, managerAgent, serviceRegistry } from "./distributed
 
 const identity = { subject: "alice", groups: [], roles: ["infra-read", "network-read"], requestId: "req-r2" };
 const ctx: ExecutionContext = { request: { question: "AD replication has a network dependency", identity }, identity, environment: "prod", intent: "diagnostic", requestId: identity.requestId, deadline: Date.now() + 5000 };
-const result = (agentId: string, needsDomain: string, secret = "hidden transcript"): SpecialistResult => ({ agentId, status: "complete", summary: secret, needsDomain: [needsDomain], evidence: [{ id: `${agentId}-e`, kind: "telemetry", source: agentId, system: agentId, environment: "prod", rawExcerpt: secret, payload: { secret }, citation: `mcp://${agentId}`, status: "ok", requestId: identity.requestId, agentId }] });
+const result = (agentId: string, needsHandoff: string, secret = "hidden transcript"): SpecialistResult => ({ agentId, status: "complete", summary: secret, needsHandoff: [needsHandoff], evidence: [{ id: `${agentId}-e`, kind: "telemetry", source: agentId, system: agentId, environment: "prod", rawExcerpt: secret, payload: { secret }, citation: `tool://${agentId}`, status: "ok", requestId: identity.requestId, agentId }] });
 
 describe("T5 bounded cross-domain follow-up", () => {
   it("executes one authorized discovered domain and never recurses", async () => {

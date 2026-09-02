@@ -1,4 +1,4 @@
-import type { Evidence } from "@sre/evidence";
+import type { Evidence } from "@sre/engine-contract";
 
 /**
  * The Sanitizer port — deterministic secret removal.

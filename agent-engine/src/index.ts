@@ -52,12 +52,12 @@ export type { SpanAttributes, Telemetry } from "./telemetry/port.ts";
 export type { CredentialProvider, WorkloadRef } from "./lifecycle/credentials.ts";
 
 // ── what a run produces, and how it fails ────────────────────────────────────
-export type { AgentResult, DomainHandoff, Evidence, EvidenceStatus } from "./evidence/index.ts";
-export type { RuntimeError, RuntimeErrorCode } from "./errors/index.ts";
+export type { AgentResult, HandoffRequest, Evidence, EvidenceStatus } from "./evidence/index.ts";
+export type { EngineError, EngineErrorCode } from "./errors/index.ts";
 
 /**
  * Tag an error with a taxonomy code the engine understands. A ToolProvider that
- * throws `engineError("MCP_TIMEOUT", …)` gets the engine's transient-retry and
+ * throws `engineError("TOOL_TIMEOUT", …)` gets the engine's transient-retry and
  * evidence handling; anything else is treated as a non-retryable tool failure.
  */
 export { engineError } from "./errors/index.ts";

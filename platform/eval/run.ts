@@ -119,7 +119,7 @@ function buildReport(all: HarnessRecord[], caseCount: number) {
     toolPolicyViolations: all.reduce((sum, record) => sum + record.securityViolations.length, 0),
     correctRouting: ratio(all.filter((record) => record.routePass).length, all.length),
     correctToolSelection: ratio(toolCases.filter((record) => record.toolPass).length, toolCases.length),
-    invalidMcpCalls: ratio(all.flatMap((record) => record.errors).filter((error) => error.code === "MCP_INVALID_CALL").length, Math.max(1, all.reduce((sum, record) => sum + record.tools.length, 0))),
+    invalidMcpCalls: ratio(all.flatMap((record) => record.errors).filter((error) => error.code === "TOOL_INVALID_CALL").length, Math.max(1, all.reduce((sum, record) => sum + record.tools.length, 0))),
     unsupportedClaims: ratio(unsupportedClaims.filter((claim) => !claim.supported).length, unsupportedClaims.length),
     citationCorrectness: ratio(citationCorrect, citationTotal),
     crossDomainSuccess: ratio(all.filter((record) => record.category === "cross" && record.pass).length, all.filter((record) => record.category === "cross").length),

@@ -70,7 +70,7 @@ export function registerManagerRoutes(app: Express, deps: ManagerDependencies): 
   app.post("/v1/query", oidcAuthenticationMiddleware(deps.oidc), async (request, response) => {
     const requestId = request.requestId;
     const bodyResult = bodySchema.safeParse(request.body);
-    if (!bodyResult.success) { response.status(400).json({ requestId, code: "MCP_INVALID_CALL", message: "Invalid request body" }); return; }
+    if (!bodyResult.success) { response.status(400).json({ requestId, code: "TOOL_INVALID_CALL", message: "Invalid request body" }); return; }
     const authenticated = request.identity;
     if (authenticated === undefined) { response.status(401).json({ requestId, code: "AUTHN_FAILED", message: "Authentication failed" }); return; }
     observeInflight(1);

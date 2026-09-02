@@ -248,7 +248,7 @@ describe("budget validation", () => {
             invokes += 1;
             // consumes the whole run deadline before failing transiently
             await new Promise((resolve) => setTimeout(resolve, 30));
-            throw engineError("MCP_TIMEOUT", "backend timeout");
+            throw engineError("TOOL_TIMEOUT", "backend timeout");
           }
         }
         const transientPolicy = { tools: toolPolicy().tools.map((tool) => tool.toolName === "docs_search" ? { ...tool, retryPolicy: "transient-once" as const } : tool) };

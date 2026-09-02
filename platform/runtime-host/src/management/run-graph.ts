@@ -30,7 +30,7 @@ export interface SpecialistResultLike {
   agentId: string;
   status: "complete" | "partial" | "failed";
   summary?: string;
-  needsDomain?: string[];
+  needsHandoff?: string[];
   errors?: Array<{ code: string; message: string }>;
   evidence: Array<{
     id: string;
@@ -71,7 +71,7 @@ export interface BuildRunInput {
  * `denied` and `missing` were previously conflated into one "failed and
  * absent" test, which reported every refusal as a failure and every timeout as
  * a refusal — exactly backwards. The engine sets these deliberately
- * (`TOOL_DENIED` → denied, `MCP_TIMEOUT` → missing) and they are read that way
+ * (`TOOL_DENIED` → denied, `TOOL_TIMEOUT` → missing) and they are read that way
  * here.
  */
 function nodeStatus(evidenceStatus: string): RunNode["status"] {
@@ -87,7 +87,7 @@ function agentOutcome(result: SpecialistResultLike): { label: string; status: Ru
     const error = result.errors?.[0];
     return { label: "failed", status: "failed", ...(error ? { detail: `${error.code}: ${error.message}` } : {}) };
   }
-  const domain = result.needsDomain?.[0];
+  const domain = result.needsHandoff?.[0];
   if (domain !== undefined) return { label: "needs_domain", status: "ok", detail: `handed off to ${domain}` };
   // the summary TEXT is the answer and is never stored; only whether one exists
   if (result.summary === undefined || result.summary.trim() === "") {
@@ -294,7 +294,7 @@ export function buildRunRecord(input: BuildRunInput): RunRecord {
       });
     }
 
-    for (const domain of result.needsDomain ?? []) {
+    for (const domain of result.needsHandoff ?? []) {
       push({
         id: `${specialistId}.escalate.${domain}`,
         kind: "domain.escalation",

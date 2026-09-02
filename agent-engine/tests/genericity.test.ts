@@ -24,7 +24,7 @@ const files = sourceFiles(SRC);
 const sources = files.map((file) => ({ file, text: readFileSync(file, "utf8") }));
 
 /** The one neutral contract the engine shares with a host: pure schemas, no implementation. */
-const ALLOWED_EXTERNAL = new Set(["@sre/evidence", "ajv", "zod", "node:crypto"]);
+const ALLOWED_EXTERNAL = new Set(["@sre/engine-contract", "ajv", "zod", "node:crypto"]);
 
 describe("the engine depends on nothing platform-specific", () => {
   it("imports only the declared neutral dependencies", () => {
@@ -41,21 +41,23 @@ describe("the engine depends on nothing platform-specific", () => {
 
   it("declares only those dependencies in package.json", () => {
     const manifest = JSON.parse(readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8")) as { dependencies: Record<string, string> };
-    expect(Object.keys(manifest.dependencies).sort()).toEqual(["@sre/evidence", "ajv", "zod"]);
+    expect(Object.keys(manifest.dependencies).sort()).toEqual(["@sre/engine-contract", "ajv", "zod"]);
   });
 
   it("names no product, vendor or domain", () => {
     // ToolHive, Keycloak, Prometheus, OpenShift and the PoC's domains were all
-    // reachable from engine source before this refactor.
+    // reachable from engine source before this refactor; "specialist", "wiki"
+    // and "mcp" survived one audit longer as inherited contract vocabulary and
+    // are forbidden outright since the versioned contract migration.
     //
     // Two `@sre/` specifiers are exempt and neither is domain knowledge: the
-    // neutral evidence contract, and the engine's own package name. The npm
+    // neutral engine contract, and the engine's own package name. The npm
     // scope is inherited from the repository that first hosted the engine and
     // is a publishing decision, not a dependency — renaming it would touch
     // every consumer for no behavioural gain.
-    const forbidden = /toolhive|keycloak|openshift|prometheus|active[-_ ]directory|backstage|argocd|\bsre\b/iu;
+    const forbidden = /toolhive|keycloak|openshift|prometheus|active[-_ ]directory|backstage|argocd|\bsre\b|\bspecialist\b|\bwiki\b|\bmcp\b|mcp_/iu;
     const offenders = sources
-      .map(({ file, text }) => ({ file, text: text.replace(/@sre\/(evidence|agent-engine)/gu, "") }))
+      .map(({ file, text }) => ({ file, text: text.replace(/@sre\/(engine-contract|agent-engine)/gu, "") }))
       .filter(({ text }) => forbidden.test(text))
       .map(({ file }) => file);
     expect(offenders).toEqual([]);
@@ -66,29 +68,6 @@ describe("the engine depends on nothing platform-specific", () => {
     const offenders = sources.flatMap(({ file, text }) => [...text.matchAll(/from\s+"([^"]+)"/gu)]
       .filter((match) => forbidden.test(match[1] as string))
       .map((match) => `${file}: ${match[1] as string}`));
-    expect(offenders).toEqual([]);
-  });
-
-  /**
-   * TWO protocol-flavoured names survive, and both are stated here rather than
-   * quietly tolerated, because "do not hide incomplete decoupling" is a rule:
-   *
-   *   1. Evidence ids and citations use an `mcp:` / `mcp://` URI scheme.
-   *   2. The shared error taxonomy has `MCP_*` codes.
-   *
-   * Neither is protocol CODE — there is no SDK, no transport and no protocol
-   * semantics in the engine, and the import test above proves it. Both are
-   * strings in a contract the engine shares with its host, and renaming either
-   * would change every evidence id, stored run and evaluation fixture that
-   * already depends on them. The cost is real and the benefit is cosmetic, so
-   * they stay — confined, and confined by a test.
-   */
-  it("confines the inherited protocol naming to the contract surface", () => {
-    const offenders = sources
-      // MCP_* are RuntimeErrorCode members of the shared @sre/evidence taxonomy
-      .map(({ file, text }) => ({ file, text: text.replace(/MCP_[A-Z_]+/gu, "") }))
-      .filter(({ file, text }) => /mcp/iu.test(text) && !file.endsWith("tools/evidence.ts"))
-      .map(({ file }) => file);
     expect(offenders).toEqual([]);
   });
 
@@ -134,7 +113,7 @@ const PUBLIC_API = [
   // CredentialProvider port
   "CredentialProvider", "WorkloadRef",
   // results and failures
-  "AgentResult", "DomainHandoff", "Evidence", "EvidenceStatus", "RuntimeError", "RuntimeErrorCode", "engineError",
+  "AgentResult", "HandoffRequest", "Evidence", "EvidenceStatus", "EngineError", "EngineErrorCode", "engineError",
 ].sort();
 
 /** Reachable from `@sre/agent-engine/testing`, and from nowhere else. */

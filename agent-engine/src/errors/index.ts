@@ -1,5 +1,5 @@
 import { ZodError } from "zod";
-import type { RuntimeError, RuntimeErrorCode } from "@sre/evidence";
+import type { EngineError, EngineErrorCode } from "@sre/engine-contract";
 
 /**
  * Engine error handling.
@@ -10,9 +10,9 @@ import type { RuntimeError, RuntimeErrorCode } from "@sre/evidence";
  * string can never be used to enumerate the tool allowlist.
  */
 
-const TRANSIENT_CODES = ["MCP_TIMEOUT", "MCP_UNAVAILABLE", "REQUEST_TIMEOUT", "ECONNRESET"];
+const TRANSIENT_CODES = ["TOOL_TIMEOUT", "TOOL_UNAVAILABLE", "REQUEST_TIMEOUT", "ECONNRESET"];
 
-/** An error carrying a taxonomy code, which the loop maps to a RuntimeError. */
+/** An error carrying a taxonomy code, which the loop maps to a EngineError. */
 export function engineError(code: string, message: string): Error & { code: string } {
   return Object.assign(new Error(message), { code });
 }
@@ -26,9 +26,9 @@ export function isTransient(code: string): boolean {
 }
 
 /** Narrow an arbitrary thrown code onto the tool-failure taxonomy, defaulting to failure. */
-export function toolFailureCode(code: string): RuntimeErrorCode {
-  if (code === "MCP_UNAVAILABLE") return "MCP_UNAVAILABLE";
-  if (code === "MCP_TIMEOUT" || code === "REQUEST_TIMEOUT") return "MCP_TIMEOUT";
+export function toolFailureCode(code: string): EngineErrorCode {
+  if (code === "TOOL_UNAVAILABLE") return "TOOL_UNAVAILABLE";
+  if (code === "TOOL_TIMEOUT" || code === "REQUEST_TIMEOUT") return "TOOL_TIMEOUT";
   if (code === "TOOL_DENIED") return "TOOL_DENIED";
   return "TOOL_FAILED";
 }
@@ -67,15 +67,15 @@ export function safeModelMessage(code: string): string {
   if (code === "MODEL_RATE_LIMITED") return "The model provider rate-limited the request";
   if (code === "MODEL_INVALID_OUTPUT") return "The model returned invalid structured output";
   if (code === "MODEL_TIMEOUT") return "The model did not respond in time";
-  if (code === "REQUEST_TIMEOUT") return "Specialist deadline exhausted";
-  if (code === "CANCELLED") return "Specialist execution was cancelled";
+  if (code === "REQUEST_TIMEOUT") return "Agent deadline exhausted";
+  if (code === "CANCELLED") return "Agent execution was cancelled";
   return "The model provider was unavailable";
 }
 
 /** Caller-facing text for setup-stage losses. Names the stage, never the policy or the provider's own words. */
 export function safeLifecycleMessage(code: string): string {
   if (code === "AUTHN_FAILED") return "A credential for a configured source could not be obtained";
-  if (code === "MCP_INVALID_CALL") return "A configured source published an unusable tool contract";
+  if (code === "TOOL_INVALID_CALL") return "A configured source published an unusable tool contract";
   if (code === "REDACTION_FAILURE") return "A configured source could not be safely described";
   return "A configured source could not be reached during discovery";
 }
@@ -83,8 +83,8 @@ export function safeLifecycleMessage(code: string): string {
 /** Caller-facing text for a tool failure. Deliberately says nothing about policy. */
 export function safeToolMessage(code: string): string {
   if (code === "TOOL_DENIED") return "A required source was not authorized";
-  if (code === "MCP_TIMEOUT" || code === "REQUEST_TIMEOUT") return "A required source timed out";
+  if (code === "TOOL_TIMEOUT" || code === "REQUEST_TIMEOUT") return "A required source timed out";
   return "A required source failed";
 }
 
-export type { RuntimeError, RuntimeErrorCode };
+export type { EngineError, EngineErrorCode };

@@ -25,7 +25,7 @@ export class DirectMcpClient implements ToolHiveClient {
 
   #endpointFor(serverId: string): string {
     const endpoint = this.#endpoints.get(serverId);
-    if (endpoint === undefined) throw Object.assign(new Error(`no direct MCP endpoint configured for server ${serverId}`), { code: "MCP_UNAVAILABLE" });
+    if (endpoint === undefined) throw Object.assign(new Error(`no direct MCP endpoint configured for server ${serverId}`), { code: "TOOL_UNAVAILABLE" });
     return endpoint;
   }
 

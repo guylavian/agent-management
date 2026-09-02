@@ -1,7 +1,8 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import { configFiles } from "./app-config.ts";
 import { isAgentEnabled, type AgentDocument, type AgentRouting } from "./schemas.ts";
 
 /**
@@ -178,7 +179,7 @@ export function loadDeploymentEnvironment(directory: string, baseDir = process.c
   const settings = environmentSettingsSchema.parse(parseYaml(readFileSync(join(root, "environment.yaml"), "utf8")));
   const overlays = new Map<string, AgentDeploymentOverlay>();
   const agentsDir = join(root, "agents");
-  for (const file of readdirSync(agentsDir).filter((name) => name.endsWith(".yaml") || name.endsWith(".yml"))) {
+  for (const file of configFiles(agentsDir)) {
     const overlay = agentDeploymentOverlaySchema.parse(parseYaml(readFileSync(join(agentsDir, file), "utf8")));
     if (overlays.has(overlay.agentId)) throw new Error(`duplicate deployment overlay for ${overlay.agentId} in ${directory}`);
     overlays.set(overlay.agentId, overlay);
@@ -232,6 +233,16 @@ export const MODEL_PROFILE_ENV: Readonly<Record<string, string>> = Object.freeze
  * and the only thing Argo CD reads. Strict, so a hand edit that adds a field
  * fails validation instead of silently diverging from the render.
  */
+/**
+ * A file the deployment MOUNTS into the workload: relative name → contents.
+ *
+ * This is a PROJECTION of Git, never a second source of truth. Git holds the
+ * Agent; the renderer copies it here so Argo can deliver it to a running pod
+ * without a new image, and `check:generated` fails the moment the copy drifts
+ * from the original.
+ */
+const mountedFiles = z.record(z.string().regex(/^[a-z][a-z0-9._-]*$/u), z.string());
+
 export const renderedAgentValuesSchema = z
   .object({
     agent: z
@@ -241,6 +252,50 @@ export const renderedAgentValuesSchema = z
         configFile: z.string().min(1),
       })
       .strict(),
+    /*
+     * MUTABLE DESIRED STATE, DELIVERED BY ARGO RATHER THAN BY THE IMAGE.
+     *
+     * The runtime image bakes `platform/config` and `deploy/environments` so a
+     * working tree and a container resolve the same relative paths. That is
+     * fine for code and for defaults, and wrong for Agent desired state: a
+     * merged pull request changed Git, Argo reconciled, and the running Manager
+     * went on reading the registry from the image it was built with. A new
+     * Agent needed an image rebuild before it could be discovered.
+     *
+     * These files are mounted OVER the baked copies as whole directories, so
+     * the kubelet's atomic `..data` symlink swap delivers a complete new
+     * version and the runtime's revalidation picks it up in place. No rollout,
+     * no restart, one generic image.
+     *
+     * A specialist gets only its own prompt — it loads one Agent document, and
+     * shipping it the whole estate would be handing every pod a list of every
+     * other Agent for no reason.
+     */
+    desiredState: z
+      .object({
+        /** manager only: every canonical Agent document, keyed `<name>.yaml` */
+        agents: mountedFiles.optional(),
+        /** the prompt bodies this workload resolves, keyed `<name>.md` */
+        prompts: mountedFiles,
+        /** manager only: this environment's deployment overlays, keyed `<name>.yaml` */
+        overlays: mountedFiles.optional(),
+        /** manager only: `environment.yaml` and `manager.yaml` for this environment */
+        environmentFiles: mountedFiles.optional(),
+        /**
+         * One digest over every file above, stamped into EVERY ConfigMap this
+         * workload mounts.
+         *
+         * The four volumes are separate Kubernetes objects and the kubelet
+         * swaps each independently, so a pod can briefly hold overlays from
+         * commit N+1 beside agent documents from commit N. Each directory is
+         * internally consistent, nothing is mid-write, and a fingerprint taken
+         * before and after the read is identical — so a straddle check cannot
+         * see it. Comparing this stamp across the mounts can.
+         */
+        revision: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
     deploymentEnvironment: z.string().min(1),
     environment: z.string().min(1),
     replicaCount: z.number().int().min(0).max(20),

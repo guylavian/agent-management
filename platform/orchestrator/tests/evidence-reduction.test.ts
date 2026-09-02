@@ -7,8 +7,8 @@ describe("evidence reducer", () => {
     const results: SpecialistResult[] = [
       { agentId: "a", status: "complete", evidence: [{ id: "wiki", kind: "wiki", source: "runbook", system: "service", environment: "prod", rawExcerpt: "Service should be healthy", citation: "wiki://runbook", status: "ok", requestId: "req", agentId: "a" }] },
       { agentId: "b", status: "complete", evidence: [
-        { id: "live", kind: "telemetry", source: "monitor", system: "service", environment: "prod", payload: { state: "unhealthy" }, citation: "mcp://monitor", status: "ok", requestId: "req", agentId: "b" },
-        { id: "live", kind: "telemetry", source: "monitor", system: "service", environment: "prod", payload: { state: "unhealthy" }, citation: "mcp://monitor", status: "ok", requestId: "req", agentId: "b" },
+        { id: "live", kind: "telemetry", source: "monitor", system: "service", environment: "prod", payload: { state: "unhealthy" }, citation: "tool://monitor", status: "ok", requestId: "req", agentId: "b" },
+        { id: "live", kind: "telemetry", source: "monitor", system: "service", environment: "prod", payload: { state: "unhealthy" }, citation: "tool://monitor", status: "ok", requestId: "req", agentId: "b" },
       ] },
     ];
     const reduced = reduceEvidence(results);
@@ -19,8 +19,8 @@ describe("evidence reducer", () => {
 
   it("prefers a usable observation over a failed one for the same id, keeping first position", () => {
     const results: SpecialistResult[] = [
-      { agentId: "a", status: "partial", evidence: [{ id: "live", kind: "telemetry", source: "monitor", system: "service", environment: "prod", citation: "mcp://monitor", status: "failed", requestId: "req", agentId: "a" }] },
-      { agentId: "b", status: "complete", evidence: [{ id: "live", kind: "telemetry", source: "monitor", system: "service", environment: "prod", payload: { state: "healthy" }, citation: "mcp://monitor", status: "ok", requestId: "req", agentId: "b" }] },
+      { agentId: "a", status: "partial", evidence: [{ id: "live", kind: "telemetry", source: "monitor", system: "service", environment: "prod", citation: "tool://monitor", status: "failed", requestId: "req", agentId: "a" }] },
+      { agentId: "b", status: "complete", evidence: [{ id: "live", kind: "telemetry", source: "monitor", system: "service", environment: "prod", payload: { state: "healthy" }, citation: "tool://monitor", status: "ok", requestId: "req", agentId: "b" }] },
     ];
     const reduced = reduceEvidence(results);
     // one fact, its best-known state: a settled-first failure must not shadow another specialist's success

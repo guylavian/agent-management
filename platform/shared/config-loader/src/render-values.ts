@@ -52,12 +52,40 @@ function resolveModelEnv(doc: AgentDocument, bindings: ModelBindings, environmen
   return modelEnv;
 }
 
+/**
+ * Everything a MANAGER must read that its image cannot supply.
+ *
+ * The Manager derives its catalog from the whole canonical registry
+ * intersected with this environment's overlays, so all of it has to reach the
+ * pod. A specialist loads exactly one Agent document and needs none of it.
+ */
+export interface ManagerDesiredState {
+  /** `<name>.yaml` → canonical Agent document */
+  agents: Record<string, string>;
+  /** `<name>.md` → prompt body */
+  prompts: Record<string, string>;
+  /** `<name>.yaml` → this environment's deployment overlay */
+  overlays: Record<string, string>;
+  /** `environment.yaml` and `manager.yaml` for this environment */
+  environmentFiles: Record<string, string>;
+}
+
+/**
+ * A ConfigMap holds 1 MiB. Failing the RENDER is the right place to notice:
+ * the alternative is a manifest Argo cannot apply, discovered in the cluster
+ * long after the pull request was approved.
+ */
+const MAX_MOUNTED_BYTES = 900_000;
+
 export function renderAgentValues(
   doc: AgentDocument,
   overlay: AgentDeploymentOverlay,
   bindings: ModelBindings,
   environment: string,
   prompt: string,
+  /** the Agent document exactly as it is written in Git, for the specialist mount */
+  agentYaml: string,
+  managerState?: ManagerDesiredState,
 ): RenderedAgentValues {
   if (prompt.trim().length === 0) throw new Error(`${environment}: the prompt for agent "${doc.metadata.name}" is empty`);
 
@@ -76,15 +104,75 @@ export function renderAgentValues(
     },
     ...(overlay.serviceAccount ? { serviceAccount: { name: overlay.serviceAccount } } : {}),
     modelEnv: resolveModelEnv(doc, bindings, environment),
-    // the prompt ships inside the runtime image (Dockerfile COPY config); the
-    // digest is what makes a prompt change a visible, syncable diff here
+    /*
+     * MUTABLE DESIRED STATE, CARRIED BY ARGO RATHER THAN BY THE IMAGE.
+     *
+     * The image bakes `platform/config` and `deploy/environments` so a working
+     * tree and a container resolve the same relative paths. That is right for
+     * code and defaults and wrong for Agent desired state: a merged pull
+     * request changed Git, Argo reconciled, and the running Manager went on
+     * reading the registry from the image it was built with — so discovering a
+     * new Agent needed an image rebuild.
+     *
+     * These files are mounted OVER the baked copies as whole directories, so a
+     * merge reaches a running pod through the deployment path.
+     */
+    desiredState: doc.spec.type === "manager" && managerState !== undefined
+      ? { agents: managerState.agents, prompts: managerState.prompts, overlays: managerState.overlays, environmentFiles: managerState.environmentFiles, revision: "" }
+      /*
+       * A specialist gets its OWN document and prompt, and nothing about
+       * anyone else.
+       *
+       * Its own document is not optional. `AGENT_CONFIG` points at
+       * `config/agents/<name>.yaml`, and without this mount that path resolves
+       * to the image's BAKED copy — so a specialist created after the image was
+       * built has no document to load and cannot start at all. Shipping only
+       * the prompt fixed prompt edits while leaving the headline case, "a new
+       * Agent needs no rebuild", quietly broken.
+       */
+      : {
+        agents: { [`${doc.metadata.name}.yaml`]: agentYaml },
+        prompts: { [`${doc.metadata.name}.md`]: prompt },
+        revision: "",
+      },
+    // the digest still travels: it is what makes a prompt-only edit a visible
+    // one-line diff in this file even though the body now sits beside it
     promptSha256: createHash("sha256").update(prompt).digest("hex"),
   };
+
+  /*
+   * Stamp every mount with one digest of the whole bundle. Computed AFTER the
+   * files are assembled and BEFORE validation, so it covers exactly what will
+   * be mounted and nothing else.
+   */
+  if (values.desiredState) values.desiredState.revision = bundleRevision(values.desiredState);
+
+  const mountedBytes = JSON.stringify(values.desiredState ?? {}).length;
+  if (mountedBytes > MAX_MOUNTED_BYTES) {
+    throw new Error(`${environment}: mounted desired state for "${doc.metadata.name}" is ${mountedBytes} bytes, over the ${MAX_MOUNTED_BYTES}-byte ConfigMap budget`);
+  }
 
   const validated = renderedAgentValuesSchema.parse(values);
   // rendered output must never carry credential material — only references to it
   assertNoSecretMaterial(validated, `rendered.${doc.metadata.name}`);
   return validated;
+}
+
+/**
+ * A digest over every mounted file, independent of map iteration order.
+ *
+ * This is what lets a running pod notice that its four ConfigMaps are not all
+ * from the same commit yet — a state no single-directory check can detect,
+ * because each volume is individually complete and consistent.
+ */
+export function bundleRevision(state: NonNullable<RenderedAgentValues["desiredState"]>): string {
+  const hash = createHash("sha256");
+  for (const group of ["agents", "prompts", "overlays", "environmentFiles"] as const) {
+    for (const name of Object.keys(state[group] ?? {}).sort()) {
+      hash.update(`${group}/${name}\u0000${(state[group] as Record<string, string>)[name]}\u0000`);
+    }
+  }
+  return hash.digest("hex");
 }
 
 /** Deterministic YAML: fixed key order, no timestamps, no map iteration surprises. */
@@ -105,6 +193,26 @@ export function renderedValuesToYaml(values: RenderedAgentValues): string {
   if (values.serviceAccount) lines.push("serviceAccount:", `  name: ${values.serviceAccount.name}`);
   lines.push("modelEnv:");
   for (const key of Object.keys(values.modelEnv).sort()) lines.push(`  ${key}: ${JSON.stringify(values.modelEnv[key])}`);
+  if (values.desiredState) {
+    lines.push("desiredState:");
+    for (const group of ["agents", "prompts", "overlays", "environmentFiles"] as const) {
+      const files = values.desiredState[group];
+      if (files === undefined) continue;
+      lines.push(`  ${group}:`);
+      for (const name of Object.keys(files).sort()) {
+        /*
+         * `|-` block scalars, so a reviewer reads a prompt change as a prompt
+         * change. A quoted one-line string would render every edit as one
+         * enormous unreadable diff, which is the same as no diff at all.
+         *
+         * Trailing newlines are stripped because `|-` re-adds none, and the
+         * loader compares content, not trailing whitespace.
+         */
+        lines.push(`    ${name}: |-`, ...(files[name] as string).replace(/\n+$/u, "").split("\n").map((line) => (line.length === 0 ? "" : `      ${line}`)));
+      }
+    }
+  }
+  if (values.desiredState?.revision) lines.push(`  revision: ${values.desiredState.revision}`);
   lines.push(`promptSha256: ${values.promptSha256}`);
   return `${lines.join("\n")}\n`;
 }

@@ -24,7 +24,7 @@ export function planFollowup(options: {
   const enabledHere = new Set(options.registry.listEnabled(options.ctx.environment).map((entry) => entry.agentId));
   let request: FollowupPlan["request"];
   for (const result of options.results) {
-    for (const domain of (result.needsDomain ?? []).slice(0, 1)) {
+    for (const domain of (result.needsHandoff ?? []).slice(0, 1)) {
       const target = options.registry.resolve(domain);
       let reason: FollowupRejection["reason"] | undefined;
       if (target === undefined) reason = "invalid-domain";

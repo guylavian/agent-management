@@ -156,12 +156,12 @@ describe("architectural boundaries", () => {
   });
 
   /**
-   * The engine's dependency list IS its genericity claim. Five platform
-   * implementations used to be in it.
+   * The engine's dependency list IS its genericity claim. It depends on its own
+   * neutral contract, not on platform extensions like @sre/evidence.
    */
   it("leaves the engine depending on one neutral contract and two libraries", () => {
     const declared = Object.keys((JSON.parse(readFileSync("../agent-engine/package.json", "utf8")) as { dependencies?: Record<string, string> }).dependencies ?? {});
-    expect(declared.sort()).toEqual(["@sre/evidence", "ajv", "zod"]);
+    expect(declared.sort()).toEqual(["@sre/engine-contract", "ajv", "zod"]);
   });
 
   /**

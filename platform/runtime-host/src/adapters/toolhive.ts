@@ -105,7 +105,7 @@ export class MockToolHiveClient implements ToolHiveClient {
     if (!allowed) throw Object.assign(new Error("tool access denied"), { code: "TOOL_DENIED" });
     this.backendCalls.push(call);
     if (call.arguments.mode === "timeout") await new Promise<never>((_resolve, reject) => {
-      const timer = setTimeout(() => reject(Object.assign(new Error("mock timeout"), { code: "MCP_TIMEOUT" })), Math.min(call.timeoutMs + 5, 50));
+      const timer = setTimeout(() => reject(Object.assign(new Error("mock timeout"), { code: "TOOL_TIMEOUT" })), Math.min(call.timeoutMs + 5, 50));
       call.signal?.addEventListener("abort", () => { clearTimeout(timer); reject(call.signal?.reason); }, { once: true });
     });
     if (call.arguments.mode === "failure") throw Object.assign(new Error("mock backend failure"), { code: "TOOL_FAILED" });

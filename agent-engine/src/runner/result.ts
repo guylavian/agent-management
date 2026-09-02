@@ -1,4 +1,4 @@
-import { specialistResultSchema, type Evidence, type RuntimeError, type SpecialistResult } from "@sre/evidence";
+import { agentResultSchema, type Evidence, type EngineError, type AgentResult } from "@sre/engine-contract";
 import type { AgentBudgets } from "../agent/definition.ts";
 import { enforceEvidenceBudget } from "../evidence/normalize.ts";
 import type { Sanitizer } from "../guardrails/sanitizer.ts";
@@ -20,7 +20,7 @@ export interface ResultScope {
   budgets: AgentBudgets;
 }
 
-export function answerResult(scope: ResultScope, evidence: Evidence[], errors: RuntimeError[], action: AgentAction): SpecialistResult {
+export function answerResult(scope: ResultScope, evidence: Evidence[], errors: EngineError[], action: AgentAction): AgentResult {
   // ONLY the sanitizer/normalization section is guarded: anything it throws —
   // a ZodError from a zod-built sanitizer included — is a redaction failure.
   // The final schema parse sits OUTSIDE, so ITS ZodError still classifies as
@@ -41,15 +41,15 @@ export function answerResult(scope: ResultScope, evidence: Evidence[], errors: R
   const citedUsable = cited.filter((id) => usableNorm.has(id)).length;
   const augmentedErrors = citedUnknown.length > 0 ? [...errors, { code: "MODEL_INVALID_OUTPUT" as const, message: "Answer cited unknown evidence IDs", retryable: false }] : errors;
   const grounding = { grounded: citedUsable > 0, citedUsable, usableEvidence: usableNorm.size };
-  return specialistResultSchema.parse({ agentId: scope.agentId, status: augmentedErrors.length === 0 ? "complete" : normalized.length > 0 ? "partial" : "failed", evidence: normalized, summary, grounding, ...(augmentedErrors.length ? { errors: augmentedErrors } : {}) });
+  return agentResultSchema.parse({ agentId: scope.agentId, status: augmentedErrors.length === 0 ? "complete" : normalized.length > 0 ? "partial" : "failed", evidence: normalized, summary, grounding, ...(augmentedErrors.length ? { errors: augmentedErrors } : {}) });
 }
 
 /** The fail-closed degradation for a throwing sanitizer: typed, evidence withheld, no internals. */
-function redactionFailed(agentId: string, errors: RuntimeError[]): SpecialistResult {
+function redactionFailed(agentId: string, errors: EngineError[]): AgentResult {
   return { agentId, status: "failed", evidence: [], errors: [...errors, { code: "REDACTION_FAILURE", message: "Evidence redaction failed", retryable: false }] };
 }
 
-export function insufficientResult(scope: ResultScope, evidence: Evidence[], errors: RuntimeError[], reason: string): SpecialistResult {
+export function insufficientResult(scope: ResultScope, evidence: Evidence[], errors: EngineError[], reason: string): AgentResult {
   let normalized: Evidence[];
   let summary: string;
   try {
@@ -58,7 +58,7 @@ export function insufficientResult(scope: ResultScope, evidence: Evidence[], err
   } catch {
     return redactionFailed(scope.agentId, errors);
   }
-  return specialistResultSchema.parse({ agentId: scope.agentId, status: normalized.length > 0 ? "partial" : "failed", evidence: normalized, summary, ...(errors.length ? { errors } : {}) });
+  return agentResultSchema.parse({ agentId: scope.agentId, status: normalized.length > 0 ? "partial" : "failed", evidence: normalized, summary, ...(errors.length ? { errors } : {}) });
 }
 
 /**
@@ -70,7 +70,7 @@ export function insufficientResult(scope: ResultScope, evidence: Evidence[], err
  * what keeps agent-to-agent communication impossible rather than merely
  * discouraged.
  */
-export function handoffResult(scope: ResultScope, evidence: Evidence[], errors: RuntimeError[], action: AgentAction): SpecialistResult {
+export function handoffResult(scope: ResultScope, evidence: Evidence[], errors: EngineError[], action: AgentAction): AgentResult {
   let normalized: Evidence[];
   let domain: string;
   let summary: string;
@@ -82,11 +82,11 @@ export function handoffResult(scope: ResultScope, evidence: Evidence[], errors: 
     return redactionFailed(scope.agentId, errors);
   }
   if (domain === "") return insufficientResult(scope, evidence, errors, "Cross-domain request was missing a target domain.");
-  return specialistResultSchema.parse({ agentId: scope.agentId, status: "partial", evidence: normalized, needsDomain: [domain], summary, ...(errors.length ? { errors } : {}) });
+  return agentResultSchema.parse({ agentId: scope.agentId, status: "partial", evidence: normalized, needsHandoff: [domain], summary, ...(errors.length ? { errors } : {}) });
 }
 
 /** A failure before any evidence could be collected. Carries no detail about why policy denied it. */
-export function failed(agentId: string, code: RuntimeError["code"], message: string): SpecialistResult {
+export function failed(agentId: string, code: EngineError["code"], message: string): AgentResult {
   return { agentId, status: "failed", evidence: [], errors: [{ code, message, retryable: false }] };
 }
 
@@ -96,7 +96,7 @@ export function failed(agentId: string, code: RuntimeError["code"], message: str
  * interrupted and what was gathered — never a model-authored claim, so a
  * failure cannot fabricate an answer on the way out.
  */
-export function failedWithEvidence(scope: ResultScope, evidence: Evidence[], errors: RuntimeError[], code: RuntimeError["code"], message: string, groundedSummary?: string): SpecialistResult {
+export function failedWithEvidence(scope: ResultScope, evidence: Evidence[], errors: EngineError[], code: EngineError["code"], message: string, groundedSummary?: string): AgentResult {
   const normalized = enforceEvidenceBudget(scope.sanitizer, evidence, scope.budgets);
   const usableEvidence = normalized.filter((item) => item.status === "ok" || item.status === "empty").length;
   return {

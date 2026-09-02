@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import type { Evidence, EvidenceStatus } from "@sre/evidence";
+import type { Evidence, EvidenceStatus } from "@sre/engine-contract";
 import type { ToolCallRequest, ToolCallResult } from "./port.ts";
 
 /**
  * A stable fingerprint of a call's arguments, part of the evidence identity.
  *
- * The id used to be `mcp:<request>:<tool>` — the ARGUMENTS were not part of the
+ * The id once carried only `<request>:<tool>` — the ARGUMENTS were not part of the
  * identity, so two different queries through the same tool shared one id, and
  * every dedup-by-id downstream silently dropped the second query's evidence.
  * Identity now includes what was actually asked.
@@ -48,7 +48,7 @@ export function evidenceIdFor(call: Pick<ToolCallRequest, "requestId" | "serverI
   const hashHex = hash.digest("hex").slice(0, 32);
   // readable segments are capped so an engine-minted id always fits the 200-char
   // citation bound; identity lives in the hash over the FULL components
-  return `mcp:${call.requestId.slice(0, 48)}:${call.serverId.slice(0, 48)}:${call.toolName.slice(0, 48)}:${hashHex}`;
+  return `tool:${call.requestId.slice(0, 48)}:${call.serverId.slice(0, 48)}:${call.toolName.slice(0, 48)}:${hashHex}`;
 }
 
 /**
@@ -126,10 +126,10 @@ function payloadDigest(content: unknown): string {
 }
 
 /** A tool result becomes typed, citable Evidence. Nothing else enters the record. */
-export function toolResultToEvidence(call: ToolCallRequest, result: ToolCallResult, agentId: string, kind: Evidence["kind"] = "telemetry"): Evidence {
+export function toolResultToEvidence(call: ToolCallRequest, result: ToolCallResult, agentId: string, kind: string, sourceVersioned = false): Evidence {
   const empty = Array.isArray(result.content) && result.content.length === 0;
-  // knowledge evidence records sourceModifiedAt (document version), not observedAt (live-state semantics)
-  const isKnowledge = kind === "wiki";
+  // source-versioned evidence records sourceModifiedAt (document version), not observedAt (live-state semantics)
+  const isKnowledge = sourceVersioned;
   const validatedObservedAt = validateObservedAt(result.observedAt);
   const status = result.isError ? "failed" : empty ? "empty" : "ok";
   const shouldIncludeDigest = status === "ok" || status === "empty";
@@ -144,7 +144,7 @@ export function toolResultToEvidence(call: ToolCallRequest, result: ToolCallResu
     tool: call.toolName,
     query: JSON.stringify(call.arguments),
     payload: safe,
-    citation: `mcp://${call.serverId}/${call.toolName}?request=${call.requestId}`,
+    citation: `tool://${call.serverId}/${call.toolName}?request=${call.requestId}`,
     status,
     requestId: call.requestId,
     agentId,
@@ -154,8 +154,8 @@ export function toolResultToEvidence(call: ToolCallRequest, result: ToolCallResu
 
 /** A failed call is recorded too: absence of evidence is itself evidence, and must be citable. */
 export function toolFailureEvidence(call: ToolCallRequest, agentId: string, code: unknown): Evidence {
-  const status: EvidenceStatus = code === "TOOL_DENIED" ? "denied" : code === "MCP_TIMEOUT" || code === "REQUEST_TIMEOUT" ? "missing" : "failed";
-  return { id: evidenceIdFor(call), kind: "missing", source: `${call.serverId}/${call.toolName}`, system: call.serverId, environment: call.environment, observedAt: new Date().toISOString(), tool: call.toolName, query: JSON.stringify(call.arguments), citation: `mcp://${call.serverId}/${call.toolName}?request=${call.requestId}`, status, requestId: call.requestId, agentId };
+  const status: EvidenceStatus = code === "TOOL_DENIED" ? "denied" : code === "TOOL_TIMEOUT" || code === "REQUEST_TIMEOUT" ? "missing" : "failed";
+  return { id: evidenceIdFor(call), kind: "missing", source: `${call.serverId}/${call.toolName}`, system: call.serverId, environment: call.environment, observedAt: new Date().toISOString(), tool: call.toolName, query: JSON.stringify(call.arguments), citation: `tool://${call.serverId}/${call.toolName}?request=${call.requestId}`, status, requestId: call.requestId, agentId };
 }
 
 /** Evidence for a call the runtime refused before any provider was reached. */
@@ -163,5 +163,5 @@ export function toolProblemEvidence(toolName: string, requestId: string, environ
   const hash = createHash("sha256");
   hash.update(canonicalJson({ server: serverId, tool: toolName, args }));
   const hashHex = hash.digest("hex").slice(0, 32);
-  return { id: `mcp:${requestId}:${serverId}:${toolName}:${hashHex}`, kind: "missing", source: `${serverId}/${toolName}`, system: serverId, environment, tool: toolName, citation: `mcp://${serverId}/${toolName}?request=${requestId}`, status: "failed", requestId, agentId };
+  return { id: `tool:${requestId}:${serverId}:${toolName}:${hashHex}`, kind: "missing", source: `${serverId}/${toolName}`, system: serverId, environment, tool: toolName, citation: `tool://${serverId}/${toolName}?request=${requestId}`, status: "failed", requestId, agentId };
 }

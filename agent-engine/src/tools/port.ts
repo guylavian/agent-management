@@ -79,7 +79,10 @@ export interface ApprovedTool {
   environments: string[];
   timeoutMs: number;
   retryPolicy: "none" | "transient-once";
-  evidenceKind: "telemetry" | "config" | "wiki";
+  /** OPEN taxonomy: copied verbatim onto the evidence this tool produces; a host narrows it in its own catalog schema */
+  evidenceKind: string;
+  /** true when the tool returns versioned documents: evidence records sourceModifiedAt (document version) instead of observedAt (live observation) */
+  sourceVersioned?: boolean;
   /** pinned copy used exclusively when present; live drift → tool.schema.drift counter */
   pinnedDescription?: string;
   /** pinned copy used exclusively when present; oversized live schema → tool excluded */

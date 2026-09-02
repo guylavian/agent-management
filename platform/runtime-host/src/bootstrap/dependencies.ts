@@ -1,5 +1,6 @@
 import { createPublicKey } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import type { SpecialistTransport } from "@sre/agent-protocol";
 import {
   JwksDelegatedIdentityVerifier,
@@ -32,9 +33,11 @@ import {
 import { MockModelClient, RealOpenAiCompatibleClient, type ModelClient } from "@sre/llm";
 import { MockSpecialistTransport, type SessionStore } from "@sre/orchestrator";
 import { DisabledSessionStore, MockSessionStore, PostgresSessionStore } from "@sre/orchestrator";
+import { DisabledAgentRepository, PostgresAgentRepository, type AgentRepository } from "@sre/orchestrator";
 import { ArgoCdStatusSource, HttpRuntimeProbe, InMemoryRunStore, type DeploymentStatusSource, type RunStore, type RuntimeProbe } from "../management/index.ts";
 import { effectiveCatalog, NOTHING_OBSERVED, ProbeAvailabilityMonitor, type AvailabilityView } from "./availability.ts";
-import { desiredStateSource, type DesiredStateSource } from "./desired-state.ts";
+import { envelopeDigest, operationalCatalog, OperationalStateView } from "./operational.ts";
+import { agentInstanceSource, desiredStateSource, type DesiredStateSource } from "./desired-state.ts";
 import { ClientCredentialsWorkloadTokenProvider, HttpSpecialistTransport, MockWorkloadTokenProvider, ProjectedWorkloadTokenProvider } from "../transport/http.ts";
 import { InProcessSpecialistTransport } from "../transport/in-process.ts";
 import { DirectMcpClient, mcpEndpointsFromEnv, MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "../adapters/index.ts";
@@ -84,6 +87,10 @@ export interface ManagerDependencies extends CommonDependencies {
    * orchestrator cannot disagree about which Agents exist or which are enabled.
    */
   desiredState: DesiredStateSource;
+  /** the operational control plane: suspend and resume only, or Disabled */
+  agentRepository: AgentRepository;
+  /** the synchronous view the routing catalog is narrowed by */
+  operational: OperationalStateView;
   runs: RunStore;
   /** Argo CD and pod readiness. Absent means the console reports `unknown`, never a colour. */
   argo?: DeploymentStatusSource;
@@ -92,7 +99,16 @@ export interface ManagerDependencies extends CommonDependencies {
 
 export interface SpecialistDependencies extends CommonDependencies {
   mode: "specialist";
+  /** the document as it was at STARTUP; use `agentOf()` on the request path */
   agent: SpecialistAgentConfig;
+  /**
+   * The LIVE document, re-read from the mounted volume.
+   *
+   * The request path must use this rather than `agent`. Enforcement reads the
+   * tool allowlist from whatever object it is handed, so a boot-time copy keeps
+   * granting access that Git has already narrowed.
+   */
+  agentOf: () => SpecialistAgentConfig;
   catalog: ApprovedCatalog;
   toolhive: ToolHiveClient;
   credentialExchanger: ToolCredentialExchanger;
@@ -110,6 +126,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
   // FAIL CLOSED: an enabled Agent whose model profile does not resolve in this
   // environment is a startup error, not a surprise on someone's first question.
   assertModelProfilesResolve(config, agent, modelMap);
+  assertDesiredStateIsMounted(config, agent, env);
   const model = config.clients.llm === "mock" ? new MockModelClient() : buildRealModel(config);
   const mockDelegation = config.clients.delegation === "mock"
     ? new MockDelegationAuthority({ issuer: config.delegation.issuer, secret: config.delegation.mockSecret })
@@ -132,7 +149,43 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     const availability: AvailabilityView = runtimeProbe === undefined
       ? NOTHING_OBSERVED
       : new ProbeAvailabilityMonitor(runtimeProbe, () => desiredState.current().catalog.listEnabled()).start();
-    const registry = effectiveCatalog(desiredState, availability);
+    /*
+     * THE OPERATIONAL MEET, if a control plane is wired.
+     *
+     * `effectiveCatalog` is Git desired state intersected with observed
+     * availability. `operationalCatalog` adds the third term: the activation
+     * row, the suspension, and attestations stamped with the envelope they were
+     * made against.
+     *
+     * When no repository is configured this is the identity function, so a
+     * deployment that has not adopted the operational plane behaves exactly as
+     * before. When one IS configured but unavailable, it fails closed — those
+     * two must never collapse into each other.
+     */
+    const agentRepository: AgentRepository = config.reconciliation.operationalPlane && config.postgres.connectionString !== undefined
+      ? new PostgresAgentRepository(config.postgres.connectionString)
+      : new DisabledAgentRepository();
+    const operational = new OperationalStateView(agentRepository, deploymentEnvironmentName(config));
+    if (operational.configured) operational.start();
+    const registry = operationalCatalog(
+      effectiveCatalog(desiredState, availability),
+      operational,
+      (agentId) => {
+        const snapshot = desiredState.current();
+        /*
+         * Refuse to admit anything from an envelope we cannot vouch for. When
+         * the last reload failed, this snapshot may predate a narrowing or a
+         * revocation, and resuming against it would be exactly the
+         * stale-authority resurrection the design forbids.
+         */
+        if (snapshot.error !== undefined) return undefined;
+        const agent = snapshot.registry.getSpecialist(agentId);
+        if (agent === undefined) return undefined;
+        const overlay = snapshot.overlays.get(agentId);
+        return envelopeDigest(agent, snapshot.environment, overlay);
+      },
+      config.defaultEnvironment,
+    );
     let agentClient: SpecialistTransport;
     if (config.clients.agent === "inprocess") {
       // single-process local PoC: the manager executes specialists in-process.
@@ -169,6 +222,8 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       agentClient,
       runs: new InMemoryRunStore(),
       desiredState,
+      agentRepository,
+      operational,
       ...(buildArgo(config) ? { argo: buildArgo(config) as DeploymentStatusSource } : {}),
       ...(runtimeProbe ? { runtimeProbe } : {}),
       identityIssuer,
@@ -208,10 +263,19 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
             ...(config.toolCredential.jwksUri ? { jwksUri: config.toolCredential.jwksUri } : {}),
           })
         : new RealTokenExchangeCredentialExchanger(config.toolCredential);
+  const agentOf = agentInstanceSource({
+    configFile: config.agentConfigFile,
+    mcpServersDir: config.mcpServersDir,
+    agentsDir: config.agentsDir,
+    promptsDir: config.promptsDir,
+  });
   return {
     mode: "specialist",
     config,
     agent: specialistAgent,
+    // a manager document can never reach this branch: assertDeclaredRole and
+    // the type switch above both already refused it
+    agentOf: () => agentOf() as SpecialistAgentConfig,
     catalog,
     model,
     toolhive: buildToolhive(config, env, toolAuthority),
@@ -235,6 +299,57 @@ function assertDeclaredRole(config: AppConfig, agent: ManagerAgentConfig | Speci
   if (config.agentId !== undefined && config.agentId !== agent.name) {
     throw new ConfigValidationError(`unsafe configuration:\n- AGENT_ID declares "${config.agentId}" but ${config.agentConfigFile} defines agent "${agent.name}"`);
   }
+}
+
+/**
+ * IN PRODUCTION, AGENT DESIRED STATE MUST BE MOUNTED, NOT BAKED.
+ *
+ * The image still ships `platform/config` and `deploy/environments`, because
+ * the approved MCP catalog, the model profiles and the tool policy belong to
+ * the reviewed artifact, and because a working tree and a container must
+ * resolve the same relative paths. But the Agent registry, the prompts and the
+ * deployment overlays are MUTABLE desired state: Argo delivers them, and a pod
+ * that silently fell back to the image's copy would serve whatever the estate
+ * looked like on build day. That is the exact failure this platform is supposed
+ * not to have, and it produces no error of its own — the Manager simply never
+ * discovers the Agent someone merged an hour ago.
+ *
+ * So it is checked. `..data` is how a kubelet builds a projected volume, and
+ * its presence is the definitive evidence that this directory is delivered
+ * rather than baked. A production deployment that is not on Kubernetes can say
+ * so explicitly with SRE_ALLOW_BAKED_DESIRED_STATE=true and own the
+ * consequence; there is deliberately no way to reach that state by accident.
+ */
+function assertDesiredStateIsMounted(
+  config: AppConfig,
+  agent: ManagerAgentConfig | SpecialistAgentConfig,
+  env: Record<string, string | undefined>,
+): void {
+  if (config.env !== "production" && config.env !== "real-poc") return;
+  if (env.SRE_ALLOW_BAKED_DESIRED_STATE === "true") return;
+
+  // a specialist loads one Agent document and its prompt; the Manager
+  // additionally derives its catalog from the registry and the overlays
+  const required = agent.spec.type === "manager"
+    ? [config.agentsDir, config.promptsDir, join(config.deploymentEnvironmentDir, "agents")]
+    // a specialist needs BOTH: `AGENT_CONFIG` resolves into the agents
+    // directory, so a baked one means the pod loads the document the image was
+    // built with — or, for an Agent created since, finds no document at all
+    : [config.agentsDir, config.promptsDir];
+  const baked = required.filter((directory) => !existsSync(join(directory, "..data")));
+  if (baked.length > 0) {
+    throw new ConfigValidationError(
+      `unsafe configuration:\n- Agent desired state is not mounted for ${baked.join(", ")}; ` +
+      "these must be delivered as ConfigMap volumes by deploy/runtime/helm, or the runtime would serve the configuration baked into its image. " +
+      "Set SRE_ALLOW_BAKED_DESIRED_STATE=true only if this deployment genuinely has no GitOps delivery path.",
+    );
+  }
+}
+
+/** The deployment environment this runtime serves, which keys the operational rows. */
+function deploymentEnvironmentName(config: AppConfig): string {
+  // `deploy/environments/<name>`; the trailing segment is the environment
+  return config.deploymentEnvironmentDir.split("/").filter((part) => part.length > 0).pop() ?? "production";
 }
 
 function configPaths(config: AppConfig): { agentsDir: string; promptsDir: string; mcpServersDir: string; modelProfilesFile: string; toolPolicyFile: string } {

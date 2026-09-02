@@ -34,7 +34,7 @@ export const CONTROL_TOOL_NAMES = ["answer", "need_domain", "insufficient_eviden
  */
 export const CONTROL_TOOLS: ModelToolSchema[] = [
   { name: "answer", description: "Provide the final answer once collected evidence is sufficient.", inputSchema: { type: "object", additionalProperties: false, required: ["summary"], properties: { summary: { type: "string" }, evidenceIds: { type: "array", items: { type: "string" } } } } },
-  { name: "need_domain", description: "Request one additional domain when another specialist is genuinely required.", inputSchema: { type: "object", additionalProperties: false, required: ["needsDomain", "reason"], properties: { needsDomain: { type: "string" }, reason: { type: "string" } } } },
+  { name: "need_domain", description: "Request one additional domain when another agent is genuinely required.", inputSchema: { type: "object", additionalProperties: false, required: ["needsDomain", "reason"], properties: { needsDomain: { type: "string" }, reason: { type: "string" } } } },
   { name: "insufficient_evidence", description: "Stop when the remaining question cannot be proven from available tools.", inputSchema: { type: "object", additionalProperties: false, required: ["reason"], properties: { reason: { type: "string" } } } },
 ];
 

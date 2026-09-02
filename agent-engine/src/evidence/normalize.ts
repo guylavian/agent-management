@@ -1,4 +1,4 @@
-import type { Evidence } from "@sre/evidence";
+import type { Evidence } from "@sre/engine-contract";
 import type { AgentBudgets } from "../agent/definition.ts";
 import type { Sanitizer } from "../guardrails/sanitizer.ts";
 

@@ -73,7 +73,11 @@ describe("mcp server views", () => {
   it("reports which agents may reach each MCP and the expected audience", () => {
     const servers = mcpServerViews(specialists, registry.catalog, { keycloak: "http://localhost:8301/mcp" });
     const kc = servers.find((server) => server.id === "keycloak")!;
-    expect(kc.agents).toEqual(["keycloak"]);
+    // derived, not listed: this used to name the one agent that happened to
+    // hold keycloak access, so adding any other agent with it failed a test
+    // about MCP projections
+    expect(kc.agents).toEqual(specialists.filter((agent) => agent.spec.access.some((entry) => entry.mcp === "keycloak")).map((agent) => agent.name).sort());
+    expect(kc.agents.length).toBeGreaterThan(0);
     expect(kc.expectedAudience).toBe("sre-toolhive:keycloak");
     expect(kc.readOnlyVerified).toBe(true);
     expect(kc.toolhiveEndpoint).toBe("http://localhost:8301/mcp");
@@ -131,9 +135,14 @@ describe("GitOps YAML generation", () => {
    * are one change or none. Generating the Agent alone would produce a document
    * that fails startup on a missing prompt and is never rendered for any
    * environment.
+   *
+   * ACTIVE, because the rendered Helm values are the fourth file only for an
+   * Agent that actually deploys: `tools/render-agent-deployment` skips every
+   * disabled overlay, so emitting a render for a draft would put a file in the
+   * change-set that the canonical renderer deletes on its next run.
    */
   it("generates the Agent, its prompt, its overlay and its render as one change-set", () => {
-    const change = generateAgentChange(draft);
+    const change = generateAgentChange({ ...draft, lifecycle: "active" });
     expect(change.files.map((file) => file.path)).toEqual([
       // repository-relative: the runtime's own config/ is platform/config/ in Git
       "platform/config/agents/check-point.yaml",
@@ -145,7 +154,17 @@ describe("GitOps YAML generation", () => {
     const prompt = change.files.find((file) => file.path.endsWith(".md"));
     expect(prompt?.contents).toContain("Investigate firewall policy");
     const overlay = change.files.find((file) => file.path.startsWith("deploy/"));
+    // ONE decision drives both files: the overlay's `enabled` is derived from
+    // the document's lifecycle, so the two cannot disagree about whether this
+    // environment should run the Agent
+    expect(agentDeploymentOverlaySchema.parse(parseYaml(overlay!.contents))).toMatchObject({ agentId: "check-point", enabled: true });
+  });
+
+  it("writes a disabled overlay and no render for a draft", () => {
+    const change = generateAgentChange({ ...draft, lifecycle: "draft" });
+    const overlay = change.files.find((file) => file.path.startsWith("deploy/"));
     expect(agentDeploymentOverlaySchema.parse(parseYaml(overlay!.contents))).toMatchObject({ agentId: "check-point", enabled: false });
+    expect(change.files.some((file) => file.path.includes("/rendered/"))).toBe(false);
   });
 
   it("refuses to generate an Agent that references a prompt it does not create", () => {
@@ -180,7 +199,7 @@ describe("run store and execution graph", () => {
     {
       agentId: "keycloak",
       status: "complete",
-      needsDomain: ["observability"],
+      needsHandoff: ["observability"],
       evidence: [
         { id: "ev-1", kind: "config", system: "keycloak", tool: "list_clients", status: "ok" },
         // a refused call, exactly as the engine records one: TOOL_DENIED → "denied".
@@ -268,5 +287,23 @@ describe("run store and execution graph", () => {
     store.record({ ...record(), requestId: "older" });
     store.record({ ...record(), requestId: "newer" });
     expect(store.list()[0]?.requestId).toBe("newer");
+  });
+});
+
+/**
+ * ONE EVENT VOCABULARY FOR RUNS AND MANAGEMENT REQUESTS.
+ *
+ * The management plane projects a Request onto the same RunNode shape, so the
+ * runtime's schema — the contract's source of truth — must admit the
+ * management kinds, actors and the `pending` status, while still refusing a
+ * payload in metadata.
+ */
+describe("run node vocabulary covers management requests", () => {
+  it("accepts request kinds, management actors and pending status", async () => {
+    const { runNodeSchema } = await import("../src/management/run-store.ts");
+    for (const [kind, actor] of [["request.created", "user"], ["pr.merged", "git"], ["argo.sync", "argo"], ["change.prepared", "portal"], ["agent.routable", "manager"]] as const) {
+      expect(() => runNodeSchema.parse({ id: "1", kind, label: "x", status: "pending", startedAt: "t", durationMs: 0, actor, metadata: { pullRequest: 7 } })).not.toThrow();
+    }
+    expect(() => runNodeSchema.parse({ id: "1", kind: "pr.merged", label: "x", status: "ok", startedAt: "t", durationMs: 0, actor: "git", metadata: { payload: { nested: true } } })).toThrow();
   });
 });

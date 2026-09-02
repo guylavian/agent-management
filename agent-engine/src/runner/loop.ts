@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { DomainHandoff, Evidence, RuntimeError, SpecialistResult } from "@sre/evidence";
+import type { HandoffRequest, Evidence, EngineError, AgentResult } from "@sre/engine-contract";
 import type { AgentDefinition } from "../agent/definition.ts";
 import type { ToolCredential } from "../agent/principal.ts";
 import { enforceEvidenceBudget } from "../evidence/normalize.ts";
@@ -43,7 +43,7 @@ const agentBudgetsSchema = z.object({
  *
  * Nothing here knows which domain it is serving.
  */
-export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: AgentRunContext, deps: EngineDependencies & { telemetry?: Telemetry }, handoff?: DomainHandoff): Promise<SpecialistResult> {
+export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: AgentRunContext, deps: EngineDependencies & { telemetry?: Telemetry }, handoff?: HandoffRequest): Promise<AgentResult> {
   const telemetry = deps.telemetry ?? noopTelemetry;
   const budgets = agent.budgets;
   const results: ResultScope = { agentId: agent.id, sanitizer: deps.sanitizer, budgets };
@@ -56,14 +56,14 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
 
   // Policy containing a control-tool name is invalid: control tools are virtual, engine-only, never provided by external servers
   for (const approved of policy.tools) {
-    if (isControlTool(approved.toolName)) return failed(agent.id, "MCP_INVALID_CALL", "Policy references a control tool");
+    if (isControlTool(approved.toolName)) return failed(agent.id, "TOOL_INVALID_CALL", "Policy references a control tool");
   }
 
   // the run's single absolute deadline: the caller's, or the Agent's budget,
   // whichever expires first
   const deadline = Math.min(ctx.deadline, Date.now() + budgets.timeoutMs);
   const evidence: Evidence[] = [];
-  const errors: RuntimeError[] = [];
+  const errors: EngineError[] = [];
   const credentialCache = new Map<string, ToolCredential>();
   let modelTurns = 0;
   let toolCalls = 0;
@@ -86,7 +86,7 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
   // Cancellation is checked first: a caller abort is not a model failure. The
   // summary is DETERMINISTIC — it reports how the run was interrupted and that
   // citations exist; it asserts nothing the evidence does not.
-  const interrupted = (error: unknown): SpecialistResult => {
+  const interrupted = (error: unknown): AgentResult => {
     const cancelled = ctx.signal?.aborted === true || (error instanceof Error && error.name === "AbortError");
     const code = cancelled ? ("CANCELLED" as const) : modelFailureCode(error);
     const usable = evidence.filter((item) => item.status === "ok" || item.status === "empty").length;
@@ -106,14 +106,14 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
   // the deadline, so a non-cooperative port cannot stall the run before it starts
   let available: Awaited<ReturnType<typeof visibleTools>>["tools"];
   try {
-    if (Date.now() >= deadline) return failedWithEvidence(results, evidence, errors, "REQUEST_TIMEOUT", "Specialist deadline exhausted");
+    if (Date.now() >= deadline) return failedWithEvidence(results, evidence, errors, "REQUEST_TIMEOUT", "Agent deadline exhausted");
     const agentDecision = await telemetry.span("authorization.check", {
       "request.id": ctx.requestId,
       "agent.id": agent.id,
       "authorization.subject": "agent",
       "agent.lifecycle": agent.lifecycleLabel ?? "unknown",
     }, async () => authorizeAgent(ctx.principal, agent));
-    if (!agentDecision.allowed) return failed(agent.id, "AUTHZ_DENIED", "Specialist access denied");
+    if (!agentDecision.allowed) return failed(agent.id, "AUTHZ_DENIED", "Agent access denied");
 
     // discovery is authenticated too: one narrow credential per configured server
     // before listing; a server whose exchange fails contributes no tools
@@ -128,7 +128,7 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
     available = discovered.tools;
     for (const failure of discovered.failures) {
       const raw = errorCode(failure.error);
-      const code = raw === "MCP_INVALID_CALL" || raw === "REDACTION_FAILURE" ? (raw as "MCP_INVALID_CALL" | "REDACTION_FAILURE") : ("MCP_UNAVAILABLE" as const);
+      const code = raw === "TOOL_INVALID_CALL" || raw === "REDACTION_FAILURE" ? (raw as "TOOL_INVALID_CALL" | "REDACTION_FAILURE") : ("TOOL_UNAVAILABLE" as const);
       errors.push({ code, message: safeLifecycleMessage(code), retryable: isTransient(code) });
     }
 
@@ -162,11 +162,11 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
 
   // one bounded tool execution; mutates evidence/errors/toolCalls; returns a short result string for the model
   const executeOne = async (name: string | undefined, args: Record<string, unknown>): Promise<string> => {
-    if (toolCalls >= budgets.maxToolCalls) { errors.push({ code: "MCP_INVALID_CALL", message: "Tool-call budget exhausted", retryable: false }); return "tool-call budget exhausted"; }
+    if (toolCalls >= budgets.maxToolCalls) { errors.push({ code: "TOOL_INVALID_CALL", message: "Tool-call budget exhausted", retryable: false }); return "tool-call budget exhausted"; }
     const selected = name === undefined ? undefined : available.find(({ schema }) => schema.name === name);
-    if (selected === undefined) { toolCalls += 1; errors.push({ code: "MCP_INVALID_CALL", message: "Model requested a non-visible tool", retryable: false }); evidence.push(toolProblemEvidence(name ?? "unknown", ctx.requestId, ctx.environment, agent.id, "unknown-tool")); return "tool is not available"; }
+    if (selected === undefined) { toolCalls += 1; errors.push({ code: "TOOL_INVALID_CALL", message: "Model requested a non-visible tool", retryable: false }); evidence.push(toolProblemEvidence(name ?? "unknown", ctx.requestId, ctx.environment, agent.id, "unknown-tool")); return "tool is not available"; }
     const argCheck = validateToolArguments(selected.schema, args);
-    if (!argCheck.valid) { toolCalls += 1; telemetry.counter("tool.arguments.invalid"); errors.push({ code: "MCP_INVALID_CALL", message: `Tool arguments failed schema validation (${argCheck.reason})`, retryable: false }); evidence.push(toolProblemEvidence(selected.schema.name, ctx.requestId, ctx.environment, agent.id, "invalid-args", selected.approved.serverId, args)); return "arguments failed schema validation"; }
+    if (!argCheck.valid) { toolCalls += 1; telemetry.counter("tool.arguments.invalid"); errors.push({ code: "TOOL_INVALID_CALL", message: `Tool arguments failed schema validation (${argCheck.reason})`, retryable: false }); evidence.push(toolProblemEvidence(selected.schema.name, ctx.requestId, ctx.environment, agent.id, "invalid-args", selected.approved.serverId, args)); return "arguments failed schema validation"; }
     // the VALIDATED clone is what executes and what keys identity: coerced
     // spellings of the same call ({n:42} vs {n:"42"}) share one key and one id,
     // and the model's own object is never mutated
@@ -224,7 +224,7 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
 
   try {
     while (modelTurns < budgets.maxModelTurns) {
-      if (Date.now() >= deadline) return failedWithEvidence(results, evidence, errors, "REQUEST_TIMEOUT", "Specialist deadline exhausted");
+      if (Date.now() >= deadline) return failedWithEvidence(results, evidence, errors, "REQUEST_TIMEOUT", "Agent deadline exhausted");
       const response = await modelTurn();
       modelTurns += 1;
 
@@ -274,7 +274,7 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
  * marked as data so a prompt-injection attempt in a handoff or a resolved entity
  * reads as text rather than as a directive.
  */
-function buildInitialMessages(agent: AgentDefinition, ctx: AgentRunContext, handoff: DomainHandoff | undefined): ModelMessage[] {
+function buildInitialMessages(agent: AgentDefinition, ctx: AgentRunContext, handoff: HandoffRequest | undefined): ModelMessage[] {
   const resolvedEntities = ctx.resolvedEntities;
   return [
     { role: "system", content: agent.systemPrompt },

@@ -1,12 +1,15 @@
-import { readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import {
   loadAgentRegistry,
   loadDeploymentEnvironment,
+  loadAgentInstance,
   loadEffectiveAgentCatalog,
   type AgentDeploymentOverlay,
   type AgentRegistry,
   type LoadOptions,
+  type ManagerAgentConfig,
+  type SpecialistAgentConfig,
   type StaticAgentCatalog,
 } from "@sre/config";
 
@@ -64,6 +67,14 @@ export interface DesiredStateOptions extends LoadOptions {
 
 const DEFAULT_REVALIDATE_MS = 5_000;
 
+/**
+ * How many times a load may be retried when the fingerprint moves underneath
+ * it. Three is enough for a kubelet symlink swap, which happens once; more
+ * would mean something is rewriting the volume continuously, and spinning on
+ * that is worse than reporting it.
+ */
+const LOAD_ATTEMPTS = 3;
+
 export class DesiredStateSource {
   readonly #load: () => Omit<DesiredState, "revision" | "loadedAt">;
   readonly #fingerprint: () => string;
@@ -106,12 +117,46 @@ export class DesiredStateSource {
       return this.#snapshot;
     }
     if (revision === this.#snapshot.revision && this.#snapshot.error === undefined) return this.#snapshot;
-    try {
-      this.#snapshot = { ...this.#load(), revision, loadedAt: new Date(now).toISOString() };
-    } catch (error) {
-      // last good state, plus the reason the new one was refused
-      this.#snapshot = { ...this.#snapshot, revision, error: describe(error) };
+    /*
+     * READ, THEN PROVE THE READ WAS OF ONE VERSION.
+     *
+     * A ConfigMap volume does not update in place: the kubelet writes a new
+     * timestamped directory and swaps the `..data` symlink. The swap itself is
+     * atomic, but a load that reads twenty files across it would take some from
+     * the old version and some from the new — an Agent document paired with
+     * another Agent's prompt, and every file individually valid.
+     *
+     * So the fingerprint is taken again AFTER the load. If it moved, the read
+     * straddled a swap and is discarded rather than activated. Bounded retries,
+     * because a directory changing on every attempt is a reason to keep serving
+     * the last good state, not to spin.
+     */
+    for (let attempt = 0; attempt < LOAD_ATTEMPTS; attempt += 1) {
+      try {
+        const loaded = this.#load();
+        const after = this.#fingerprint();
+        if (after !== revision) {
+          // the volume moved under us; take the newer revision and read again
+          revision = after;
+          continue;
+        }
+        this.#snapshot = { ...loaded, revision, loadedAt: new Date(now).toISOString() };
+        return this.#snapshot;
+      } catch (error) {
+        const after = (() => { try { return this.#fingerprint(); } catch { return revision; } })();
+        if (after !== revision) {
+          // the failure may be an artefact of reading mid-swap rather than a
+          // genuinely invalid document; try the version that is there now
+          revision = after;
+          continue;
+        }
+        // last good state, plus the reason the new one was refused
+        this.#snapshot = { ...this.#snapshot, revision, error: describe(error) };
+        return this.#snapshot;
+      }
     }
+    // every attempt straddled a change: keep serving what validated, and say so
+    this.#snapshot = { ...this.#snapshot, error: "desired state changed on every read attempt; still serving the last validated snapshot" };
     return this.#snapshot;
   }
 }
@@ -121,9 +166,50 @@ export class DesiredStateSource {
  * from the same call, so a snapshot can never mix an old registry with a new
  * deployment overlay.
  */
+/**
+ * Refuse a snapshot whose mounted volumes are not all from the same commit.
+ *
+ * The Agent registry, the prompts and the deployment overlays arrive as
+ * SEPARATE ConfigMaps, and the kubelet swaps each independently. A pod can
+ * therefore hold overlays from commit N+1 beside agent documents from commit N:
+ * every directory internally complete, nothing mid-write, and a fingerprint
+ * taken before and after the read identical — so the straddle retry cannot see
+ * it. The renderer stamps one digest of the whole bundle into every ConfigMap,
+ * and disagreement here means propagation is still in flight.
+ *
+ * Absent stamps are normal and ignored: a working tree has no ConfigMaps, and
+ * this must not make the platform unrunnable on a laptop.
+ */
+export function assertMountsAgree(directories: string[]): void {
+  const seen = new Map<string, string>();
+  for (const directory of directories) {
+    let revision: string;
+    try {
+      revision = readFileSync(join(directory, ".revision"), "utf8").trim();
+    } catch {
+      continue;
+    }
+    if (revision.length > 0) seen.set(directory, revision);
+  }
+  const distinct = new Set(seen.values());
+  if (distinct.size > 1) {
+    throw new Error(
+      `mounted desired state is mid-propagation: ${[...seen.entries()].map(([directory, revision]) => `${directory}@${revision.slice(0, 12)}`).join(", ")}`,
+    );
+  }
+}
+
 export function desiredStateSource(options: DesiredStateOptions, hooks: { now?: () => number } = {}): DesiredStateSource {
   const base = options.baseDir ?? process.cwd();
   const load = (): Omit<DesiredState, "revision" | "loadedAt"> => {
+    // before anything is parsed: if the mounts disagree, this read would mix
+    // versions, and every individual file would still validate
+    assertMountsAgree([
+      join(base, options.agentsDir),
+      join(base, options.promptsDir),
+      resolvePath(base, options.deploymentEnvironmentDir),
+      join(resolvePath(base, options.deploymentEnvironmentDir), "agents"),
+    ]);
     const registry = loadAgentRegistry(options);
     const catalog = loadEffectiveAgentCatalog(options);
     const deployment = loadDeploymentEnvironment(options.deploymentEnvironmentDir, base);
@@ -156,6 +242,12 @@ export function desiredStateSource(options: DesiredStateOptions, hooks: { now?: 
  * wholesale so mtimes move, and an agent that is DELETED changes the list even
  * if nothing else does. Deliberately not a content hash — this runs on every
  * poll, and the point is to be cheaper than the load it guards.
+ *
+ * ponytail: an edit that preserves BOTH byte length and mtime is missed. That
+ * needs a filesystem with coarse (1s) mtime granularity and a same-length
+ * rewrite inside one tick — a ConfigMap remount does not do this, and neither
+ * does a merge, which always moves mtime. Upgrade path if it ever bites: hash
+ * the file contents here instead, and pay a full read per poll.
  */
 export function fingerprint(paths: string[]): string {
   const parts: string[] = [];
@@ -174,6 +266,14 @@ export function fingerprint(paths: string[]): string {
       continue;
     }
     for (const name of readdirSync(path).sort()) {
+      /*
+       * `..data` and `..2026_01_01_...` are the kubelet's ConfigMap
+       * bookkeeping. Their names change on EVERY update even when no file
+       * content did, so including them would make the fingerprint report a
+       * change on every resync and force a full re-validation of every Agent.
+       * The real files are symlinks beside them and are listed normally.
+       */
+      if (name.startsWith("..")) continue;
       try {
         const entry = statSync(join(path, name));
         if (entry.isDirectory()) continue;
@@ -188,4 +288,64 @@ export function fingerprint(paths: string[]): string {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A SPECIALIST'S OWN DOCUMENT, re-read while the process runs.
+ *
+ * The Manager re-reads the registry on a timer; the specialist path did not. It
+ * captured `loadAgentInstance` once at startup and served every request from
+ * that object forever — so a merged prompt edit, a changed model profile or a
+ * narrowed tool grant reached the pod's mounted files and was never looked at
+ * again. No error, no restart, just a pod running last week's policy.
+ *
+ * Narrowing a grant is the case that matters: the runtime enforces the
+ * allowlist from THIS object, so a stale one keeps enforcing access that Git
+ * has already taken away.
+ *
+ * Same safety rules as the registry: the first load throws (a specialist whose
+ * document is invalid must not start), and a later failure keeps the last good
+ * document and leaves the error to the caller's next read.
+ */
+export function agentInstanceSource(
+  options: { configFile: string; mcpServersDir: string; agentsDir: string; promptsDir: string; baseDir?: string; revalidateMs?: number },
+  hooks: { now?: () => number } = {},
+): () => ManagerAgentConfig | SpecialistAgentConfig {
+  const base = options.baseDir ?? process.cwd();
+  const now = hooks.now ?? (() => Date.now());
+  const revalidateMs = options.revalidateMs ?? DEFAULT_REVALIDATE_MS;
+  const watched = [join(base, options.agentsDir), join(base, options.promptsDir)];
+  const load = () => loadAgentInstance({ configFile: options.configFile, mcpServersDir: options.mcpServersDir, ...(options.baseDir ? { baseDir: options.baseDir } : {}) });
+
+  let current = load();
+  let revision = fingerprint(watched);
+  let checkedAtMs = now();
+
+  return () => {
+    const at = now();
+    if (at - checkedAtMs < revalidateMs) return current;
+    checkedAtMs = at;
+    let next: string;
+    try {
+      next = fingerprint(watched);
+    } catch {
+      return current;
+    }
+    if (next === revision) return current;
+    try {
+      // the mounts must agree before anything is parsed, or the document and
+      // the prompt beside it could come from two different commits
+      assertMountsAgree(watched);
+      const loaded = load();
+      if (fingerprint(watched) !== next) return current;
+      current = loaded;
+      revision = next;
+    } catch {
+      // keep the last document that validated; a specialist that stopped
+      // serving because someone merged a typo would be a worse failure than
+      // one that keeps enforcing the policy it last understood
+      revision = next;
+    }
+    return current;
+  };
 }

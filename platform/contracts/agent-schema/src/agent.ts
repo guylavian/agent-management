@@ -357,6 +357,8 @@ export const approvedToolSchema = z
     retryPolicy: z.enum(["none", "transient-once"]),
     // Evidence.kind produced by this tool's results (default telemetry); knowledge tools use "wiki"
     evidenceKind: z.enum(["telemetry", "config", "wiki"]).default("telemetry"),
+    // true when the tool returns versioned documents: evidence records sourceModifiedAt instead of observedAt
+    sourceVersioned: z.boolean().optional(),
   })
   .strict();
 
@@ -403,7 +405,11 @@ export function toApprovedCatalog(servers: McpServerDocument[]): ApprovedCatalog
   return approvedCatalogSchema.parse({
     apiVersion: "sre.ai/v1alpha1",
     kind: "ApprovedToolCatalog",
-    tools: servers.flatMap((server) => server.tools.map((tool) => ({ ...tool, serverId: server.metadata.serverId }))),
+    tools: servers.flatMap((server) => server.tools.map((tool) => ({
+      ...tool,
+      serverId: server.metadata.serverId,
+      ...(tool.evidenceKind === "wiki" ? { sourceVersioned: true } : {}),
+    }))),
   });
 }
 

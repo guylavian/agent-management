@@ -46,10 +46,16 @@ export const RUN_NODE_KINDS = [
   "error",
   // reserved: no code path emits these yet
   "approval.requested", "approval.granted", "write.action", "retry", "verify.result",
+  // management requests — a platform CHANGE traced with the same vocabulary.
+  // Emitted by the management plane (which sees pull requests); the runtime
+  // never records these, but the contract is one so the console has one Flow.
+  "request.created", "change.prepared", "pr.opened", "pr.merged", "pr.rejected",
+  "reconciliation.started", "argo.sync", "runtime.ready", "agent.routable",
+  "request.completed", "request.failed",
 ] as const;
 
 /** Who the step belongs to. `runtime` is the enforcement itself — not an agent. */
-export const RUN_ACTORS = ["user", "manager", "specialist", "runtime"] as const;
+export const RUN_ACTORS = ["user", "manager", "specialist", "runtime", "portal", "git", "argo"] as const;
 
 /**
  * Open key/value for event-specific facts, restricted to scalars.
@@ -68,7 +74,8 @@ export const runNodeSchema = z
     label: z.string().min(1).max(200),
     /** parent node id; absent for the request root */
     parentId: z.string().min(1).optional(),
-    status: z.enum(["ok", "denied", "failed", "timeout"]),
+    /** `pending`: a step the trace is waiting on — only management requests emit it */
+    status: z.enum(["ok", "denied", "failed", "timeout", "pending"]),
     startedAt: z.string(),
     durationMs: z.number().int().min(0),
     actor: z.enum(RUN_ACTORS),

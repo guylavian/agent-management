@@ -32,9 +32,9 @@ const results: SpecialistResultLike[] = [
     agentId: "keycloak",
     status: "complete",
     summary: "The realm is healthy.",
-    needsDomain: ["observability"],
+    needsHandoff: ["observability"],
     evidence: [
-      { id: "ev-1", kind: "config", system: "keycloak", tool: "keycloak_health", status: "ok", citation: "mcp://keycloak/keycloak_health?request=req-1", observedAt: "2026-08-29T10:00:02.000Z" },
+      { id: "ev-1", kind: "config", system: "keycloak", tool: "keycloak_health", status: "ok", citation: "tool://keycloak/keycloak_health?request=req-1", observedAt: "2026-08-29T10:00:02.000Z" },
       { id: "ev-2", kind: "missing", system: "prometheus", tool: "query", status: "denied" },
     ],
   },
@@ -96,7 +96,7 @@ describe("the trace answers what happened", () => {
 
   it("what evidence came back", () => {
     const evidence = find("evidence", (node) => node.label.includes("ev-1"));
-    expect(evidence?.metadata?.citation).toBe("mcp://keycloak/keycloak_health?request=req-1");
+    expect(evidence?.metadata?.citation).toBe("tool://keycloak/keycloak_health?request=req-1");
     // the real observation time, not the run's start, so a timeline can order events
     expect(evidence?.startedAt).toBe("2026-08-29T10:00:02.000Z");
   });
@@ -142,7 +142,7 @@ describe("an agent's outcome is stated in the platform's own vocabulary", () => 
   });
 
   it("reports needs_domain when the specialist handed off", () => {
-    expect(outcome({ agentId: "keycloak", status: "complete", summary: "s", needsDomain: ["observability"], evidence: [] })?.label).toBe("needs_domain");
+    expect(outcome({ agentId: "keycloak", status: "complete", summary: "s", needsHandoff: ["observability"], evidence: [] })?.label).toBe("needs_domain");
   });
 
   it("reports complete when a summary was produced", () => {

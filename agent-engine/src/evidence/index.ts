@@ -1,2 +1,2 @@
 export * from "./normalize.ts";
-export type { DomainHandoff, Evidence, EvidenceStatus, SpecialistResult as AgentResult } from "@sre/evidence";
+export type { AgentResult, Evidence, EvidenceStatus, HandoffRequest } from "@sre/engine-contract";

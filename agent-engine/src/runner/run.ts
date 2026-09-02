@@ -1,4 +1,4 @@
-import type { DomainHandoff, SpecialistResult } from "@sre/evidence";
+import type { HandoffRequest, AgentResult } from "@sre/engine-contract";
 import type { AgentDefinition } from "../agent/definition.ts";
 import type { Principal } from "../agent/principal.ts";
 import type { Sanitizer } from "../guardrails/sanitizer.ts";
@@ -58,7 +58,7 @@ export interface EngineDependencies {
  * another Agent and cannot call one; the strongest cross-domain signal it can
  * produce is a handoff REQUEST that whatever runs it may refuse.
  */
-export async function runAgent(agent: AgentDefinition, policy: ToolPolicy, ctx: AgentRunContext, deps: EngineDependencies, handoff?: DomainHandoff): Promise<SpecialistResult> {
+export async function runAgent(agent: AgentDefinition, policy: ToolPolicy, ctx: AgentRunContext, deps: EngineDependencies, handoff?: HandoffRequest): Promise<AgentResult> {
   try {
     const telemetry = safeTelemetry(deps.telemetry ?? noopTelemetry);
     telemetry.counter("agent.invocations");

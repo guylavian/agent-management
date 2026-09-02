@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Router, type Request, type Response } from "express";
 import { fromRepoPath, type AgentCatalog, type AgentDeploymentOverlay, type AgentLifecycle, type AgentRegistry, type AppConfig } from "@sre/config";
@@ -18,7 +18,7 @@ import {
 import { diagnoseRun, RunDiagnosisError } from "./run-diagnosis.ts";
 import type { RunStore } from "./run-store.ts";
 import { agentDetail, agentSummary, managerDetail, mcpServerViews, permissionMatrix } from "./view-model.ts";
-import { AgentDraftError, proposeAgentChange, proposePromptChange, type AgentDraft } from "./yaml.ts";
+import { AgentDraftError, proposeAgentChange, proposeAgentDeletion, proposePromptChange, type AgentDraft } from "./yaml.ts";
 
 /**
  * Read-only management API (TDD §43). Mounted only on the Manager, which is the
@@ -288,9 +288,53 @@ export function managementRouter(deps: ManagementDeps): Router {
    */
   router.post("/agents/preview", (request: Request, response: Response) => {
     try {
-      const registry = deps.state().registry;
-      const { change, generated } = proposeAgentChange({ draft: request.body as AgentDraft, requestedBy: request.identity?.subject ?? "unknown", update: registry.getSpecialist((request.body as AgentDraft)?.name ?? "") !== undefined, knownAgents: registry.listSpecialists().map((agent) => agent.name) });
+      const state = deps.state();
+      const registry = state.registry;
+      const { change, generated } = proposeAgentChange({
+        draft: request.body as AgentDraft,
+        requestedBy: request.identity?.subject ?? "unknown",
+        update: registry.getSpecialist((request.body as AgentDraft)?.name ?? "") !== undefined,
+        knownAgents: registry.listSpecialists().map((agent) => agent.name),
+        /*
+         * THE ENVIRONMENT THIS RUNTIME SERVES, not a compile-time default.
+         *
+         * The overlay and the rendered Helm values are per environment, and the
+         * default was the literal "production". A runtime serving `local`
+         * therefore wrote both files into `deploy/environments/production/`,
+         * which nothing in that cluster globs: the pull request merged, the
+         * portal showed it merged, and Argo never saw an Application because
+         * the files had landed in an environment nobody was deploying.
+         */
+        targetEnvironment: state.environment,
+      });
       response.json({ path: generated.path, yaml: generated.yaml, branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: generated.files, diff: diffAgainstDisk(generated.files) });
+    } catch (error) {
+      respondDraftError(response, error);
+    }
+  });
+
+  /**
+   * Render the change-set that REMOVES an Agent. Pure, like every preview: the
+   * files are enumerated from disk, nothing is written, and the management
+   * plane opens the pull request. 409 when another Agent still grants this one
+   * cross-domain access, because that merge would break configuration loading.
+   */
+  router.post("/agents/:id/delete/preview", (request: Request, response: Response) => {
+    const state = deps.state();
+    const name = request.params.id as string;
+    const agent = state.registry.getSpecialist(name);
+    if (agent === undefined) { notFound(response, "agent"); return; }
+    try {
+      const change = proposeAgentDeletion({
+        agent,
+        requestedBy: request.identity?.subject ?? "unknown",
+        // every environment directory in the repository, so no overlay survives
+        environments: readdirSync(resolveChangePath("deploy/environments"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name),
+        others: state.registry.listSpecialists().filter((other) => other.name !== name),
+        exists: (path) => existsSync(resolveChangePath(path)),
+        read: (path) => readFileSync(resolveChangePath(path), "utf8"),
+      });
+      response.json({ path: `config/agents/${name}.yaml`, yaml: "", branch: change.branch, title: change.title, body: change.body, effects: change.effects, files: change.files, diff: diffAgainstDisk(change.files) });
     } catch (error) {
       respondDraftError(response, error);
     }
@@ -448,7 +492,7 @@ function resolveChangePath(path: string): string {
   return join(process.cwd(), fromRepoPath(path));
 }
 
-function diffAgainstDisk(files: readonly { path: string; contents: string; encoding?: "base64" }[]): ChangeSetDiff {
+function diffAgainstDisk(files: readonly { path: string; contents: string; encoding?: "base64"; deleted?: boolean }[]): ChangeSetDiff {
   return summarise(
     files.map((file) => {
       let current: string | undefined;
@@ -457,7 +501,8 @@ function diffAgainstDisk(files: readonly { path: string; contents: string; encod
       } catch {
         current = undefined;
       }
-      return diffFile(file.path, current, file.contents, file.encoding === "base64");
+      // a deletion diffs the file against nothing, which is what "deleted" means to the diff
+      return diffFile(file.path, current, file.deleted === true ? undefined : file.contents, file.encoding === "base64");
     }),
   );
 }

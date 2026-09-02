@@ -38,7 +38,7 @@ describe("T4 fan-out and synthesis", () => {
     expect(response.metadata.routedAgents).toHaveLength(2);
     expect(response.degraded).toBe(true);
     expect(response.evidenceGaps.some((gap) => gap.source.includes("openshift"))).toBe(true);
-    expect(response.citations.some((citation) => citation.evidenceId.startsWith("mcp:net"))).toBe(true);
+    expect(response.citations.some((citation) => citation.evidenceId.startsWith("tool:net"))).toBe(true);
   });
 
   it.each([
@@ -66,7 +66,7 @@ describe("T4 fan-out and synthesis", () => {
 
   it("applies the deterministic synthesis gate", () => {
     const ctx = (intent: "factual" | "diagnostic"): ExecutionContext => ({ request: { question: "state", identity }, identity, environment: "prod", intent, requestId: "req", deadline: Date.now() + 1000 });
-    const evidence: Evidence = { id: "e", kind: "telemetry", source: "m", system: "s", environment: "prod", citation: "mcp://s", status: "ok", requestId: "req", agentId: "a" };
+    const evidence: Evidence = { id: "e", kind: "telemetry", source: "m", system: "s", environment: "prod", citation: "tool://s", status: "ok", requestId: "req", agentId: "a" };
     const one = reduceEvidence([{ agentId: "a", status: "complete", evidence: [evidence], summary: "ok" }]);
     expect(shouldEscalate(ctx("factual"), one)).toBe(false);
     expect(shouldEscalate(ctx("diagnostic"), one)).toBe(true);

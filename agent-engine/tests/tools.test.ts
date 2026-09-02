@@ -335,7 +335,7 @@ describe("M7 — retry idempotency", () => {
       async invoke(call: ToolCallRequest) {
         allCalls.push(call);
         attemptCount += 1;
-        if (attemptCount === 1) throw engineError("MCP_TIMEOUT", "transient failure");
+        if (attemptCount === 1) throw engineError("TOOL_TIMEOUT", "transient failure");
         return baseProvider.invoke(call);
       },
     };

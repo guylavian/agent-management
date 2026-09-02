@@ -1,3 +1,4 @@
+import { readdirSync } from "node:fs";
 import { z } from "zod";
 
 /**
@@ -100,6 +101,8 @@ export const appConfigSchema = z
         issuer: z.string().min(1).default("https://mock-idp.sre.local"),
         audience: z.string().min(1).default("sre-assistant"),
         jwksUri: z.string().optional(),
+        // mock only: persist the dev signing key so a restart is not a key rotation
+        mockKeyFile: z.string().optional(),
       })
       .strict(),
     internalOidc: z.object({
@@ -161,7 +164,15 @@ export const appConfigSchema = z
       }).strict().optional(),
       /** probe each enabled agent's own Service for readiness */
       probeRuntime: z.coerce.boolean().default(false),
-    }).strict().default({ probeRuntime: false }),
+      /*
+       * The PostgreSQL operational control plane (suspend/resume + attested
+       * readiness). OFF by default, and deliberately not inferred from Postgres
+       * being configured: until a reconciler has written attestations, every
+       * Agent resolves to not-routable — which is the correct fail-closed
+       * default and a total outage if switched on by accident.
+       */
+      operationalPlane: z.coerce.boolean().default(false),
+    }).strict().default({ probeRuntime: false, operationalPlane: false }),
     toolCredential: z.object({
       issuer: z.string().min(1).default("https://mock-toolhive-sts.sre.local"),
       audiencePrefix: z.string().min(1).default("sre-toolhive"),
@@ -236,6 +247,9 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
       issuer: env.SRE_OIDC_ISSUER,
       audience: env.SRE_OIDC_AUDIENCE,
       jwksUri: env.SRE_OIDC_JWKS_URI,
+      // local runs keep the mock key in the workspace (gitignored); anything
+      // else generates per process as before
+      mockKeyFile: env.SRE_MOCK_OIDC_KEY_FILE ?? (env.SRE_ENV === "local" ? ".sre-local/mock-oidc-key.pem" : undefined),
     },
     internalOidc: {
       issuer: env.SRE_INTERNAL_OIDC_ISSUER,
@@ -274,6 +288,7 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
         }
         : {}),
       probeRuntime: env.SRE_RUNTIME_PROBE === "on",
+      operationalPlane: env.SRE_OPERATIONAL_PLANE === "on",
     },
     toolCredential: {
       issuer: env.SRE_TOOL_CREDENTIAL_ISSUER,
@@ -382,4 +397,25 @@ function prune(value: unknown): unknown {
     return out;
   }
   return value;
+}
+
+/**
+ * List the configuration files in a directory, SAFE ON A PROJECTED VOLUME.
+ *
+ * A Kubernetes ConfigMap volume is not a plain directory. The kubelet writes
+ * each version into a timestamped directory and points a `..data` symlink at
+ * it, so a listing contains `..data` and `..2026_01_01_12_00_00.123456789`
+ * alongside the real files. An update REPLACES that symlink atomically rather
+ * than rewriting files in place.
+ *
+ * Every entry beginning with `..` is therefore kubelet bookkeeping and must be
+ * skipped. The extension filter alone happened to hide them — until the day a
+ * bookkeeping name ends in `.yaml`, or a caller lists without filtering. This
+ * makes the rule explicit rather than incidental.
+ */
+export function configFiles(directory: string, extensions: readonly string[] = [".yaml", ".yml"]): string[] {
+  return readdirSync(directory)
+    .filter((name) => !name.startsWith(".."))
+    .filter((name) => extensions.some((extension) => name.endsWith(extension)))
+    .sort();
 }

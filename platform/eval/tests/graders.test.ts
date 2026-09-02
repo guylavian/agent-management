@@ -5,7 +5,7 @@ import { MockModelClient } from "@sre/llm";
 import { describe, expect, it } from "vitest";
 import { exportHumanReviewJsonl, MockGrader, TierLJudgeGrader } from "../graders/index.ts";
 
-const input = { question: "Is it healthy?", answer: "The source reports a healthy state.", evidence: [{ id: "e1", kind: "telemetry" as const, source: "monitor", system: "service", environment: "prod", citation: "mcp://monitor", status: "ok" as const, requestId: "req" }] };
+const input = { question: "Is it healthy?", answer: "The source reports a healthy state.", evidence: [{ id: "e1", kind: "telemetry" as const, source: "monitor", system: "service", environment: "prod", citation: "tool://monitor", status: "ok" as const, requestId: "req" }] };
 
 describe("evaluation graders", () => {
   it("supports deterministic mock and Tier-L judge implementations", async () => {

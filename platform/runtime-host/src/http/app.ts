@@ -63,7 +63,7 @@ export function createApp(deps: ApiDependencies): TestableApp {
       response.status(tooLarge ? 413 : 400).json({ code: tooLarge ? "AGENT_REQUEST_TOO_LARGE" : "AGENT_INVALID_RESPONSE", message: "Invalid agent request" });
       return;
     }
-    response.status(tooLarge ? 413 : 400).json({ requestId: request.requestId, code: "MCP_INVALID_CALL", message: "Invalid request body" });
+    response.status(tooLarge ? 413 : 400).json({ requestId: request.requestId, code: "TOOL_INVALID_CALL", message: "Invalid request body" });
   });
 
   return attachInject(app);

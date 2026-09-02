@@ -1,4 +1,4 @@
-import type { Evidence, RuntimeError } from "@sre/evidence";
+import type { Evidence, EngineError } from "@sre/engine-contract";
 import type { ToolCredential } from "../agent/principal.ts";
 import { errorCode, isTransient, safeToolMessage, toolFailureCode } from "../errors/index.ts";
 import { withDeadline } from "../guardrails/deadline.ts";
@@ -23,7 +23,7 @@ export interface ToolExecutionScope extends CredentialScope {
  * retry policy the catalog declared. A failure always produces Evidence — the
  * record of what could NOT be established is part of the answer.
  */
-export async function executeTool(scope: ToolExecutionScope, selected: VisibleTool, args: Record<string, unknown>): Promise<{ evidence: Evidence; error?: RuntimeError }> {
+export async function executeTool(scope: ToolExecutionScope, selected: VisibleTool, args: Record<string, unknown>): Promise<{ evidence: Evidence; error?: EngineError }> {
   const server = selected.approved.serverId;
   const idempotencyKey = idempotencyKeyFor({
     requestId: scope.requestId,
@@ -80,7 +80,7 @@ export async function executeTool(scope: ToolExecutionScope, selected: VisibleTo
         (signal) => invokeVisibleTool(scope.agent, scope.policy, scope.tools, { ...call, arguments: JSON.parse(JSON.stringify(args)) as Record<string, unknown>, signal }),
         scope.signal,
       ));
-      const evidence = toolResultToEvidence(call, result, scope.agent.id, selected.approved.evidenceKind);
+      const evidence = toolResultToEvidence(call, result, scope.agent.id, selected.approved.evidenceKind, selected.approved.sourceVersioned === true);
       // an invalid or far-future provider timestamp was dropped by the evidence
       // boundary; count it so a broken provider clock is observable
       if (result.observedAt !== undefined && evidence.observedAt === undefined && evidence.sourceModifiedAt === undefined) {
@@ -102,7 +102,7 @@ export async function executeTool(scope: ToolExecutionScope, selected: VisibleTo
   return failure(request(credential, maxAttempts), scope.agent.id, errorCode(lastError), Date.now() >= scope.deadline);
 }
 
-function failure(call: ToolCallRequest, agentId: string, code: string, deadlineExpired = false): { evidence: Evidence; error: RuntimeError } {
+function failure(call: ToolCallRequest, agentId: string, code: string, deadlineExpired = false): { evidence: Evidence; error: EngineError } {
   return {
     evidence: toolFailureEvidence(call, agentId, code),
     error: { code: toolFailureCode(code), message: safeToolMessage(code), retryable: deadlineExpired ? false : isTransient(code) },

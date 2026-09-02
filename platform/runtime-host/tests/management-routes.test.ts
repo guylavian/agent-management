@@ -14,8 +14,8 @@ const MANAGER_ENV = {
   SRE_CLIENT_AGENT: "mock",
 };
 
-async function managerApp(): Promise<{ app: TestableApp; token: string; deps: ManagerDependencies }> {
-  const deps = buildDependencies(MANAGER_ENV) as ManagerDependencies;
+async function managerApp(env: Record<string, string> = {}): Promise<{ app: TestableApp; token: string; deps: ManagerDependencies }> {
+  const deps = buildDependencies({ ...MANAGER_ENV, ...env }) as ManagerDependencies;
   const app = createApp(deps);
   const issued = await app.inject({ method: "POST", url: "/dev/token/alice" });
   return { app, token: (issued.json() as { token: string }).token, deps };
@@ -100,6 +100,10 @@ describe("GitOps change flow", () => {
     modelProfile: "tool-caller",
     prompt: "You are the Check Point specialist. Investigate firewall policy and gateway state using only approved read-only tools.",
     requiredRoles: ["network-read"],
+    // ACTIVE, deliberately. The change-set for an active Agent is the full
+    // four files; a draft renders no Helm values at all, because the canonical
+    // renderer skips disabled overlays and the two must not disagree.
+    lifecycle: "active" as const,
     access: [{ mcp: "wiki", tools: ["wiki_search", "wiki_read_page"] }],
   };
 
@@ -118,6 +122,28 @@ describe("GitOps change flow", () => {
     expect(body.yaml).toContain("audience: sre-toolhive:wiki");
     expect(body.effects.some((effect) => effect.includes("Keycloak"))).toBe(true);
     expect(deps.desiredState.current().registry.listSpecialists().length).toBe(before);
+  });
+
+  /**
+   * THE CHANGE-SET MUST LAND WHERE THIS RUNTIME'S ARGO IS LOOKING.
+   *
+   * The deployment overlay and the rendered Helm values are per environment,
+   * and the target used to be the compile-time literal "production". A runtime
+   * serving `local` therefore wrote both into `deploy/environments/production/`
+   * — a directory the local ApplicationSet does not glob. The pull request
+   * merged, the portal reported it merged, and Argo never created an
+   * Application, with nothing anywhere to explain the silence.
+   */
+  it("targets the environment this runtime serves, not a hardcoded one", async () => {
+    const { app, token } = await managerApp({ SRE_DEPLOYMENT_ENVIRONMENT_DIR: "../deploy/environments/local" });
+    const response = await post(app, "/management/agents/preview", token, draft);
+    expect(response.statusCode).toBe(200);
+    const paths = (response.json() as { files: Array<{ path: string }> }).files.map((file) => file.path);
+    expect(paths).toContain("deploy/environments/local/agents/check-point.yaml");
+    // the rendered values are what the ApplicationSet's git generator globs;
+    // an agent whose render is missing is one Argo never sees at all
+    expect(paths).toContain("deploy/environments/local/rendered/agents/check-point.yaml");
+    expect(paths.every((path) => !path.includes("environments/production"))).toBe(true);
   });
 
   it("rejects an invalid draft with issues instead of generating a file", async () => {

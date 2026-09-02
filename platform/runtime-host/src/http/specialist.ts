@@ -24,7 +24,7 @@ export function registerSpecialistRoutes(app: Express, deps: SpecialistDependenc
       try {
         assertSerializedLimit(parsed.data, MAX_AGENT_REQUEST_BYTES, "agent request");
         await verifyWorkloadIdentity(deps, request.headers.authorization, parsed.data.requestId);
-        identity = await deps.identityVerifier.verify(parsed.data.identityContext, `sre-agent:${deps.agent.name}`, parsed.data.requestId);
+        identity = await deps.identityVerifier.verify(parsed.data.identityContext, `sre-agent:${deps.agentOf().name}`, parsed.data.requestId);
       } catch (error) {
         const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "AGENT_UNAUTHORIZED";
         const status = code === "AGENT_REQUEST_TOO_LARGE" ? 413 : code === "AGENT_TIMEOUT" ? 504 : 403;
@@ -49,7 +49,9 @@ export function registerSpecialistRoutes(app: Express, deps: SpecialistDependenc
           ...(parsed.data.task ? { task: parsed.data.task } : {}),
           ...(parsed.data.conversationContext?.resolvedEntities ? { resolvedEntities: parsed.data.conversationContext.resolvedEntities } : {}),
         };
-        const result = await runSpecialistInstance(deps.agent, deps.catalog, executionContext, {
+        // the LIVE document: enforcement reads its allowlist from this object, so a
+        // boot-time copy would keep granting access Git has already narrowed
+        const result = await runSpecialistInstance(deps.agentOf(), deps.catalog, executionContext, {
           model: deps.model,
           toolhive: deps.toolhive,
           credentialExchanger: deps.credentialExchanger,

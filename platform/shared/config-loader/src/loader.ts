@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import {
@@ -16,7 +16,7 @@ import {
   type SpecialistAgentConfig,
   type ToolPolicy,
 } from "./schemas.ts";
-import { ConfigValidationError } from "./app-config.ts";
+import { ConfigValidationError, configFiles } from "./app-config.ts";
 import { AgentRegistry } from "./agent-registry.ts";
 import { buildAgentCatalog, loadDeploymentEnvironment, type StaticAgentCatalog } from "./agent-catalog.ts";
 import { validateSemantics } from "./validation.ts";
@@ -117,7 +117,7 @@ export function loadAgentRegistry(opts: LoadOptions): AgentRegistry {
 function loadAgentDocuments(agentsDir: string): Array<{ file: string; doc: AgentDocument }> {
   let files: string[];
   try {
-    files = readdirSync(agentsDir).filter((f) => f.endsWith(".yaml") || f.endsWith(".yml")).sort();
+    files = configFiles(agentsDir);
   } catch {
     throw new ConfigValidationError(`no agent YAML found in ${agentsDir}`);
   }
@@ -142,7 +142,7 @@ function loadAgentDocuments(agentsDir: string): Array<{ file: string; doc: Agent
 export function loadApprovedCatalog(directory: string): ApprovedCatalog {
   let files: string[];
   try {
-    files = readdirSync(directory).filter((name) => name.endsWith(".yaml") || name.endsWith(".yml")).sort();
+    files = configFiles(directory);
   } catch {
     throw new ConfigValidationError(`MCP server definitions not found at ${directory}`);
   }

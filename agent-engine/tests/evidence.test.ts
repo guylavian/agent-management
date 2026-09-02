@@ -69,7 +69,7 @@ describe("evidence identity (H3/L1)", () => {
     // Format: mcp:<requestId>:<serverId>:<toolName>:<hash32>
     const parts = id.split(":");
     expect(parts).toHaveLength(5);
-    expect(parts[0]).toBe("mcp");
+    expect(parts[0]).toBe("tool");
     expect(parts[1]).toBe("req-123");
     expect(parts[2]).toBe("alpha");
     expect(parts[3]).toBe("status");
@@ -87,9 +87,9 @@ describe("evidence identity (H3/L1)", () => {
 
   it("toolProblemEvidence includes serverId and args fingerprint in the id", () => {
     const evidence = toolProblemEvidence("unknown_tool", "req-1", "prod", "agent-1", "unknown-tool", "runtime");
-    // Should be mcp:<requestId>:<serverId>:<toolName>:<args-hash> but for problem evidence with no args
+    // Should be tool:<requestId>:<serverId>:<toolName>:<args-hash> but for problem evidence with no args
     const parts = evidence.id.split(":");
-    expect(parts[0]).toBe("mcp");
+    expect(parts[0]).toBe("tool");
     expect(parts[1]).toBe("req-1");
     expect(parts[2]).toBe("runtime");
     expect(parts[3]).toBe("unknown_tool");

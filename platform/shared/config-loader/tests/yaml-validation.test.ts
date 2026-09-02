@@ -141,7 +141,23 @@ describe("startup configuration", () => {
       const directory = `${DEPLOY_ROOT}/environments/${environment}/rendered/agents`;
       for (const file of readdirSync(directory)) {
         const contents = readFileSync(`${directory}/${file}`, "utf8");
-        expect(contents, `${environment}/${file}`).not.toMatch(/client[_-]?secret|password|private[_-]?key|api[_-]?key|bearer |access[_-]?token|refresh[_-]?token/iu);
+        /*
+         * The raw scan skips COMMENT lines, and only comment lines.
+         *
+         * Rendered values now embed Agent documents, prompts and environment
+         * files verbatim, so that Argo can deliver desired state to a running
+         * pod. Those files carry prose, and prose legitimately NAMES
+         * credentials — `SRE_LLM_API_KEY comes from .env.real-poc` is
+         * documentation, not a key. A comment is also inert: nothing loads it.
+         *
+         * What is NOT relaxed is the check on data. Every non-comment line is
+         * still scanned, `assertNoSecretMaterial` still walks the parsed
+         * structure below, and the SOURCE files are independently covered by
+         * `validate:tracked`. Widening the regex to please an embedded comment
+         * would have been the wrong trade; this narrows what it reads instead.
+         */
+        const data = contents.split("\n").filter((line) => !/^\s*#/u.test(line)).join("\n");
+        expect(data, `${environment}/${file}`).not.toMatch(/client[_-]?secret|password|private[_-]?key|api[_-]?key|bearer |access[_-]?token|refresh[_-]?token/iu);
         assertNoSecretMaterial(parseYaml(contents), `${environment}/${file}`);
       }
     }

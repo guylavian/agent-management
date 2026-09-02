@@ -29,7 +29,7 @@ describe("deterministic degraded responses", () => {
     const result: SpecialistResult = {
       agentId: "keycloak", status: "partial",
       summary: "The investigation was interrupted (MODEL_UNAVAILABLE) before a final summary could be produced. 2 evidence item(s) were collected and are cited; they answer the question only as far as they go.",
-      evidence: [{ id: "e1", kind: "telemetry", source: "prom/query", system: "prom", environment: "prod", payload: { ok: true }, citation: "mcp://prom/query", status: "ok", requestId: "req-1", agentId: "keycloak" }],
+      evidence: [{ id: "e1", kind: "telemetry", source: "prom/query", system: "prom", environment: "prod", payload: { ok: true }, citation: "tool://prom/query", status: "ok", requestId: "req-1", agentId: "keycloak" }],
       errors: [{ code: "MODEL_UNAVAILABLE", message: "Specialist model unavailable", retryable: true }],
     };
     const response = deterministicResponseBuilder(ctx, result);

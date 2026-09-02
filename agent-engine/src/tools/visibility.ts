@@ -22,7 +22,7 @@ const encoder = new TextEncoder();
  *
  * Discovery uses allSettled: one unreachable server contributes no tools rather
  * than failing the whole investigation. Failures are returned alongside tools
- * so the caller can record them as MCP_UNAVAILABLE errors.
+ * so the caller can record them as TOOL_UNAVAILABLE errors.
  */
 export async function visibleTools(
   agent: AgentDefinition,
@@ -88,7 +88,7 @@ export async function visibleTools(
     // exclusion is recorded so the run cannot silently claim full visibility
     if (approved.pinnedInputSchema === undefined) {
       if (encoder.encode(canonicalJson(schema.inputSchema)).byteLength > 16384) {
-        failures.push({ server: approved.serverId, error: engineError("MCP_INVALID_CALL", "tool schema exceeds size limit") });
+        failures.push({ server: approved.serverId, error: engineError("TOOL_INVALID_CALL", "tool schema exceeds size limit") });
         return [];
       }
     }

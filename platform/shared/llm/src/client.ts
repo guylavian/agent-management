@@ -72,7 +72,7 @@ export class MockModelClient implements ModelClient {
         const mode = question.includes("timeout") ? "timeout" : question.includes("failure") ? "failure" : question.includes("empty") ? "empty" : "ok";
         if (okEvidence.length > 0) {
           if (question.includes("network dependency")) {
-            return { content: JSON.stringify({ action: "needs_domain", needsDomain: "network-observability", reason: "Live network evidence is required." }), usage: { promptTokens: 48, completionTokens: 16 } };
+            return { content: JSON.stringify({ action: "needs_domain", needsHandoff: "network-observability", reason: "Live network evidence is required." }), usage: { promptTokens: 48, completionTokens: 16 } };
           }
           const evidenceIds = okEvidence.map((item) => item.id).filter((id): id is string => typeof id === "string").slice(0, 8);
           return { content: JSON.stringify({ action: "answer", summary: "The available evidence reports the requested system state (documented and/or live, as cited).", evidenceIds }), usage: { promptTokens: 48, completionTokens: 20 } };
@@ -108,7 +108,7 @@ export class MockModelClient implements ModelClient {
       const mode = question.includes("timeout") ? "timeout" : question.includes("failure") ? "failure" : question.includes("empty") ? "empty" : "ok";
       if (toolResults.length > 0) {
         if (question.includes("network dependency")) {
-          return { toolCalls: [{ id: "mock-need-domain", name: "need_domain", arguments: { needsDomain: "network-observability", reason: "Live network evidence is required." } }], usage: { promptTokens: 48, completionTokens: 16 } };
+          return { toolCalls: [{ id: "mock-need-domain", name: "need_domain", arguments: { needsHandoff: "network-observability", reason: "Live network evidence is required." } }], usage: { promptTokens: 48, completionTokens: 16 } };
         }
         const evidenceIds = toolResults.map((message) => extractEvidenceId(message.content)).filter((id): id is string => typeof id === "string").slice(0, 8);
         return { toolCalls: [{ id: "mock-answer", name: "answer", arguments: { summary: "The available evidence reports the requested system state (documented and/or live, as cited).", evidenceIds } }], usage: { promptTokens: 48, completionTokens: 20 } };
