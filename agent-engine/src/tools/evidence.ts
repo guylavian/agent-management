@@ -46,7 +46,9 @@ export function evidenceIdFor(call: Pick<ToolCallRequest, "requestId" | "serverI
   const hash = createHash("sha256");
   hash.update(canonicalJson({ server: call.serverId, tool: call.toolName, args: call.arguments }));
   const hashHex = hash.digest("hex").slice(0, 32);
-  return `mcp:${call.requestId}:${call.serverId}:${call.toolName}:${hashHex}`;
+  // readable segments are capped so an engine-minted id always fits the 200-char
+  // citation bound; identity lives in the hash over the FULL components
+  return `mcp:${call.requestId.slice(0, 48)}:${call.serverId.slice(0, 48)}:${call.toolName.slice(0, 48)}:${hashHex}`;
 }
 
 /**

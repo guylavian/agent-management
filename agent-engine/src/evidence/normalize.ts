@@ -30,6 +30,11 @@ export function normalizeEvidence(sanitizer: Sanitizer, input: Evidence, budgets
   }
   const currentSize = encoder.encode(JSON.stringify(normalized)).byteLength;
   if (currentSize > budgets.maxEvidenceBytes) {
+    // the query shrinks to a short preview here too: identity lives in the id's
+    // args hash, and a long query must not sink the whole item
+    if (normalized.query !== undefined && encoder.encode(normalized.query).byteLength > 256) {
+      normalized = { ...normalized, query: headBytes(normalized.query, 256) };
+    }
     const preservedBudget = Math.max(0, budgets.maxEvidenceBytes - encoder.encode(JSON.stringify({ ...normalized, payload: undefined, rawExcerpt: undefined })).byteLength - 64);
     const source = normalized.rawExcerpt ?? JSON.stringify(normalized.payload ?? "");
     normalized = {
@@ -77,9 +82,15 @@ export function enforceEvidenceBudget(sanitizer: Sanitizer, rawEvidence: Evidenc
     const itemBytes = encoder.encode(JSON.stringify(normalized)).byteLength;
     if (bytes + itemBytes > totalLimit) {
       const remaining = Math.max(0, totalLimit - bytes);
-      // N3: exact tail-fit envelope subtraction formula per SDD spec
-      const envelopeBytes = encoder.encode(JSON.stringify({ ...normalized, payload: undefined, rawExcerpt: undefined })).byteLength;
-      normalized = normalizeEvidence(sanitizer, { ...normalized, payload: undefined, rawExcerpt: headBytes(normalized.rawExcerpt ?? JSON.stringify(normalized.payload ?? ""), Math.max(0, remaining - envelopeBytes - 16)) }, { ...budgets, maxEvidenceBytes: Math.max(4096, remaining) });
+      // N3: subtract the envelope before sizing the excerpt, and bound the query
+      // preview first so it cannot dominate the envelope; the tail item is
+      // truncated and citable rather than dropped, with the break below as the
+      // fail-closed backstop when even the envelope cannot fit
+      const bounded = normalized.query !== undefined && encoder.encode(normalized.query).byteLength > 256
+        ? { ...normalized, query: headBytes(normalized.query, 256) }
+        : normalized;
+      const envelopeBytes = encoder.encode(JSON.stringify({ ...bounded, payload: undefined, rawExcerpt: undefined })).byteLength;
+      normalized = normalizeEvidence(sanitizer, { ...bounded, payload: undefined, rawExcerpt: headBytes(bounded.rawExcerpt ?? JSON.stringify(bounded.payload ?? ""), Math.max(0, remaining - envelopeBytes - 16)), truncated: true }, { ...budgets, maxEvidenceBytes: Math.max(4096, remaining) });
     }
     const finalBytes = encoder.encode(JSON.stringify(normalized)).byteLength;
     if (bytes + finalBytes > totalLimit) break;

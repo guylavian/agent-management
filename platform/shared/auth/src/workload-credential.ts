@@ -48,7 +48,7 @@ export class KeycloakWorkloadCredentialExchanger implements ToolCredentialExchan
     this.#jwks = settings.jwksUri === undefined ? undefined : createRemoteJWKSet(new URL(settings.jwksUri));
   }
 
-  async exchange(workload: WorkloadIdentity, identity: RequestIdentity, audience: string, deadline: number): Promise<ToolCredential> {
+  async exchange(workload: WorkloadIdentity, identity: RequestIdentity, audience: string, deadline: number, signal?: AbortSignal): Promise<ToolCredential> {
     // an Agent may only ever present its own workload identity; a mismatch means
     // the process was handed another Agent's config and must fail closed
     if (workload.clientId !== this.#settings.clientId) {
@@ -75,7 +75,8 @@ export class KeycloakWorkloadCredentialExchanger implements ToolCredentialExchan
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body,
-      signal: AbortSignal.timeout(remainingMs),
+      // caller cancellation aborts the exchange alongside the remaining-time budget
+      signal: signal === undefined ? AbortSignal.timeout(remainingMs) : AbortSignal.any([AbortSignal.timeout(remainingMs), signal]),
     });
     if (!response.ok) throw Object.assign(new Error("workload token request failed"), { code: "TOOL_DENIED" });
     const json = (await response.json()) as { access_token?: string; expires_in?: number };

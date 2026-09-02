@@ -22,7 +22,12 @@ export async function withDeadline<T>(deadline: number, action: (signal: AbortSi
   const rejection = new Promise<never>((_resolve, reject) => {
     signal.addEventListener("abort", () => reject(abortReason(signal.reason)), { once: true });
   });
-  const pending = action(signal);
+  // the signal may still abort after the race settles (parent cancellation, or
+  // our own timer had the action thrown synchronously) — never let that surface
+  rejection.catch(() => { /* handled by the race when it matters */ });
+  // async-wrap so a SYNCHRONOUS throw from the action still routes through the
+  // race and the finally, instead of skipping timer cleanup
+  const pending = (async () => action(signal))();
   pending.catch(() => { /* abandoned after the race: must never surface as an unhandled rejection */ });
   try {
     return await Promise.race([pending, rejection]);

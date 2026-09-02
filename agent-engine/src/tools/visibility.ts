@@ -8,6 +8,8 @@ import { noopTelemetry, type Telemetry } from "../telemetry/port.ts";
 import type { Sanitizer } from "../guardrails/sanitizer.ts";
 import { canonicalJson } from "./evidence.ts";
 
+const encoder = new TextEncoder();
+
 /**
  * What this Agent can see right now:
  *
@@ -60,17 +62,33 @@ export async function visibleTools(
       return [];
     }
     // M9: use pinned description/schema exclusively when present; cap live descriptions to 1024 chars
-    const description = approved.pinnedDescription !== undefined
-      ? approved.pinnedDescription
-      : schema.description.slice(0, 1024);
+    // a live description is untrusted text headed for model context: redact
+    // first, then cap — a caller with no sanitizer (the invoke-time recheck)
+    // never offers descriptions to a model, so the raw cap suffices there. A
+    // sanitizer that cannot process the description fails CLOSED: that tool is
+    // excluded and the exclusion recorded, never offered raw.
+    let description: string;
+    if (approved.pinnedDescription !== undefined) {
+      description = approved.pinnedDescription;
+    } else if (sanitizer === undefined) {
+      description = schema.description.slice(0, 1024);
+    } else {
+      try {
+        description = sanitizer.text(schema.description).value.slice(0, 1024);
+      } catch {
+        failures.push({ server: approved.serverId, error: engineError("REDACTION_FAILURE", "tool description could not be redacted") });
+        return [];
+      }
+    }
 
     const inputSchema = approved.pinnedInputSchema !== undefined ? approved.pinnedInputSchema : schema.inputSchema;
 
-    // Check if unpinned schema exceeds 16KB; if so, exclude the tool
+    // an unpinned schema over 16 KiB (measured in BYTES — a multibyte schema
+    // must not sneak past a character count) excludes the tool, and the
+    // exclusion is recorded so the run cannot silently claim full visibility
     if (approved.pinnedInputSchema === undefined) {
-      const schemaJson = canonicalJson(schema.inputSchema);
-      if (schemaJson.length > 16384) {
-        // Tool excluded due to oversized schema; don't add to visible set
+      if (encoder.encode(canonicalJson(schema.inputSchema)).byteLength > 16384) {
+        failures.push({ server: approved.serverId, error: engineError("MCP_INVALID_CALL", "tool schema exceeds size limit") });
         return [];
       }
     }

@@ -7,9 +7,19 @@ export interface ReducedEvidence {
 }
 
 export function reduceEvidence(results: SpecialistResult[]): ReducedEvidence {
+  // first position is kept for citation stability, but a usable observation
+  // replaces a failed one: after fan-out, one specialist's settled-first
+  // failure must not shadow another's success for the same fact
   const byId = new Map<string, Evidence>();
-  for (const item of results.flatMap((result) => result.evidence)) if (!byId.has(item.id)) byId.set(item.id, item);
-  const evidence = [...byId.values()];
+  const order: string[] = [];
+  const usable = (item: Evidence) => item.status === "ok" || item.status === "empty";
+  for (const item of results.flatMap((result) => result.evidence)) {
+    const existing = byId.get(item.id);
+    if (existing === undefined) { byId.set(item.id, item); order.push(item.id); continue; }
+    if (usable(existing) && !usable(item)) continue;
+    byId.set(item.id, item);
+  }
+  const evidence = order.map((id) => byId.get(id) as Evidence);
   const conflicts: ReducedEvidence["conflicts"] = [];
   for (let leftIndex = 0; leftIndex < evidence.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < evidence.length; rightIndex += 1) {

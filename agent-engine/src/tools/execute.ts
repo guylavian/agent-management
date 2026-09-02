@@ -74,10 +74,18 @@ export async function executeTool(scope: ToolExecutionScope, selected: VisibleTo
         environment: scope.environment,
       }, () => withDeadline(
         Math.min(scope.deadline, Date.now() + call.timeoutMs),
-        (signal) => invokeVisibleTool(scope.agent, scope.policy, scope.tools, { ...call, signal }),
+        // each attempt gets its OWN clone of the validated arguments: an
+        // abandoned or misbehaving adapter that mutates its copy cannot poison
+        // the retry, the identity, or the evidence built from the snapshot
+        (signal) => invokeVisibleTool(scope.agent, scope.policy, scope.tools, { ...call, arguments: JSON.parse(JSON.stringify(args)) as Record<string, unknown>, signal }),
         scope.signal,
       ));
       const evidence = toolResultToEvidence(call, result, scope.agent.id, selected.approved.evidenceKind);
+      // an invalid or far-future provider timestamp was dropped by the evidence
+      // boundary; count it so a broken provider clock is observable
+      if (result.observedAt !== undefined && evidence.observedAt === undefined && evidence.sourceModifiedAt === undefined) {
+        scope.telemetry.counter("evidence.observed_at.invalid");
+      }
       if (result.isError === true) {
         return { evidence, error: { code: "TOOL_FAILED", message: safeToolMessage("TOOL_FAILED"), retryable: isTransient("TOOL_FAILED") } };
       }
@@ -89,12 +97,14 @@ export async function executeTool(scope: ToolExecutionScope, selected: VisibleTo
       if (attempt + 1 >= maxAttempts || !isTransient(errorCode(error)) || Date.now() >= scope.deadline) break;
     }
   }
-  return failure(request(credential, maxAttempts), scope.agent.id, errorCode(lastError));
+  // when the RUN deadline caused the stop, "try again" would be a lie whatever
+  // the underlying code says
+  return failure(request(credential, maxAttempts), scope.agent.id, errorCode(lastError), Date.now() >= scope.deadline);
 }
 
-function failure(call: ToolCallRequest, agentId: string, code: string): { evidence: Evidence; error: RuntimeError } {
+function failure(call: ToolCallRequest, agentId: string, code: string, deadlineExpired = false): { evidence: Evidence; error: RuntimeError } {
   return {
     evidence: toolFailureEvidence(call, agentId, code),
-    error: { code: toolFailureCode(code), message: safeToolMessage(code), retryable: isTransient(code) },
+    error: { code: toolFailureCode(code), message: safeToolMessage(code), retryable: deadlineExpired ? false : isTransient(code) },
   };
 }

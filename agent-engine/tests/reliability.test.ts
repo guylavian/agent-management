@@ -232,7 +232,9 @@ describe("budget validation", () => {
     it("deadline > 2^31 ms does NOT spuriously abort", async () => {
       // Timer delay clamped to Math.min(remaining, 2**31 - 1) so very large deadline doesn't overflow
       const veryLargeDeadline = Date.now() + (2 ** 32); // larger than 2^31 ms
-      const result = await runAgent(agentDefinition(), policy, runContext("q", veryLargeDeadline), dependencies(new ScriptedModel([answerAction("Done.")])));
+      // the agent's own budget must also exceed 2^31, or Math.min would hide the overflow from withDeadline
+      const hugeBudget = agentDefinition({ budgets: { ...agentDefinition().budgets, timeoutMs: 2 ** 32 } });
+      const result = await runAgent(hugeBudget, policy, runContext("q", veryLargeDeadline), dependencies(new ScriptedModel([answerAction("Done.")])));
       expect(result.status).toBe("complete");
       expect(result.summary).toBe("Done.");
     });

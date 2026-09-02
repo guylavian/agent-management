@@ -72,6 +72,14 @@ export function safeModelMessage(code: string): string {
   return "The model provider was unavailable";
 }
 
+/** Caller-facing text for setup-stage losses. Names the stage, never the policy or the provider's own words. */
+export function safeLifecycleMessage(code: string): string {
+  if (code === "AUTHN_FAILED") return "A credential for a configured source could not be obtained";
+  if (code === "MCP_INVALID_CALL") return "A configured source published an unusable tool contract";
+  if (code === "REDACTION_FAILURE") return "A configured source could not be safely described";
+  return "A configured source could not be reached during discovery";
+}
+
 /** Caller-facing text for a tool failure. Deliberately says nothing about policy. */
 export function safeToolMessage(code: string): string {
   if (code === "TOOL_DENIED") return "A required source was not authorized";

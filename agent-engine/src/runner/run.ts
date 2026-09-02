@@ -5,7 +5,7 @@ import type { Sanitizer } from "../guardrails/sanitizer.ts";
 import type { CredentialProvider } from "../lifecycle/credentials.ts";
 import type { Model } from "../model/port.ts";
 import { hashSubject } from "../telemetry/subject.ts";
-import { noopTelemetry, type Telemetry } from "../telemetry/port.ts";
+import { noopTelemetry, safeTelemetry, type Telemetry } from "../telemetry/port.ts";
 import type { ToolPolicy, ToolProvider } from "../tools/port.ts";
 import { runLoop } from "./loop.ts";
 
@@ -59,13 +59,19 @@ export interface EngineDependencies {
  * produce is a handoff REQUEST that whatever runs it may refuse.
  */
 export async function runAgent(agent: AgentDefinition, policy: ToolPolicy, ctx: AgentRunContext, deps: EngineDependencies, handoff?: DomainHandoff): Promise<SpecialistResult> {
-  const telemetry = deps.telemetry ?? noopTelemetry;
-  telemetry.counter("agent.invocations");
-  return telemetry.span(`agent.${agent.id}.execute`, {
-    "request.id": ctx.requestId,
-    // the subject is hashed here and nowhere else carries it
-    "user.subject_hash": hashSubject(ctx.principal.subject),
-    "agent.id": agent.id,
-    environment: ctx.environment,
-  }, () => runLoop(agent, policy, ctx, { ...deps, telemetry }, handoff));
+  try {
+    const telemetry = safeTelemetry(deps.telemetry ?? noopTelemetry);
+    telemetry.counter("agent.invocations");
+    return await telemetry.span(`agent.${agent.id}.execute`, {
+      "request.id": ctx.requestId,
+      // the subject is hashed here and nowhere else carries it
+      "user.subject_hash": hashSubject(ctx.principal.subject),
+      "agent.id": agent.id,
+      environment: ctx.environment,
+    }, () => runLoop(agent, policy, ctx, { ...deps, telemetry }, handoff));
+  } catch {
+    // absolute last resort: whatever slipped past the loop's own boundaries,
+    // the caller receives a typed result, never a rejection and never internals
+    return { agentId: agent.id, status: "failed", evidence: [], errors: [{ code: "AGENT_EXECUTION_FAILED", message: "Agent execution failed", retryable: false }] };
+  }
 }

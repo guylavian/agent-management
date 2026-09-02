@@ -109,12 +109,12 @@ export const platformTelemetry: Telemetry = {
  */
 export function toCredentialProvider(exchanger: ToolCredentialExchanger): CredentialProvider {
   return {
-    async exchange(workload, principal, audience, deadline) {
+    async exchange(workload, principal, audience, deadline, signal) {
       if (workload === undefined) throw Object.assign(new Error("Tool access denied"), { code: "TOOL_DENIED" });
       const identity: RequestIdentity = { subject: principal.subject, groups: principal.groups ?? [], roles: principal.roles, requestId: principal.requestId, ...(principal.sessionId ? { sessionId: principal.sessionId } : {}) };
       // validated, not cast: an engine-shaped workload that is not a valid
       // platform workload identity fails here rather than reaching Keycloak
-      return exchanger.exchange(workloadIdentitySchema.parse(workload), identity, audience, deadline);
+      return exchanger.exchange(workloadIdentitySchema.parse(workload), identity, audience, deadline, signal);
     },
   };
 }

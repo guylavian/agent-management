@@ -1,4 +1,3 @@
-import { ZodError } from "zod";
 import { specialistResultSchema, type Evidence, type RuntimeError, type SpecialistResult } from "@sre/evidence";
 import type { AgentBudgets } from "../agent/definition.ts";
 import { enforceEvidenceBudget } from "../evidence/normalize.ts";
@@ -22,39 +21,44 @@ export interface ResultScope {
 }
 
 export function answerResult(scope: ResultScope, evidence: Evidence[], errors: RuntimeError[], action: AgentAction): SpecialistResult {
+  // ONLY the sanitizer/normalization section is guarded: anything it throws —
+  // a ZodError from a zod-built sanitizer included — is a redaction failure.
+  // The final schema parse sits OUTSIDE, so ITS ZodError still classifies as
+  // invalid model output in the loop's catch.
+  let normalized: Evidence[];
+  let summary: string;
   try {
-    const collected = evidence; // PRE-budget baseline for fabrication detection
-    const knownAll = new Set(collected.map((i) => i.id));
-    const normalized = enforceEvidenceBudget(scope.sanitizer, evidence, scope.budgets);
-    const usableNorm = new Set(normalized.filter((i) => i.status === "ok" || i.status === "empty").map((i) => i.id));
-    // fabricated evidence IDs are dropped; the model cannot cite evidence it did not collect
-    const cited = action.evidenceIds ?? [];
-    const citedUnknown = cited.filter((id) => !knownAll.has(id));
-    const citedUsable = cited.filter((id) => usableNorm.has(id)).length;
-    const augmentedErrors = citedUnknown.length > 0 ? [...errors, { code: "MODEL_INVALID_OUTPUT" as const, message: "Answer cited unknown evidence IDs", retryable: false }] : errors;
-    const summary = scope.sanitizer.text(action.summary ?? "No supported answer could be produced from the available evidence.").value.slice(0, 4000);
-    const grounding = { grounded: citedUsable > 0, citedUsable, usableEvidence: usableNorm.size };
-    return specialistResultSchema.parse({ agentId: scope.agentId, status: augmentedErrors.length === 0 ? "complete" : normalized.length > 0 ? "partial" : "failed", evidence: normalized, summary, grounding, ...(augmentedErrors.length ? { errors: augmentedErrors } : {}) });
-  } catch (error) {
-    // a schema violation is the model's failure, not redaction's: rethrow so the
-    // loop classifies it. Anything else here is the sanitizer — fail closed.
-    if (error instanceof ZodError) throw error;
-    const augmentedErrors = [...errors, { code: "REDACTION_FAILURE" as const, message: "Evidence redaction failed", retryable: false }];
-    return { agentId: scope.agentId, status: "failed", evidence: [], errors: augmentedErrors };
+    normalized = enforceEvidenceBudget(scope.sanitizer, evidence, scope.budgets);
+    summary = scope.sanitizer.text(action.summary ?? "No supported answer could be produced from the available evidence.").value.slice(0, 4000);
+  } catch {
+    return redactionFailed(scope.agentId, errors);
   }
+  const knownAll = new Set(evidence.map((item) => item.id)); // PRE-budget baseline for fabrication detection
+  const usableNorm = new Set(normalized.filter((item) => item.status === "ok" || item.status === "empty").map((item) => item.id));
+  // fabricated evidence IDs are dropped; the model cannot cite evidence it did not collect
+  const cited = action.evidenceIds ?? [];
+  const citedUnknown = cited.filter((id) => !knownAll.has(id));
+  const citedUsable = cited.filter((id) => usableNorm.has(id)).length;
+  const augmentedErrors = citedUnknown.length > 0 ? [...errors, { code: "MODEL_INVALID_OUTPUT" as const, message: "Answer cited unknown evidence IDs", retryable: false }] : errors;
+  const grounding = { grounded: citedUsable > 0, citedUsable, usableEvidence: usableNorm.size };
+  return specialistResultSchema.parse({ agentId: scope.agentId, status: augmentedErrors.length === 0 ? "complete" : normalized.length > 0 ? "partial" : "failed", evidence: normalized, summary, grounding, ...(augmentedErrors.length ? { errors: augmentedErrors } : {}) });
+}
+
+/** The fail-closed degradation for a throwing sanitizer: typed, evidence withheld, no internals. */
+function redactionFailed(agentId: string, errors: RuntimeError[]): SpecialistResult {
+  return { agentId, status: "failed", evidence: [], errors: [...errors, { code: "REDACTION_FAILURE", message: "Evidence redaction failed", retryable: false }] };
 }
 
 export function insufficientResult(scope: ResultScope, evidence: Evidence[], errors: RuntimeError[], reason: string): SpecialistResult {
+  let normalized: Evidence[];
+  let summary: string;
   try {
-    const normalized = enforceEvidenceBudget(scope.sanitizer, evidence, scope.budgets);
-    return specialistResultSchema.parse({ agentId: scope.agentId, status: normalized.length > 0 ? "partial" : "failed", evidence: normalized, summary: scope.sanitizer.text(`Insufficient evidence: ${reason}`).value.slice(0, 4000), ...(errors.length ? { errors } : {}) });
-  } catch (error) {
-    // a schema violation is the model's failure, not redaction's: rethrow so the
-    // loop classifies it. Anything else here is the sanitizer — fail closed.
-    if (error instanceof ZodError) throw error;
-    const augmentedErrors = [...errors, { code: "REDACTION_FAILURE" as const, message: "Evidence redaction failed", retryable: false }];
-    return { agentId: scope.agentId, status: "failed", evidence: [], errors: augmentedErrors };
+    normalized = enforceEvidenceBudget(scope.sanitizer, evidence, scope.budgets);
+    summary = scope.sanitizer.text(`Insufficient evidence: ${reason}`).value.slice(0, 4000);
+  } catch {
+    return redactionFailed(scope.agentId, errors);
   }
+  return specialistResultSchema.parse({ agentId: scope.agentId, status: normalized.length > 0 ? "partial" : "failed", evidence: normalized, summary, ...(errors.length ? { errors } : {}) });
 }
 
 /**
@@ -67,18 +71,18 @@ export function insufficientResult(scope: ResultScope, evidence: Evidence[], err
  * discouraged.
  */
 export function handoffResult(scope: ResultScope, evidence: Evidence[], errors: RuntimeError[], action: AgentAction): SpecialistResult {
+  let normalized: Evidence[];
+  let domain: string;
+  let summary: string;
   try {
-    const normalized = enforceEvidenceBudget(scope.sanitizer, evidence, scope.budgets);
-    const domain = scope.sanitizer.text((action.needsDomain ?? "").trim()).value.slice(0, 100);
-    if (domain === "") return insufficientResult(scope, evidence, errors, "Cross-domain request was missing a target domain.");
-    return specialistResultSchema.parse({ agentId: scope.agentId, status: "partial", evidence: normalized, needsDomain: [domain], summary: scope.sanitizer.text(`Another domain is required: ${action.reason ?? domain}`).value.slice(0, 4000), ...(errors.length ? { errors } : {}) });
-  } catch (error) {
-    // a schema violation is the model's failure, not redaction's: rethrow so the
-    // loop classifies it. Anything else here is the sanitizer — fail closed.
-    if (error instanceof ZodError) throw error;
-    const augmentedErrors = [...errors, { code: "REDACTION_FAILURE" as const, message: "Evidence redaction failed", retryable: false }];
-    return { agentId: scope.agentId, status: "failed", evidence: [], errors: augmentedErrors };
+    normalized = enforceEvidenceBudget(scope.sanitizer, evidence, scope.budgets);
+    domain = scope.sanitizer.text((action.needsDomain ?? "").trim()).value.slice(0, 100);
+    summary = scope.sanitizer.text(`Another domain is required: ${action.reason ?? action.needsDomain ?? "unspecified"}`).value.slice(0, 4000);
+  } catch {
+    return redactionFailed(scope.agentId, errors);
   }
+  if (domain === "") return insufficientResult(scope, evidence, errors, "Cross-domain request was missing a target domain.");
+  return specialistResultSchema.parse({ agentId: scope.agentId, status: "partial", evidence: normalized, needsDomain: [domain], summary, ...(errors.length ? { errors } : {}) });
 }
 
 /** A failure before any evidence could be collected. Carries no detail about why policy denied it. */
@@ -94,11 +98,14 @@ export function failed(agentId: string, code: RuntimeError["code"], message: str
  */
 export function failedWithEvidence(scope: ResultScope, evidence: Evidence[], errors: RuntimeError[], code: RuntimeError["code"], message: string, groundedSummary?: string): SpecialistResult {
   const normalized = enforceEvidenceBudget(scope.sanitizer, evidence, scope.budgets);
+  const usableEvidence = normalized.filter((item) => item.status === "ok" || item.status === "empty").length;
   return {
     agentId: scope.agentId,
     status: normalized.length ? "partial" : "failed",
     evidence: normalized,
     ...(groundedSummary !== undefined && normalized.length > 0 ? { summary: scope.sanitizer.text(groundedSummary).value.slice(0, 4000) } : {}),
+    // an interrupted run is EXPLICITLY ungrounded — absence would read as "unassessed"
+    grounding: { grounded: false, citedUsable: 0, usableEvidence },
     errors: [...errors, { code, message, retryable: false }],
   };
 }

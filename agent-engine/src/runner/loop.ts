@@ -3,7 +3,7 @@ import type { DomainHandoff, Evidence, RuntimeError, SpecialistResult } from "@s
 import type { AgentDefinition } from "../agent/definition.ts";
 import type { ToolCredential } from "../agent/principal.ts";
 import { enforceEvidenceBudget } from "../evidence/normalize.ts";
-import { engineError, isRetryableModelFailure, isTransient, modelFailureCode, safeModelMessage } from "../errors/index.ts";
+import { engineError, errorCode, isRetryableModelFailure, isTransient, modelFailureCode, safeLifecycleMessage, safeModelMessage } from "../errors/index.ts";
 import { authorizeAgent } from "../guardrails/authorization.ts";
 import { withDeadline } from "../guardrails/deadline.ts";
 import { acquireCredentials } from "../lifecycle/credentials.ts";
@@ -120,14 +120,16 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
     const acquired = await acquireCredentials(scope);
     for (const [server, credential] of acquired.credentials) credentialCache.set(server, credential);
     for (let i = 0; i < acquired.failures.length; i += 1) {
-      errors.push({ code: "AUTHN_FAILED" as const, message: safeModelMessage("AUTHN_FAILED"), retryable: isTransient("AUTHN_FAILED") });
+      errors.push({ code: "AUTHN_FAILED" as const, message: safeLifecycleMessage("AUTHN_FAILED"), retryable: false });
     }
 
     // tool visibility is fixed for the whole loop: policy ∩ published ∩ read-only ∩ authorized
     const discovered = await withDeadline(deadline, (signal) => visibleTools(agent, policy, deps.tools, ctx.principal, ctx.environment, credentialCache, signal, deps.sanitizer, telemetry), ctx.signal);
     available = discovered.tools;
-    for (let i = 0; i < discovered.failures.length; i += 1) {
-      errors.push({ code: "MCP_UNAVAILABLE" as const, message: safeModelMessage("MCP_UNAVAILABLE"), retryable: isTransient("MCP_UNAVAILABLE") });
+    for (const failure of discovered.failures) {
+      const raw = errorCode(failure.error);
+      const code = raw === "MCP_INVALID_CALL" || raw === "REDACTION_FAILURE" ? (raw as "MCP_INVALID_CALL" | "REDACTION_FAILURE") : ("MCP_UNAVAILABLE" as const);
+      errors.push({ code, message: safeLifecycleMessage(code), retryable: isTransient(code) });
     }
 
     // N15: drop later duplicate schema.names from the visible set; first-by-policy-order wins
@@ -237,7 +239,7 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
         // native models answer with plain content; deterministic mocks may return an action envelope
         const envelope = parseEnvelope(response.content);
         if (envelope === undefined) return answerResult(results, evidence, errors, { action: "answer", summary: response.content ?? "", evidenceIds: [] });
-        if (envelope.valid === false) throw engineError("MODEL_INVALID_OUTPUT", `Invalid action envelope: ${envelope.reason}`);
+        if (envelope.valid === false) throw engineError("MODEL_INVALID_OUTPUT", "model returned an invalid action envelope");
         if (envelope.action === "answer") return answerResult(results, evidence, errors, envelope);
         if (envelope.action === "needs_domain") return handoffResult(results, evidence, errors, envelope);
         if (envelope.action === "insufficient_evidence") return insufficientResult(results, evidence, errors, envelope.reason ?? "The remaining question cannot be proven from available tools.");

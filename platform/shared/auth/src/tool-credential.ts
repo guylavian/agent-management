@@ -38,7 +38,8 @@ export interface VerifiedToolPrincipal {
  */
 export interface ToolCredentialExchanger {
   readonly mode: "mock" | "real";
-  exchange(workload: WorkloadIdentity, identity: RequestIdentity, audience: string, deadline: number): Promise<ToolCredential>;
+  /** `signal` aborts when the run's deadline expires or the caller cancels; implementations should stop work and skip cache writes once it fires */
+  exchange(workload: WorkloadIdentity, identity: RequestIdentity, audience: string, deadline: number, signal?: AbortSignal): Promise<ToolCredential>;
 }
 
 /** Gateway-side: verifies the credential and returns the effective principal. */

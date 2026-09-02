@@ -1,4 +1,6 @@
-import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomUUID, type KeyObject } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { createRemoteJWKSet, exportJWK, importJWK, jwtVerify, SignJWT, type JWK } from "jose";
 import type { RequestIdentity } from "./identity.ts";
 
@@ -11,6 +13,16 @@ export interface OidcSettings {
   issuer: string;
   audience: string;
   jwksUri?: string;
+  /**
+   * MOCK ONLY: where the dev signing key lives between processes.
+   *
+   * Without it the mock generated a fresh RSA key on every start, so every
+   * restart silently invalidated every token it had ever issued — the portal's
+   * cached token, a pasted dev token, an in-flight session — and the first
+   * symptom was an unexplained 401 somewhere else. Persisting the key is what
+   * makes a local restart a restart rather than a key rotation.
+   */
+  mockKeyFile?: string;
 }
 
 interface Claims {
@@ -23,15 +35,14 @@ export class MockOidcClient implements OidcClient {
   readonly mode = "mock" as const;
   readonly #issuer: string;
   readonly #audience: string;
-  readonly #privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"];
+  readonly #privateKey: KeyObject;
   readonly #publicJwkPromise: Promise<JWK>;
 
   constructor(settings: OidcSettings) {
     this.#issuer = settings.issuer;
     this.#audience = settings.audience;
-    const pair = generateKeyPairSync("rsa", { modulusLength: 2048 });
-    this.#privateKey = pair.privateKey;
-    this.#publicJwkPromise = exportJWK(pair.publicKey);
+    this.#privateKey = settings.mockKeyFile === undefined ? generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey : loadOrCreateKey(settings.mockKeyFile);
+    this.#publicJwkPromise = exportJWK(createPublicKey(this.#privateKey));
   }
 
   async issueTestToken(user: "alice" | "bob", expiresInSeconds = 3600): Promise<string> {
@@ -56,6 +67,21 @@ export class MockOidcClient implements OidcClient {
     const verified = await jwtVerify(token, key, { issuer: this.#issuer, audience: this.#audience });
     return claimsToIdentity(verified.payload, requestId, sessionId);
   }
+}
+
+/** A PEM on disk, created once with owner-only permissions. Local development only. */
+function loadOrCreateKey(file: string): KeyObject {
+  if (existsSync(file)) return createPrivateKey(readFileSync(file, "utf8"));
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, privateKey.export({ type: "pkcs8", format: "pem" }), { mode: 0o600 });
+  } catch (error) {
+    // a read-only filesystem (a container) cannot keep the key; say so once and
+    // rotate per process as before, rather than refusing to start
+    console.warn(`mock OIDC key could not be persisted at ${file} (${(error as Error).message}); tokens will not survive a restart`);
+  }
+  return privateKey;
 }
 
 export class RealOidcClient implements OidcClient {
