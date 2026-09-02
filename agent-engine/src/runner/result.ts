@@ -32,7 +32,7 @@ export function answerResult(scope: ResultScope, evidence: Evidence[], errors: R
     const citedUnknown = cited.filter((id) => !knownAll.has(id));
     const citedUsable = cited.filter((id) => usableNorm.has(id)).length;
     const augmentedErrors = citedUnknown.length > 0 ? [...errors, { code: "MODEL_INVALID_OUTPUT" as const, message: "Answer cited unknown evidence IDs", retryable: false }] : errors;
-    const summary = scope.sanitizer.text(action.summary ?? "No supported answer could be produced from the available evidence.").value;
+    const summary = scope.sanitizer.text(action.summary ?? "No supported answer could be produced from the available evidence.").value.slice(0, 4000);
     const grounding = { grounded: citedUsable > 0, citedUsable, usableEvidence: usableNorm.size };
     return specialistResultSchema.parse({ agentId: scope.agentId, status: augmentedErrors.length === 0 ? "complete" : normalized.length > 0 ? "partial" : "failed", evidence: normalized, summary, grounding, ...(augmentedErrors.length ? { errors: augmentedErrors } : {}) });
   } catch (error) {
@@ -47,7 +47,7 @@ export function answerResult(scope: ResultScope, evidence: Evidence[], errors: R
 export function insufficientResult(scope: ResultScope, evidence: Evidence[], errors: RuntimeError[], reason: string): SpecialistResult {
   try {
     const normalized = enforceEvidenceBudget(scope.sanitizer, evidence, scope.budgets);
-    return specialistResultSchema.parse({ agentId: scope.agentId, status: normalized.length > 0 ? "partial" : "failed", evidence: normalized, summary: scope.sanitizer.text(`Insufficient evidence: ${reason}`).value, ...(errors.length ? { errors } : {}) });
+    return specialistResultSchema.parse({ agentId: scope.agentId, status: normalized.length > 0 ? "partial" : "failed", evidence: normalized, summary: scope.sanitizer.text(`Insufficient evidence: ${reason}`).value.slice(0, 4000), ...(errors.length ? { errors } : {}) });
   } catch (error) {
     // a schema violation is the model's failure, not redaction's: rethrow so the
     // loop classifies it. Anything else here is the sanitizer — fail closed.
@@ -69,9 +69,9 @@ export function insufficientResult(scope: ResultScope, evidence: Evidence[], err
 export function handoffResult(scope: ResultScope, evidence: Evidence[], errors: RuntimeError[], action: AgentAction): SpecialistResult {
   try {
     const normalized = enforceEvidenceBudget(scope.sanitizer, evidence, scope.budgets);
-    const domain = (action.needsDomain ?? "").trim();
+    const domain = scope.sanitizer.text((action.needsDomain ?? "").trim()).value.slice(0, 100);
     if (domain === "") return insufficientResult(scope, evidence, errors, "Cross-domain request was missing a target domain.");
-    return specialistResultSchema.parse({ agentId: scope.agentId, status: "partial", evidence: normalized, needsDomain: [domain], summary: scope.sanitizer.text(`Another domain is required: ${action.reason ?? domain}`).value, ...(errors.length ? { errors } : {}) });
+    return specialistResultSchema.parse({ agentId: scope.agentId, status: "partial", evidence: normalized, needsDomain: [domain], summary: scope.sanitizer.text(`Another domain is required: ${action.reason ?? domain}`).value.slice(0, 4000), ...(errors.length ? { errors } : {}) });
   } catch (error) {
     // a schema violation is the model's failure, not redaction's: rethrow so the
     // loop classifies it. Anything else here is the sanitizer — fail closed.
@@ -98,7 +98,7 @@ export function failedWithEvidence(scope: ResultScope, evidence: Evidence[], err
     agentId: scope.agentId,
     status: normalized.length ? "partial" : "failed",
     evidence: normalized,
-    ...(groundedSummary !== undefined && normalized.length > 0 ? { summary: scope.sanitizer.text(groundedSummary).value } : {}),
+    ...(groundedSummary !== undefined && normalized.length > 0 ? { summary: scope.sanitizer.text(groundedSummary).value.slice(0, 4000) } : {}),
     errors: [...errors, { code, message, retryable: false }],
   };
 }

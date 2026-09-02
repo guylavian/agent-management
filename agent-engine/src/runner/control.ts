@@ -74,5 +74,6 @@ export function parseEnvelope(
 }
 
 export function toStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  const strings = Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return strings.slice(0, 64).map((s) => s.slice(0, 200));
 }

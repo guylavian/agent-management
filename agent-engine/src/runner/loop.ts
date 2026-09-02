@@ -124,7 +124,7 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
     }
 
     // tool visibility is fixed for the whole loop: policy ∩ published ∩ read-only ∩ authorized
-    const discovered = await withDeadline(deadline, (signal) => visibleTools(agent, policy, deps.tools, ctx.principal, ctx.environment, credentialCache, signal), ctx.signal);
+    const discovered = await withDeadline(deadline, (signal) => visibleTools(agent, policy, deps.tools, ctx.principal, ctx.environment, credentialCache, signal, deps.sanitizer, telemetry), ctx.signal);
     available = discovered.tools;
     for (let i = 0; i < discovered.failures.length; i += 1) {
       errors.push({ code: "MCP_UNAVAILABLE" as const, message: safeModelMessage("MCP_UNAVAILABLE"), retryable: isTransient("MCP_UNAVAILABLE") });
@@ -197,15 +197,17 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
   // would multiply against the turn budget; a single flag cannot loop.
   let modelRetryUsed = false;
   const modelTurn = async () => {
-    const attempt = () => telemetry.span(`model.turn.${agent.id}`, { "request.id": ctx.requestId, "agent.id": agent.id, "model.tier": "small" }, () => withDeadline(deadline, (signal) => deps.model.chat({ model: agent.modelProfile, messages, tools: offered, signal }), ctx.signal));
+    const attempt = () => telemetry.span(`model.turn.${agent.id}`, { "request.id": ctx.requestId, "agent.id": agent.id, "agent.modelProfile": agent.modelProfile }, () => withDeadline(deadline, (signal) => deps.model.chat({ model: agent.modelProfile, messages, tools: offered, signal }), ctx.signal));
     const checked = async () => {
       const response = await attempt();
+      // normalize null content to undefined at the boundary before any use
+      const normalized = { ...response, content: response.content === null ? undefined : response.content };
       // a response proposing nothing at all is invalid output, not an answer:
       // treating it as one used to mint a "complete" result with an empty summary
-      if ((response.toolCalls ?? []).length === 0 && (response.content === undefined || response.content.trim() === "")) {
+      if ((normalized.toolCalls ?? []).length === 0 && (normalized.content === undefined || normalized.content.trim() === "")) {
         throw engineError("MODEL_INVALID_OUTPUT", "model returned an empty response");
       }
-      return response;
+      return normalized;
     };
     try {
       return await checked();

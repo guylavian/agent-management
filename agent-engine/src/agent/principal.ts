@@ -11,6 +11,7 @@ export interface Principal {
   subject: string;
   roles: string[];
   groups?: string[];
+  /** request id for audit correlation; duplicated from AgentRunContext for convenience in downstream calls */
   requestId: string;
   sessionId?: string;
 }

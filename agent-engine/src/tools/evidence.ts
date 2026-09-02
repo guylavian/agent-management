@@ -49,6 +49,16 @@ export function evidenceIdFor(call: Pick<ToolCallRequest, "requestId" | "serverI
   return `mcp:${call.requestId}:${call.serverId}:${call.toolName}:${hashHex}`;
 }
 
+/**
+ * Stable idempotency key across retry attempts: sha256-32 of
+ * requestId+serverId+toolName+canonical args. Same key for both attempt 1 and 2.
+ */
+export function idempotencyKeyFor(call: Pick<ToolCallRequest, "requestId" | "serverId" | "toolName" | "arguments">): string {
+  const hash = createHash("sha256");
+  hash.update(`${call.requestId}:${call.serverId}:${call.toolName}:${canonicalJson(call.arguments)}`);
+  return hash.digest("hex").slice(0, 32);
+}
+
 /** Make a payload JSON-safe: circular or unserializable values become a deterministic marker. */
 function toJsonSafePayload(payload: unknown): unknown {
   // path-scoped, like canonicalJson: only a value on the current descent is a
@@ -86,12 +96,58 @@ function toJsonSafePayload(payload: unknown): unknown {
   }
 }
 
+/**
+ * Validate observedAt timestamp: must be parseable and not >5 minutes in the future.
+ * Returns undefined if invalid or too far in future, otherwise the original string.
+ */
+function validateObservedAt(observedAt: string | undefined): string | undefined {
+  if (!observedAt) return undefined;
+  try {
+    const timestamp = new Date(observedAt).getTime();
+    if (Number.isNaN(timestamp)) return undefined;
+    // reject if >5 minutes in future
+    if (timestamp > Date.now() + 5 * 60_000) return undefined;
+    return observedAt;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Compute SHA256-32 digest of canonical JSON payload for ok/empty evidence.
+ * Used for content integrity tracking and idempotency.
+ */
+function payloadDigest(content: unknown): string {
+  const hash = createHash("sha256");
+  hash.update(canonicalJson(content));
+  return hash.digest("hex").slice(0, 32);
+}
+
 /** A tool result becomes typed, citable Evidence. Nothing else enters the record. */
 export function toolResultToEvidence(call: ToolCallRequest, result: ToolCallResult, agentId: string, kind: Evidence["kind"] = "telemetry"): Evidence {
   const empty = Array.isArray(result.content) && result.content.length === 0;
   // knowledge evidence records sourceModifiedAt (document version), not observedAt (live-state semantics)
   const isKnowledge = kind === "wiki";
-  return { id: evidenceIdFor(call), kind, source: `${call.serverId}/${call.toolName}`, system: call.serverId, environment: call.environment, ...(isKnowledge ? { sourceModifiedAt: result.observedAt } : { observedAt: result.observedAt }), tool: call.toolName, query: JSON.stringify(call.arguments), payload: toJsonSafePayload(result.content), citation: `mcp://${call.serverId}/${call.toolName}?request=${call.requestId}`, status: result.isError ? "failed" : empty ? "empty" : "ok", requestId: call.requestId, agentId };
+  const validatedObservedAt = validateObservedAt(result.observedAt);
+  const status = result.isError ? "failed" : empty ? "empty" : "ok";
+  const shouldIncludeDigest = status === "ok" || status === "empty";
+  const safe = toJsonSafePayload(result.content);
+  return {
+    id: evidenceIdFor(call),
+    kind,
+    source: `${call.serverId}/${call.toolName}`,
+    system: call.serverId,
+    environment: call.environment,
+    ...(isKnowledge ? { sourceModifiedAt: validatedObservedAt } : { observedAt: validatedObservedAt }),
+    tool: call.toolName,
+    query: JSON.stringify(call.arguments),
+    payload: safe,
+    citation: `mcp://${call.serverId}/${call.toolName}?request=${call.requestId}`,
+    status,
+    requestId: call.requestId,
+    agentId,
+    ...(shouldIncludeDigest ? { payloadDigest: payloadDigest(safe) } : {}),
+  };
 }
 
 /** A failed call is recorded too: absence of evidence is itself evidence, and must be citable. */

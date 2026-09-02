@@ -4,6 +4,9 @@ import { authorizeAudience, authorizeTool } from "../guardrails/authorization.ts
 import { isReadOnlyTool } from "../guardrails/read-only.ts";
 import { engineError } from "../errors/index.ts";
 import type { ToolCallRequest, ToolCallResult, ToolDescriptor, ToolPolicy, ToolProvider, VisibleTool } from "./port.ts";
+import { noopTelemetry, type Telemetry } from "../telemetry/port.ts";
+import type { Sanitizer } from "../guardrails/sanitizer.ts";
+import { canonicalJson } from "./evidence.ts";
 
 /**
  * What this Agent can see right now:
@@ -27,7 +30,10 @@ export async function visibleTools(
   environment: string,
   credentials: ReadonlyMap<string, ToolCredential> = new Map(),
   signal?: AbortSignal,
+  sanitizer?: Sanitizer,
+  telemetry?: Telemetry,
 ): Promise<{ tools: VisibleTool[]; failures: Array<{ server: string; error: unknown }> }> {
+  const tel = telemetry ?? noopTelemetry;
   const servers = accessServers(agent);
   const discovered = await Promise.allSettled(servers.map((server) => provider.listTools(server, principal, environment, {
     ...(credentials.get(server) ? { credential: credentials.get(server) as ToolCredential } : {}),
@@ -50,7 +56,34 @@ export async function visibleTools(
   const published = new Map(publishedDescriptors.map((tool) => [`${tool.serverId}:${tool.name}`, tool]));
   const tools = policy.tools.flatMap((approved) => {
     const schema = published.get(`${approved.serverId}:${approved.toolName}`);
-    return schema !== undefined && isReadOnlyTool(schema) && authorizeTool(principal, agent, approved, environment).allowed ? [{ approved, schema }] : [];
+    if (schema === undefined || !isReadOnlyTool(schema) || !authorizeTool(principal, agent, approved, environment).allowed) {
+      return [];
+    }
+    // M9: use pinned description/schema exclusively when present; cap live descriptions to 1024 chars
+    const description = approved.pinnedDescription !== undefined
+      ? approved.pinnedDescription
+      : schema.description.slice(0, 1024);
+
+    const inputSchema = approved.pinnedInputSchema !== undefined ? approved.pinnedInputSchema : schema.inputSchema;
+
+    // Check if unpinned schema exceeds 16KB; if so, exclude the tool
+    if (approved.pinnedInputSchema === undefined) {
+      const schemaJson = canonicalJson(schema.inputSchema);
+      if (schemaJson.length > 16384) {
+        // Tool excluded due to oversized schema; don't add to visible set
+        return [];
+      }
+    }
+
+    // Track schema drift when pinned differs from live
+    if (approved.pinnedDescription !== undefined && approved.pinnedDescription !== schema.description) {
+      tel.counter("tool.schema.drift");
+    }
+    if (approved.pinnedInputSchema !== undefined && canonicalJson(approved.pinnedInputSchema) !== canonicalJson(schema.inputSchema)) {
+      tel.counter("tool.schema.drift");
+    }
+
+    return [{ approved, schema: { ...schema, description, inputSchema } }];
   });
   return { tools, failures };
 }

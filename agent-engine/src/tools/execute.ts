@@ -3,7 +3,7 @@ import type { ToolCredential } from "../agent/principal.ts";
 import { errorCode, isTransient, safeToolMessage, toolFailureCode } from "../errors/index.ts";
 import { withDeadline } from "../guardrails/deadline.ts";
 import { requireCredentialFor, type CredentialScope } from "../lifecycle/credentials.ts";
-import { toolFailureEvidence, toolResultToEvidence } from "./evidence.ts";
+import { toolFailureEvidence, toolResultToEvidence, idempotencyKeyFor } from "./evidence.ts";
 import type { ToolCallRequest, ToolPolicy, ToolProvider, VisibleTool } from "./port.ts";
 import { invokeVisibleTool } from "./visibility.ts";
 
@@ -25,7 +25,13 @@ export interface ToolExecutionScope extends CredentialScope {
  */
 export async function executeTool(scope: ToolExecutionScope, selected: VisibleTool, args: Record<string, unknown>): Promise<{ evidence: Evidence; error?: RuntimeError }> {
   const server = selected.approved.serverId;
-  const request = (credential?: ToolCredential): ToolCallRequest => ({
+  const idempotencyKey = idempotencyKeyFor({
+    requestId: scope.requestId,
+    serverId: server,
+    toolName: selected.schema.name,
+    arguments: args,
+  });
+  const request = (credential?: ToolCredential, attemptNum: number = 1): ToolCallRequest => ({
     serverId: server,
     toolName: selected.schema.name,
     arguments: args,
@@ -34,6 +40,8 @@ export async function executeTool(scope: ToolExecutionScope, selected: VisibleTo
     principal: scope.principal,
     ...(credential ? { credential } : {}),
     timeoutMs: Math.min(selected.approved.timeoutMs, Math.max(1, scope.deadline - Date.now())),
+    attempt: attemptNum,
+    idempotencyKey,
   });
 
   let credential = scope.credentialCache.get(server);
@@ -45,14 +53,15 @@ export async function executeTool(scope: ToolExecutionScope, selected: VisibleTo
       // a credential that cannot be obtained is a TOOL failure, reported in the
       // tool taxonomy. Letting it escape would surface a denial as a model error
       // and lose the evidence that this source could not be reached.
-      return failure(request(), scope.agent.id, errorCode(error));
+      return failure(request(undefined, 1), scope.agent.id, errorCode(error));
     }
   }
 
-  const call = request(credential);
   const maxAttempts = selected.approved.retryPolicy === "transient-once" ? 2 : 1;
   let lastError: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const attemptNum = attempt + 1;
+    const call = request(credential, attemptNum);
     try {
       scope.telemetry.counter("tool.calls");
       const result = await scope.telemetry.span(`tool.call.${call.serverId}.${call.toolName}`, {
@@ -80,7 +89,7 @@ export async function executeTool(scope: ToolExecutionScope, selected: VisibleTo
       if (attempt + 1 >= maxAttempts || !isTransient(errorCode(error)) || Date.now() >= scope.deadline) break;
     }
   }
-  return failure(call, scope.agent.id, errorCode(lastError));
+  return failure(request(credential, maxAttempts), scope.agent.id, errorCode(lastError));
 }
 
 function failure(call: ToolCallRequest, agentId: string, code: string): { evidence: Evidence; error: RuntimeError } {

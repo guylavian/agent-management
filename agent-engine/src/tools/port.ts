@@ -31,6 +31,10 @@ export interface ToolCallRequest {
   credential?: ToolCredential;
   timeoutMs: number;
   signal?: AbortSignal;
+  /** 1-based attempt number; 1 for the initial call, 2+ for retries */
+  attempt: number;
+  /** stable identifier across retry attempts; sha256-32 of requestId+serverId+toolName+canonical args */
+  idempotencyKey: string;
 }
 
 export interface ToolCallResult {
@@ -47,6 +51,13 @@ export interface ListToolsOptions {
 
 export interface ToolProvider {
   listTools(serverId: string, principal: Principal, environment: string, options?: ListToolsOptions): Promise<ToolDescriptor[]>;
+  /**
+   * Execute a tool call. The engine authorizes the tool identity (whether a call to
+   * this tool is allowed); the provider MUST enforce resource-level authorization
+   * of the argument VALUES under the delegated credential. For example, if
+   * arguments contain a resource ID or name, the provider must verify that the
+   * credential holder has permission to access that specific resource.
+   */
   invoke(call: ToolCallRequest): Promise<ToolCallResult>;
 }
 
@@ -54,6 +65,11 @@ export interface ToolProvider {
  * A tool the host has APPROVED for use, independent of any Agent. Approval is a
  * property of the tool; whether a given Agent may call it is decided separately
  * by the Agent's own access policy.
+ *
+ * The engine authorizes the tool identity; the ToolProvider implementation MUST
+ * enforce resource-level authorization of argument VALUES under the delegated
+ * credential. Approval means the tool is available; access to resources named
+ * within argument values is decided by the provider.
  */
 export interface ApprovedTool {
   serverId: string;
@@ -64,6 +80,10 @@ export interface ApprovedTool {
   timeoutMs: number;
   retryPolicy: "none" | "transient-once";
   evidenceKind: "telemetry" | "config" | "wiki";
+  /** pinned copy used exclusively when present; live drift → tool.schema.drift counter */
+  pinnedDescription?: string;
+  /** pinned copy used exclusively when present; oversized live schema → tool excluded */
+  pinnedInputSchema?: Record<string, unknown>;
 }
 
 export interface ToolPolicy {

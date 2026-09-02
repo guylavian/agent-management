@@ -23,6 +23,7 @@ export const evidenceSchema = z.object({
   redaction: z.object({ applied: z.boolean(), categories: z.array(z.string()).optional() }).strict().optional(),
   truncated: z.boolean().optional(),
   originalSizeBytes: z.number().int().nonnegative().optional(),
+  payloadDigest: z.string().optional(),
 }).strict();
 
 export type Evidence = z.infer<typeof evidenceSchema>;
