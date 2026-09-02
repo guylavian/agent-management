@@ -68,7 +68,11 @@ export async function executeTool(scope: ToolExecutionScope, selected: VisibleTo
         (signal) => invokeVisibleTool(scope.agent, scope.policy, scope.tools, { ...call, signal }),
         scope.signal,
       ));
-      return { evidence: toolResultToEvidence(call, result, scope.agent.id, selected.approved.evidenceKind) };
+      const evidence = toolResultToEvidence(call, result, scope.agent.id, selected.approved.evidenceKind);
+      if (result.isError === true) {
+        return { evidence, error: { code: "TOOL_FAILED", message: safeToolMessage("TOOL_FAILED"), retryable: isTransient("TOOL_FAILED") } };
+      }
+      return { evidence };
     } catch (error) {
       lastError = error;
       // an expired RUN deadline is never "transient": retrying against a spent

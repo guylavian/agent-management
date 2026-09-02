@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Evidence, EvidenceStatus } from "@sre/evidence";
 import type { ToolCallRequest, ToolCallResult } from "./port.ts";
 
@@ -10,12 +11,9 @@ import type { ToolCallRequest, ToolCallResult } from "./port.ts";
  * Identity now includes what was actually asked.
  */
 export function argsFingerprint(args: Record<string, unknown>): string {
-  let hash = 0x811c9dc5; // FNV-1a 32-bit
-  for (const char of canonicalJson(args)) {
-    hash ^= char.charCodeAt(0);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(16).padStart(8, "0");
+  const hash = createHash("sha256");
+  hash.update(canonicalJson(args));
+  return hash.digest("hex").slice(0, 32);
 }
 
 /** JSON with recursively sorted object keys, so property order cannot split identity. */
@@ -44,8 +42,11 @@ export function canonicalJson(value: unknown): string {
   return canonical(value);
 }
 
-export function evidenceIdFor(call: Pick<ToolCallRequest, "requestId" | "toolName" | "arguments">): string {
-  return `mcp:${call.requestId}:${call.toolName}:${argsFingerprint(call.arguments)}`;
+export function evidenceIdFor(call: Pick<ToolCallRequest, "requestId" | "serverId" | "toolName" | "arguments">): string {
+  const hash = createHash("sha256");
+  hash.update(canonicalJson({ server: call.serverId, tool: call.toolName, args: call.arguments }));
+  const hashHex = hash.digest("hex").slice(0, 32);
+  return `mcp:${call.requestId}:${call.serverId}:${call.toolName}:${hashHex}`;
 }
 
 /** Make a payload JSON-safe: circular or unserializable values become a deterministic marker. */
@@ -100,6 +101,9 @@ export function toolFailureEvidence(call: ToolCallRequest, agentId: string, code
 }
 
 /** Evidence for a call the runtime refused before any provider was reached. */
-export function toolProblemEvidence(toolName: string, requestId: string, environment: string, agentId: string, kind: "unknown-tool" | "invalid-args", serverId = "runtime"): Evidence {
-  return { id: `mcp:${requestId}:${toolName}:${kind}`, kind: "missing", source: `${serverId}/${toolName}`, system: serverId, environment, tool: toolName, citation: `mcp://${serverId}/${toolName}?request=${requestId}`, status: "failed", requestId, agentId };
+export function toolProblemEvidence(toolName: string, requestId: string, environment: string, agentId: string, kind: "unknown-tool" | "invalid-args", serverId = "runtime", args: Record<string, unknown> = {}): Evidence {
+  const hash = createHash("sha256");
+  hash.update(canonicalJson({ server: serverId, tool: toolName, args }));
+  const hashHex = hash.digest("hex").slice(0, 32);
+  return { id: `mcp:${requestId}:${serverId}:${toolName}:${hashHex}`, kind: "missing", source: `${serverId}/${toolName}`, system: serverId, environment, tool: toolName, citation: `mcp://${serverId}/${toolName}?request=${requestId}`, status: "failed", requestId, agentId };
 }

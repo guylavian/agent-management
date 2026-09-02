@@ -42,14 +42,35 @@ export function isControlTool(name: string): boolean {
   return (CONTROL_TOOL_NAMES as readonly string[]).includes(name);
 }
 
-/** Deterministic mocks may return an action envelope as content instead of native tool calls. */
-export function parseEnvelope(content: string | undefined): AgentAction | undefined {
+/** Deterministic mocks may return an action envelope as content instead of native tool calls.
+ *
+ * Returns a discriminated result:
+ * - undefined: content is not valid JSON or not an object (treat as plain text answer)
+ * - {valid: true, ...AgentAction}: valid action envelope
+ * - {valid: false, reason}: JSON object with an `action` key that fails schema validation
+ */
+export function parseEnvelope(
+  content: string | undefined,
+): { valid: true } & AgentAction | { valid: false; reason: string } | undefined {
   if (content === undefined) return undefined;
+  let parsed: unknown;
   try {
-    return agentActionSchema.parse(JSON.parse(content));
+    parsed = JSON.parse(content);
   } catch {
+    // Not valid JSON → treat as plain text answer
     return undefined;
   }
+  // Not an object → treat as plain text answer
+  if (parsed === null || typeof parsed !== "object") {
+    return undefined;
+  }
+  // Object with possible `action` key: validate against schema
+  const result = agentActionSchema.safeParse(parsed);
+  if (result.success) {
+    return { valid: true, ...result.data };
+  }
+  // Invalid action: this is a model error, not a plain answer
+  return { valid: false, reason: result.error.message };
 }
 
 export function toStringArray(value: unknown): string[] {

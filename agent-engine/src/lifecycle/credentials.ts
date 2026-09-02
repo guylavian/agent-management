@@ -39,16 +39,29 @@ export interface CredentialScope {
 /**
  * Discovery is authenticated too, so one credential per configured server is
  * obtained before listing. allSettled: a server whose exchange fails contributes
- * no credential and therefore no tools, rather than failing the run.
+ * no credential and therefore no tools, rather than failing the run. Rejections
+ * are returned alongside successful credentials so the caller can record them
+ * as AUTHN_FAILED errors.
  */
-export async function acquireCredentials(scope: CredentialScope): Promise<Map<string, ToolCredential>> {
+export async function acquireCredentials(scope: CredentialScope): Promise<{ credentials: Map<string, ToolCredential>; failures: Array<{ server: string; error: unknown }> }> {
   const credentials = new Map<string, ToolCredential>();
-  if (scope.exchanger === undefined) return credentials;
-  await Promise.allSettled(accessServers(scope.agent).map(async (server) => {
+  const failures: Array<{ server: string; error: unknown }> = [];
+  if (scope.exchanger === undefined) return { credentials, failures };
+  const servers = accessServers(scope.agent);
+  const results = await Promise.allSettled(servers.map(async (server) => {
     const credential = await exchangeFor(scope, server);
-    if (credential) credentials.set(server, credential);
+    return { server, credential };
   }));
-  return credentials;
+  for (let i = 0; i < results.length; i += 1) {
+    const result = results[i]!;
+    const server = servers[i]!;
+    if (result.status === "fulfilled") {
+      if (result.value.credential) credentials.set(result.value.server, result.value.credential);
+    } else if (result.status === "rejected") {
+      failures.push({ server, error: result.reason });
+    }
+  }
+  return { credentials, failures };
 }
 
 /**

@@ -29,18 +29,36 @@ describe("tool argument validation", () => {
   it("rejects a missing required argument", () => {
     const result = validateToolArguments(tool, { peer: "node-2" });
     expect(result.valid).toBe(false);
-    expect(result.reason).toBe("SCHEMA_VALIDATION_FAILED");
+    if (!result.valid) expect(result.reason).toBe("SCHEMA_VALIDATION_FAILED");
   });
 
   it("coerces a scalar to the declared type, but rejects structure, unknown properties, bad enums and oversized strings", () => {
     // a number where a string is declared is coerced (contract repair), not rejected
     const coercible: Record<string, unknown> = { target: 42 };
     expect(validateToolArguments(tool, coercible).valid).toBe(true);
-    expect(coercible.target).toBe("42");
     expect(validateToolArguments(tool, { target: { nested: true } }).valid).toBe(false);
     expect(validateToolArguments(tool, { target: "node-1", drop: true }).valid).toBe(false);
     expect(validateToolArguments(tool, { target: "node-1", mode: "restart" }).valid).toBe(false);
     expect(validateToolArguments(tool, { target: "x".repeat(65) }).valid).toBe(false);
+  });
+
+  it("returns coerced value and never mutates caller args", () => {
+    const coercible: Record<string, unknown> = { target: 42 };
+    const originalTarget = coercible.target;
+    const result = validateToolArguments(tool, coercible);
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.value.target).toBe("42");
+      // caller object must NOT be mutated
+      expect(coercible.target).toBe(originalTarget);
+    }
+  });
+
+  it("rejects schemas with misspelled keywords (strict mode)", () => {
+    const broken: ToolDescriptor = { ...tool, inputSchema: { type: "object", properties: { x: { type: "string" } }, requird: ["x"] } };
+    const result = validateToolArguments(broken, { x: "test" });
+    expect(result.valid).toBe(false);
+    if (!result.valid) expect(result.reason).toBe("SCHEMA_VALIDATION_FAILED");
   });
 
   it("fails closed on an uncompilable schema", () => {
@@ -65,20 +83,23 @@ describe("tool visibility", () => {
   const policy = toolPolicy();
 
   it("is the intersection of policy, published tools, read-only and authorization", async () => {
-    const visible = await visibleTools(agentDefinition(), policy, new FixtureToolProvider(), ALICE, "prod");
+    const { tools: visible } = await visibleTools(agentDefinition(), policy, new FixtureToolProvider(), ALICE, "prod");
     expect(visible.map(({ schema }) => schema.name).sort()).toEqual(["alpha_health", "alpha_status", "docs_read", "docs_search"]);
   });
 
   it("is empty for a principal without the Agent's required role", async () => {
-    expect(await visibleTools(agentDefinition(), policy, new FixtureToolProvider(), BOB, "prod")).toHaveLength(0);
+    const { tools } = await visibleTools(agentDefinition(), policy, new FixtureToolProvider(), BOB, "prod");
+    expect(tools).toHaveLength(0);
   });
 
   it("is empty for a disabled Agent, whatever the caller's roles", async () => {
-    expect(await visibleTools(agentDefinition({ enabled: false }), policy, new FixtureToolProvider(), ALICE, "prod")).toHaveLength(0);
+    const { tools } = await visibleTools(agentDefinition({ enabled: false }), policy, new FixtureToolProvider(), ALICE, "prod");
+    expect(tools).toHaveLength(0);
   });
 
   it("is empty in an environment the approved tool does not list", async () => {
-    expect(await visibleTools(agentDefinition(), policy, new FixtureToolProvider(), ALICE, "staging")).toHaveLength(0);
+    const { tools } = await visibleTools(agentDefinition(), policy, new FixtureToolProvider(), ALICE, "staging");
+    expect(tools).toHaveLength(0);
   });
 
   it("survives one unreachable server rather than failing the whole discovery", async () => {
@@ -88,8 +109,10 @@ describe("tool visibility", () => {
         return super.listTools(serverId, principal, environment, options);
       }
     }
-    const visible = await visibleTools(agentDefinition(), policy, new PartlyDown(), ALICE, "prod");
+    const { tools: visible, failures } = await visibleTools(agentDefinition(), policy, new PartlyDown(), ALICE, "prod");
     expect(visible.map(({ schema }) => schema.name).sort()).toEqual(["alpha_health", "alpha_status"]);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.server).toBe("docs");
   });
 
   it("re-checks visibility at the moment of the call, not from a cached set", async () => {

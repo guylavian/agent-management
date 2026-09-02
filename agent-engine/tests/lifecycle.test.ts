@@ -43,7 +43,9 @@ describe("credential lifecycle", () => {
     const offered = (model.requests[0]?.tools ?? []).map((tool) => tool.name);
     expect(offered).toEqual(expect.arrayContaining(["alpha_status", "alpha_health"]));
     expect(offered).not.toContain("docs_search");
-    expect(result.status).toBe("complete");
+    // Credential failure is recorded as an error; with no evidence, status is at best "failed"
+    expect(result.status).not.toBe("complete");
+    expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "AUTHN_FAILED" })]));
   });
 
   it("never records a token in a span attribute", async () => {

@@ -3,7 +3,7 @@ import type { DomainHandoff, Evidence, RuntimeError, SpecialistResult } from "@s
 import type { AgentDefinition } from "../agent/definition.ts";
 import type { ToolCredential } from "../agent/principal.ts";
 import { enforceEvidenceBudget } from "../evidence/normalize.ts";
-import { engineError, isRetryableModelFailure, modelFailureCode, safeModelMessage } from "../errors/index.ts";
+import { engineError, isRetryableModelFailure, isTransient, modelFailureCode, safeModelMessage } from "../errors/index.ts";
 import { authorizeAgent } from "../guardrails/authorization.ts";
 import { withDeadline } from "../guardrails/deadline.ts";
 import { acquireCredentials } from "../lifecycle/credentials.ts";
@@ -14,7 +14,7 @@ import { canonicalJson, toolProblemEvidence } from "../tools/evidence.ts";
 import { executeTool, type ToolExecutionScope } from "../tools/execute.ts";
 import type { ToolPolicy } from "../tools/port.ts";
 import { visibleTools } from "../tools/visibility.ts";
-import { CONTROL_TOOLS, parseEnvelope, toStringArray } from "./control.ts";
+import { CONTROL_TOOLS, isControlTool, parseEnvelope, toStringArray } from "./control.ts";
 import { answerResult, failed, failedWithEvidence, handoffResult, insufficientResult, type ResultScope } from "./result.ts";
 import type { AgentRunContext, EngineDependencies } from "./run.ts";
 
@@ -53,6 +53,11 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
   if (!budgetValidation.success) return failed(agent.id, "INVALID_BUDGET", "Agent budget configuration is invalid");
 
   if (!Number.isFinite(ctx.deadline)) return failed(agent.id, "INVALID_BUDGET", "Agent deadline must be a finite number");
+
+  // Policy containing a control-tool name is invalid: control tools are virtual, engine-only, never provided by external servers
+  for (const approved of policy.tools) {
+    if (isControlTool(approved.toolName)) return failed(agent.id, "MCP_INVALID_CALL", "Policy references a control tool");
+  }
 
   // the run's single absolute deadline: the caller's, or the Agent's budget,
   // whichever expires first
@@ -99,7 +104,7 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
   // setup is bounded and classified exactly like the loop: authorization,
   // credential acquisition (bounded inside exchangeFor) and discovery all obey
   // the deadline, so a non-cooperative port cannot stall the run before it starts
-  let available: Awaited<ReturnType<typeof visibleTools>>;
+  let available: Awaited<ReturnType<typeof visibleTools>>["tools"];
   try {
     if (Date.now() >= deadline) return failedWithEvidence(results, evidence, errors, "REQUEST_TIMEOUT", "Specialist deadline exhausted");
     const agentDecision = await telemetry.span("authorization.check", {
@@ -113,10 +118,29 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
     // discovery is authenticated too: one narrow credential per configured server
     // before listing; a server whose exchange fails contributes no tools
     const acquired = await acquireCredentials(scope);
-    for (const [server, credential] of acquired) credentialCache.set(server, credential);
+    for (const [server, credential] of acquired.credentials) credentialCache.set(server, credential);
+    for (let i = 0; i < acquired.failures.length; i += 1) {
+      errors.push({ code: "AUTHN_FAILED" as const, message: safeModelMessage("AUTHN_FAILED"), retryable: isTransient("AUTHN_FAILED") });
+    }
 
     // tool visibility is fixed for the whole loop: policy ∩ published ∩ read-only ∩ authorized
-    available = await withDeadline(deadline, (signal) => visibleTools(agent, policy, deps.tools, ctx.principal, ctx.environment, credentialCache, signal), ctx.signal);
+    const discovered = await withDeadline(deadline, (signal) => visibleTools(agent, policy, deps.tools, ctx.principal, ctx.environment, credentialCache, signal), ctx.signal);
+    available = discovered.tools;
+    for (let i = 0; i < discovered.failures.length; i += 1) {
+      errors.push({ code: "MCP_UNAVAILABLE" as const, message: safeModelMessage("MCP_UNAVAILABLE"), retryable: isTransient("MCP_UNAVAILABLE") });
+    }
+
+    // N15: drop later duplicate schema.names from the visible set; first-by-policy-order wins
+    const seenNames = new Set<string>();
+    const dedupedAvailable = available.filter(({ schema }) => {
+      if (seenNames.has(schema.name)) {
+        telemetry.counter("tool.name_collision");
+        return false;
+      }
+      seenNames.add(schema.name);
+      return true;
+    });
+    available = dedupedAvailable;
   } catch (error) {
     return interrupted(error);
   }
@@ -138,17 +162,21 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
   const executeOne = async (name: string | undefined, args: Record<string, unknown>): Promise<string> => {
     if (toolCalls >= budgets.maxToolCalls) { errors.push({ code: "MCP_INVALID_CALL", message: "Tool-call budget exhausted", retryable: false }); return "tool-call budget exhausted"; }
     const selected = name === undefined ? undefined : available.find(({ schema }) => schema.name === name);
-    if (selected === undefined) { errors.push({ code: "MCP_INVALID_CALL", message: "Model requested a non-visible tool", retryable: false }); evidence.push(toolProblemEvidence(name ?? "unknown", ctx.requestId, ctx.environment, agent.id, "unknown-tool")); return "tool is not available"; }
+    if (selected === undefined) { toolCalls += 1; errors.push({ code: "MCP_INVALID_CALL", message: "Model requested a non-visible tool", retryable: false }); evidence.push(toolProblemEvidence(name ?? "unknown", ctx.requestId, ctx.environment, agent.id, "unknown-tool")); return "tool is not available"; }
     const argCheck = validateToolArguments(selected.schema, args);
-    if (!argCheck.valid) { toolCalls += 1; telemetry.counter("tool.arguments.invalid"); errors.push({ code: "MCP_INVALID_CALL", message: `Tool arguments failed schema validation (${argCheck.reason})`, retryable: false }); evidence.push(toolProblemEvidence(selected.schema.name, ctx.requestId, ctx.environment, agent.id, "invalid-args", selected.approved.serverId)); return "arguments failed schema validation"; }
-    const callKey = `${selected.approved.serverId}\u0000${selected.schema.name}\u0000${canonicalJson(args)}`;
+    if (!argCheck.valid) { toolCalls += 1; telemetry.counter("tool.arguments.invalid"); errors.push({ code: "MCP_INVALID_CALL", message: `Tool arguments failed schema validation (${argCheck.reason})`, retryable: false }); evidence.push(toolProblemEvidence(selected.schema.name, ctx.requestId, ctx.environment, agent.id, "invalid-args", selected.approved.serverId, args)); return "arguments failed schema validation"; }
+    // the VALIDATED clone is what executes and what keys identity: coerced
+    // spellings of the same call ({n:42} vs {n:"42"}) share one key and one id,
+    // and the model's own object is never mutated
+    const callArgs = argCheck.value;
+    const callKey = `${selected.approved.serverId}\u0000${selected.schema.name}\u0000${canonicalJson(callArgs)}`;
     const cached = completedCalls.get(callKey);
     if (cached !== undefined) {
       telemetry.counter("tool.calls.duplicate");
       return `duplicate of an identical call already executed this run; its result: ${cached}`.slice(0, 4000);
     }
     toolCalls += 1;
-    const outcome = await executeTool(scope, selected, args);
+    const outcome = await executeTool(scope, selected, callArgs);
     evidence.push(outcome.evidence);
     if (outcome.error) errors.push(outcome.error);
     // REDACTION BOUNDARY: never feed a raw tool payload back into the model — redact first
@@ -207,12 +235,15 @@ export async function runLoop(agent: AgentDefinition, policy: ToolPolicy, ctx: A
         // native models answer with plain content; deterministic mocks may return an action envelope
         const envelope = parseEnvelope(response.content);
         if (envelope === undefined) return answerResult(results, evidence, errors, { action: "answer", summary: response.content ?? "", evidenceIds: [] });
+        if (envelope.valid === false) throw engineError("MODEL_INVALID_OUTPUT", `Invalid action envelope: ${envelope.reason}`);
         if (envelope.action === "answer") return answerResult(results, evidence, errors, envelope);
         if (envelope.action === "needs_domain") return handoffResult(results, evidence, errors, envelope);
         if (envelope.action === "insufficient_evidence") return insufficientResult(results, evidence, errors, envelope.reason ?? "The remaining question cannot be proven from available tools.");
-        // envelope tool_call
+        // envelope tool_call: push as assistant message, execute, push result as fenced user message
         if (toolCalls >= budgets.maxToolCalls) return insufficientResult(results, evidence, errors, "Tool-call budget exhausted before a supported answer could be reached.");
-        await executeOne(envelope.tool, envelope.arguments ?? {});
+        messages.push({ role: "assistant", content: response.content ?? "" });
+        const result = await executeOne(envelope.tool, envelope.arguments ?? {});
+        messages.push({ role: "user", content: `TOOL_RESULT\n${result}\nEND_TOOL_RESULT` });
         continue;
       }
 

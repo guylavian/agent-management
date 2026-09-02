@@ -57,6 +57,7 @@ export const specialistResultSchema = z.object({
   evidence: z.array(evidenceSchema),
   needsDomain: z.array(z.string().min(1)).max(1).optional(),
   summary: z.string().max(4000).optional(),
+  grounding: z.object({ grounded: z.boolean(), citedUsable: z.number().int().nonnegative(), usableEvidence: z.number().int().nonnegative() }).strict().optional(),
   errors: z.array(z.object({
     code: runtimeErrorCodeSchema,
     message: z.string(),

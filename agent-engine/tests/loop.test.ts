@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runAgent, type ToolCallRequest, type ToolCallResult, type Sanitizer, type Model, type ModelRequest, type ModelResponse } from "../src/index.ts";
+import { runAgent, type ToolCallRequest, type ToolCallResult, type Sanitizer, type Model, type ModelRequest, type ModelResponse, engineError, type CredentialProvider, type ToolCredential, type ToolPolicy } from "../src/index.ts";
 import {
   agentDefinition,
   answerAction,
@@ -78,6 +78,39 @@ describe("bounded investigation loop", () => {
     // and the record holds ONE evidence item, not three copies
     expect(result.evidence.filter((item) => item.tool === "alpha_status")).toHaveLength(1);
     expect(result.status).toBe("complete");
+  });
+
+  it("treats coerced equivalent arguments as identical for dedup and evidence id", async () => {
+    const tools = new FixtureToolProvider();
+    const telemetry = new RecordingTelemetry();
+    // Call with numeric 42, then string "42" — coercion makes them equivalent
+    const result = await runAgent(budgets({ maxModelTurns: 6, maxToolCalls: 6 }), policy, runContext("q"), dependencies(new ScriptedModel([
+      toolCallAction("alpha_status", { target: 42, mode: "ok" }),
+      toolCallAction("alpha_status", { target: "42", mode: "ok" }),
+      answerAction("Done."),
+    ]), tools, telemetry));
+    // Provider runs once; second call deduped despite different input types
+    expect(tools.calls).toHaveLength(1);
+    expect(telemetry.counters.filter((name) => name === "tool.calls.duplicate")).toHaveLength(1);
+    // Evidence ids are identical despite different call syntax
+    const ids = result.evidence.filter((item) => item.tool === "alpha_status").map((item) => item.id);
+    expect(ids).toHaveLength(1);
+  });
+
+  it("coerced and uncoerced spellings of the same call share one identity and one execution", async () => {
+    const tools = new FixtureToolProvider();
+    const telemetry = new RecordingTelemetry();
+    // the schema declares target: string; 42 is coerced to "42", so both
+    // spellings are the SAME logical call — validated-clone identity, not raw
+    const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([
+      toolCallAction("alpha_status", { target: 42 }),
+      toolCallAction("alpha_status", { target: "42" }),
+      answerAction("Done."),
+    ]), tools, telemetry));
+    expect(tools.calls).toHaveLength(1);
+    expect(tools.calls[0]?.arguments.target).toBe("42");
+    expect(telemetry.counters.filter((name) => name === "tool.calls.duplicate")).toHaveLength(1);
+    expect(result.evidence.filter((item) => item.tool === "alpha_status")).toHaveLength(1);
   });
 
   it("gives different arguments to the same tool distinct evidence identities", async () => {
@@ -331,6 +364,97 @@ describe("bounded investigation loop", () => {
     });
   });
 
+  describe("H4 — complete vs grounded; credential and discovery errors", () => {
+    it("answerResult includes grounding with cited and usable evidence counts", async () => {
+      const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([
+        toolCallAction("docs_search", { q: "test" }),
+        toolCallAction("alpha_status", { target: "node-1", mode: "ok" }),
+        answerAction("Answer from 2 sources", [evidenceId("docs_search", { q: "test" }), evidenceId("alpha_status", { target: "node-1", mode: "ok" })]),
+      ])));
+      expect(result.status).toBe("complete");
+      expect(result.grounding).toBeDefined();
+      expect(result.grounding?.grounded).toBe(true);
+      expect(result.grounding?.citedUsable).toBe(2);
+      expect(result.grounding?.usableEvidence).toBe(2);
+    });
+
+    it("grounding is false when no usable evidence is cited", async () => {
+      const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([
+        toolCallAction("docs_search", { q: "test" }),
+        answerAction("No evidence needed", []),
+      ])));
+      expect(result.status).toBe("complete");
+      expect(result.grounding).toBeDefined();
+      expect(result.grounding?.grounded).toBe(false);
+      expect(result.grounding?.citedUsable).toBe(0);
+    });
+
+    it("grounding counts only ok/empty evidence as usable, not failed", async () => {
+      const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([
+        toolCallAction("alpha_status", { target: "node-1", mode: "failure" }),
+        toolCallAction("docs_search", { q: "test" }),
+        answerAction("Use docs", [evidenceId("docs_search", { q: "test" })]),
+      ])));
+      expect(result.status).not.toBe("complete");
+      expect(result.grounding).toBeDefined();
+      // Only the docs evidence is usable (ok); alpha_status failed
+      expect(result.grounding?.usableEvidence).toBe(1);
+      expect(result.grounding?.citedUsable).toBe(1);
+    });
+
+    it("handoffResult status is always partial", async () => {
+      // With evidence
+      let result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([
+        toolCallAction("docs_search", { q: "test" }),
+        { action: "needs_domain", needsDomain: "beta", reason: "Need beta info" },
+      ])));
+      expect(result.status).toBe("partial");
+      expect(result.needsDomain).toEqual(["beta"]);
+
+      // Without evidence
+      result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([
+        { action: "needs_domain", needsDomain: "gamma", reason: "No local evidence" },
+      ])));
+      expect(result.status).toBe("partial");
+      expect(result.needsDomain).toEqual(["gamma"]);
+    });
+
+    it("tool error result produces TOOL_FAILED RuntimeError", async () => {
+      const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([
+        toolCallAction("alpha_status", { target: "node-1", mode: "failure" }),
+        answerAction("Could not check; please retry.", []),
+      ])));
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "TOOL_FAILED" })]));
+      // Status should reflect the error
+      expect(result.status).not.toBe("complete");
+    });
+
+    it("tool error result with mode error includes TOOL_FAILED", async () => {
+      const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([
+        toolCallAction("alpha_status", { target: "node-1", mode: "error" }),
+        answerAction("Tool reported error", []),
+      ])));
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "TOOL_FAILED" })]));
+    });
+
+    it("credential exchange rejection is recorded as AUTHN_FAILED without failing the run", async () => {
+      const tools = new FixtureToolProvider();
+      class RejectingCredentials implements CredentialProvider {
+        async exchange(): Promise<ToolCredential> {
+          throw engineError("AUTHN_FAILED", "credential exchange failed");
+        }
+      }
+      const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ScriptedModel([
+        toolCallAction("docs_search", { q: "test" }),
+        answerAction("Answer anyway", []),
+      ]), tools, undefined, undefined, new RejectingCredentials()));
+      // The run should not be completely failed; it should be at best partial
+      expect(result.status).not.toBe("complete");
+      // Should have recorded the auth failure
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "AUTHN_FAILED" })]));
+    });
+  });
+
   describe("H5 — mislabeled failures; raw exception escape", () => {
     it("resolves with CANCELLED when the run is aborted mid-execution", async () => {
       const controller = new AbortController();
@@ -432,6 +556,227 @@ describe("bounded investigation loop", () => {
       expect(result.status).toBe("failed");
       // Should contain error(s) but not crash
       expect(Array.isArray(result.errors)).toBe(true);
+    });
+  });
+
+  describe("M5 — control-tool collision and duplicate names", () => {
+    it("rejects a policy that includes a control-tool name before any port call", async () => {
+      const tools = new FixtureToolProvider();
+      const badPolicy: ToolPolicy = {
+        tools: [
+          { serverId: "docs", toolName: "docs_search", readOnlyVerified: true, environments: ["prod"], timeoutMs: 5_000, retryPolicy: "none", evidenceKind: "wiki" },
+          { serverId: "evil", toolName: "answer", readOnlyVerified: true, environments: ["prod"], timeoutMs: 5_000, retryPolicy: "none", evidenceKind: "telemetry" },
+        ],
+      };
+      const result = await runAgent(agentDefinition(), badPolicy, runContext("q"), dependencies(new ScriptedModel([answerAction("stop.")]), tools));
+      expect(tools.calls).toHaveLength(0);
+      expect(tools.listedServers).toHaveLength(0);
+      expect(result.status).toBe("failed");
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "MCP_INVALID_CALL" })]));
+    });
+
+    it("drops duplicate tool names across servers keeping first-by-policy-order and emits collision counter", async () => {
+      const telemetry = new RecordingTelemetry();
+      const tools = new FixtureToolProvider({
+        tools: [
+          { serverId: "docs", name: "probe", description: "probe doc", inputSchema: { type: "object", properties: {}, required: [] } },
+          { serverId: "alpha", name: "probe", description: "probe alpha", inputSchema: { type: "object", properties: {}, required: [] } },
+        ],
+      });
+      const customPolicy: ToolPolicy = {
+        tools: [
+          { serverId: "docs", toolName: "probe", readOnlyVerified: true, environments: ["prod"], timeoutMs: 5_000, retryPolicy: "none", evidenceKind: "wiki" },
+          { serverId: "alpha", toolName: "probe", readOnlyVerified: true, environments: ["prod"], timeoutMs: 5_000, retryPolicy: "none", evidenceKind: "telemetry" },
+        ],
+      };
+      const customAgent = agentDefinition({
+        access: [
+          { server: "docs", tools: ["probe"], audience: "resource:docs" },
+          { server: "alpha", tools: ["probe"], audience: "resource:alpha" },
+        ],
+      });
+      const result = await runAgent(customAgent, customPolicy, runContext("q"), dependencies(new ScriptedModel([
+        toolCallAction("probe", {}),
+        answerAction("Done."),
+      ]), tools, telemetry));
+      expect(result.status).toBe("complete");
+      expect(telemetry.counters).toContain("tool.name_collision");
+      // only the first policy-ordered tool should be offered
+      const probeCount = (result.evidence ?? []).filter((e) => e.tool === "probe").length;
+      expect(probeCount).toBeLessThanOrEqual(1);
+    });
+
+    it("charges toolCalls for unknown tool requests", async () => {
+      const telemetry = new RecordingTelemetry();
+      const result = await runAgent(budgets({ maxToolCalls: 1 }), policy, runContext("q"), dependencies(new ScriptedModel([
+        toolCallAction("nonexistent_tool", {}),
+        toolCallAction("alpha_health", { node: "node-1" }),
+        answerAction("Done."),
+      ]), new FixtureToolProvider(), telemetry));
+      // the unknown-tool call should consume the budget, leaving no room for the second call
+      expect(result.summary).toMatch(/tool-call budget/iu);
+    });
+
+    it("drops descriptors claiming a mismatched serverId per-index", async () => {
+      const tools = new FixtureToolProvider({
+        tools: [
+          { serverId: "docs", name: "docs_search", description: "Search", inputSchema: { type: "object", properties: {}, required: [] } },
+          // this descriptor claims to be from "evil" but actually came from "docs" query
+          { serverId: "evil", name: "docs_read", description: "Read", inputSchema: { type: "object", properties: {}, required: [] } },
+        ],
+      });
+      const customPolicy: ToolPolicy = {
+        tools: [
+          { serverId: "docs", toolName: "docs_search", readOnlyVerified: true, environments: ["prod"], timeoutMs: 5_000, retryPolicy: "none", evidenceKind: "wiki" },
+          { serverId: "docs", toolName: "docs_read", readOnlyVerified: true, environments: ["prod"], timeoutMs: 5_000, retryPolicy: "none", evidenceKind: "wiki" },
+        ],
+      };
+      const result = await runAgent(agentDefinition(), customPolicy, runContext("q"), dependencies(new ScriptedModel([
+        toolCallAction("docs_read", {}),
+        answerAction("Done."),
+      ]), tools));
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "MCP_INVALID_CALL" })]));
+    });
+
+    it("charges toolCalls for invalid argument rejections", async () => {
+      const telemetry = new RecordingTelemetry();
+      const result = await runAgent(budgets({ maxToolCalls: 1 }), policy, runContext("q"), dependencies(new ScriptedModel([
+        toolCallAction("alpha_status", { target: { nested: true } }), // invalid args
+        toolCallAction("alpha_health", { node: "node-1" }),
+        answerAction("Done."),
+      ]), new FixtureToolProvider(), telemetry));
+      // invalid-args rejection should consume the budget, leaving no room for the second call
+      expect(result.summary).toMatch(/tool-call budget/iu);
+      expect(telemetry.counters).toContain("tool.arguments.invalid");
+    });
+  });
+
+  describe("H7 — envelope tool path (action envelope with tool_call)", () => {
+    it("responsive model sees envelope tool result arrive as TOOL_RESULT fenced content in next turn", async () => {
+      const tools = new FixtureToolProvider();
+      const model = new RespondingModel((request, turn) => {
+        // First turn: return a tool_call envelope
+        if (turn === 0) {
+          return {
+            content: JSON.stringify({ action: "tool_call", tool: "docs_search", arguments: { q: "test" } }),
+            usage: { promptTokens: 1, completionTokens: 1 },
+          };
+        }
+        // Second turn: the tool result should have arrived as a fenced TOOL_RESULT message
+        const lastMsg = request.messages[request.messages.length - 1];
+        if (lastMsg && lastMsg.role === "user" && lastMsg.content?.includes("TOOL_RESULT")) {
+          return {
+            content: JSON.stringify({ action: "answer", summary: "Got result from tool", evidenceIds: [] }),
+            usage: { promptTokens: 1, completionTokens: 1 },
+          };
+        }
+        return {
+          content: JSON.stringify({ action: "insufficient_evidence", reason: "Missing tool result message" }),
+          usage: { promptTokens: 1, completionTokens: 1 },
+        };
+      });
+      const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(model, tools));
+      // Should have called the tool
+      expect(tools.calls).toHaveLength(1);
+      expect(tools.calls[0]?.toolName).toBe("docs_search");
+      // Should have completed successfully
+      expect(result.status).toBe("complete");
+      expect(result.summary).toContain("Got result");
+    });
+
+    it("invalid action envelope (misspelled action key) produces MODEL_INVALID_OUTPUT", async () => {
+      const result = await runAgent(
+        agentDefinition(),
+        policy,
+        runContext("q"),
+        dependencies(
+          new ScriptedModel([
+            // action should be "needs_domain" not "need_domain" — this is invalid
+            { action: "need_domain", needsDomain: "beta", reason: "x" } as unknown,
+          ]),
+        ),
+      );
+      // This should be MODEL_INVALID_OUTPUT, not a plain answer with the JSON
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "MODEL_INVALID_OUTPUT" })]));
+      // Summary should exist (from interrupted) but not contain the raw JSON
+      expect(result.status).not.toBe("complete");
+    });
+
+    it("non-JSON response is treated as plain answer, not invalid action", async () => {
+      class PlainTextModel implements Model {
+        readonly requests: ModelRequest[] = [];
+        async chat(request: ModelRequest): Promise<ModelResponse> {
+          this.requests.push(request);
+          // Return plain text, not JSON
+          return { content: "This is plain text, not JSON", usage: { promptTokens: 1, completionTokens: 1 } };
+        }
+      }
+      const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new PlainTextModel()));
+      // Non-JSON should be treated as plain answer content
+      expect(result.status).toBe("complete");
+      expect(result.summary).toBe("This is plain text, not JSON");
+    });
+
+    it("tool_call envelope executes the tool and continues the loop", async () => {
+      const tools = new FixtureToolProvider();
+      class ToolCallThenAnswerModel implements Model {
+        readonly requests: ModelRequest[] = [];
+        turn = 0;
+        async chat(request: ModelRequest): Promise<ModelResponse> {
+          this.requests.push(request);
+          if (this.turn === 0) {
+            this.turn += 1;
+            return {
+              content: JSON.stringify({ action: "tool_call", tool: "docs_search", arguments: { q: "procedure" } }),
+              usage: { promptTokens: 1, completionTokens: 1 },
+            };
+          }
+          return {
+            content: JSON.stringify({ action: "answer", summary: "Found documentation", evidenceIds: [] }),
+            usage: { promptTokens: 1, completionTokens: 1 },
+          };
+        }
+      }
+      const result = await runAgent(agentDefinition(), policy, runContext("q"), dependencies(new ToolCallThenAnswerModel(), tools));
+      expect(tools.calls).toHaveLength(1);
+      expect(tools.calls[0]?.toolName).toBe("docs_search");
+      expect(result.status).toBe("complete");
+      expect(result.summary).toBe("Found documentation");
+    });
+
+    it("envelope assistant message is preserved in message history", async () => {
+      const result = await runAgent(
+        agentDefinition(),
+        policy,
+        runContext("q"),
+        dependencies(
+          new RespondingModel((request, turn) => {
+            if (turn === 0) {
+              // First turn: return a tool_call envelope
+              return {
+                content: JSON.stringify({ action: "tool_call", tool: "docs_search", arguments: { q: "test" } }),
+                usage: { promptTokens: 1, completionTokens: 1 },
+              };
+            }
+            // Second turn: check that the envelope message is in history
+            const hasAssistantEnvelope = request.messages.some(
+              (msg) => msg.role === "assistant" && msg.content?.includes("tool_call"),
+            );
+            if (hasAssistantEnvelope) {
+              return {
+                content: JSON.stringify({ action: "answer", summary: "Envelope was in messages", evidenceIds: [] }),
+                usage: { promptTokens: 1, completionTokens: 1 },
+              };
+            }
+            return {
+              content: JSON.stringify({ action: "insufficient_evidence", reason: "Envelope not found in history" }),
+              usage: { promptTokens: 1, completionTokens: 1 },
+            };
+          }),
+        ),
+      );
+      expect(result.status).toBe("complete");
+      expect(result.summary).toContain("Envelope was in messages");
     });
   });
 });

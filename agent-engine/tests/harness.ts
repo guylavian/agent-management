@@ -18,6 +18,7 @@ import type {
   ToolPolicy,
   ToolProvider,
 } from "../src/index.ts";
+import { evidenceIdFor } from "../src/tools/evidence.ts";
 import { engineError } from "../src/index.ts";
 
 /**
@@ -209,16 +210,18 @@ export function dependencies(model: Model, tools: ToolProvider = new FixtureTool
   return { model, tools, sanitizer, telemetry, ...(credentials ? { credentials } : {}) };
 }
 
-/** Mirrors the engine's evidence identity: request + tool + args fingerprint. */
+/** Maps tool names to serverIds and calls the production evidenceIdFor. */
 export const evidenceId = (tool: string, args: Record<string, unknown>, requestId = ALICE.requestId): string => {
-  const canonical = (value: unknown): string => Array.isArray(value)
-    ? `[${value.map(canonical).join(",")}]`
-    : value !== null && typeof value === "object"
-      ? `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a < b ? -1 : 1).map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`
-      : JSON.stringify(value) ?? "null";
-  let hash = 0x811c9dc5;
-  for (const char of canonical(args)) { hash ^= char.charCodeAt(0); hash = Math.imul(hash, 0x01000193) >>> 0; }
-  return `mcp:${requestId}:${tool}:${hash.toString(16).padStart(8, "0")}`;
+  const serverIdMap: Record<string, string> = {
+    "docs_search": "docs",
+    "docs_read": "docs",
+    "alpha_status": "alpha",
+    "alpha_health": "alpha",
+    "alpha_update_node": "alpha",
+    "beta_status": "beta",
+  };
+  const serverId = serverIdMap[tool] ?? "unknown";
+  return evidenceIdFor({ requestId, serverId, toolName: tool, arguments: args });
 };
 
 /**

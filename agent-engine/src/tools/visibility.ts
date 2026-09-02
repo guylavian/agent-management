@@ -3,7 +3,7 @@ import type { Principal, ToolCredential } from "../agent/principal.ts";
 import { authorizeAudience, authorizeTool } from "../guardrails/authorization.ts";
 import { isReadOnlyTool } from "../guardrails/read-only.ts";
 import { engineError } from "../errors/index.ts";
-import type { ToolCallRequest, ToolCallResult, ToolPolicy, ToolProvider, VisibleTool } from "./port.ts";
+import type { ToolCallRequest, ToolCallResult, ToolDescriptor, ToolPolicy, ToolProvider, VisibleTool } from "./port.ts";
 
 /**
  * What this Agent can see right now:
@@ -16,7 +16,8 @@ import type { ToolCallRequest, ToolCallResult, ToolPolicy, ToolProvider, Visible
  * because the model never sees anything outside it.
  *
  * Discovery uses allSettled: one unreachable server contributes no tools rather
- * than failing the whole investigation.
+ * than failing the whole investigation. Failures are returned alongside tools
+ * so the caller can record them as MCP_UNAVAILABLE errors.
  */
 export async function visibleTools(
   agent: AgentDefinition,
@@ -26,17 +27,32 @@ export async function visibleTools(
   environment: string,
   credentials: ReadonlyMap<string, ToolCredential> = new Map(),
   signal?: AbortSignal,
-): Promise<VisibleTool[]> {
-  const discovered = await Promise.allSettled(accessServers(agent).map((server) => provider.listTools(server, principal, environment, {
+): Promise<{ tools: VisibleTool[]; failures: Array<{ server: string; error: unknown }> }> {
+  const servers = accessServers(agent);
+  const discovered = await Promise.allSettled(servers.map((server) => provider.listTools(server, principal, environment, {
     ...(credentials.get(server) ? { credential: credentials.get(server) as ToolCredential } : {}),
     requestId: principal.requestId,
     ...(signal ? { signal } : {}),
   })));
-  const published = new Map(discovered.flatMap((result) => result.status === "fulfilled" ? result.value : []).map((tool) => [`${tool.serverId}:${tool.name}`, tool]));
-  return policy.tools.flatMap((approved) => {
+  const failures: Array<{ server: string; error: unknown }> = [];
+  const publishedDescriptors: ToolDescriptor[] = [];
+  for (let i = 0; i < discovered.length; i += 1) {
+    const result = discovered[i]!;
+    const server = servers[i]!;
+    if (result.status === "fulfilled") {
+      // N17: drop descriptors claiming a different serverId than the server actually queried
+      const validDescriptors = result.value.filter((descriptor) => descriptor.serverId === server);
+      publishedDescriptors.push(...validDescriptors);
+    } else if (result.status === "rejected") {
+      failures.push({ server, error: result.reason });
+    }
+  }
+  const published = new Map(publishedDescriptors.map((tool) => [`${tool.serverId}:${tool.name}`, tool]));
+  const tools = policy.tools.flatMap((approved) => {
     const schema = published.get(`${approved.serverId}:${approved.toolName}`);
     return schema !== undefined && isReadOnlyTool(schema) && authorizeTool(principal, agent, approved, environment).allowed ? [{ approved, schema }] : [];
   });
+  return { tools, failures };
 }
 
 /**
@@ -58,8 +74,8 @@ export async function invokeVisibleTool(
     throw engineError("TOOL_DENIED", "Tool access denied");
   }
   const credentials = new Map(call.credential ? [[call.serverId, call.credential]] : []);
-  const allowed = await visibleTools(agent, policy, provider, call.principal, call.environment, credentials, call.signal);
-  if (!allowed.some(({ approved }) => approved.serverId === call.serverId && approved.toolName === call.toolName)) {
+  const discovered = await visibleTools(agent, policy, provider, call.principal, call.environment, credentials, call.signal);
+  if (!discovered.tools.some(({ approved }) => approved.serverId === call.serverId && approved.toolName === call.toolName)) {
     throw engineError("TOOL_DENIED", "Tool access denied");
   }
   return provider.invoke(call);

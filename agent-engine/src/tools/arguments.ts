@@ -18,31 +18,24 @@ import type { ToolDescriptor } from "./port.ts";
 // coercion cannot invent structure, so objects, arrays, missing required
 // fields and length/enum violations still fail, and the trust boundary keeps
 // its shape.
-const ajv = new Ajv({ allErrors: true, strict: false, allowUnionTypes: true, coerceTypes: true });
-const compiled = new WeakMap<object, ValidateFunction>();
+const ajv = new Ajv({ allErrors: true, strict: true, allowUnionTypes: true, coerceTypes: true });
 
-export interface ArgumentValidation {
-  valid: boolean;
-  reason?: "SCHEMA_VALIDATION_FAILED";
-  detail?: string;
-}
+export type ArgumentValidation =
+  | { valid: true; value: Record<string, unknown> }
+  | { valid: false; reason: "SCHEMA_VALIDATION_FAILED"; detail: string };
 
 export function validateToolArguments(tool: ToolDescriptor, args: unknown): ArgumentValidation {
   const schema = tool.inputSchema;
-  const cached = compiled.get(schema);
   let validate: ValidateFunction;
-  if (cached === undefined) {
-    try {
-      validate = ajv.compile(schema);
-    } catch (error) {
-      // an unusable approved schema is a fail-closed condition, not a pass
-      return { valid: false, reason: "SCHEMA_VALIDATION_FAILED", detail: `invalid tool schema: ${String(error)}` };
-    }
-    compiled.set(schema, validate);
-  } else {
-    validate = cached;
+  try {
+    validate = ajv.compile(schema);
+  } catch (error) {
+    // an unusable approved schema is a fail-closed condition, not a pass
+    return { valid: false, reason: "SCHEMA_VALIDATION_FAILED", detail: `invalid tool schema: ${String(error)}` };
   }
-  if (validate(args)) return { valid: true };
+  // Deep clone via JSON round-trip to avoid mutating the caller's object while allowing coercion
+  const cloned = JSON.parse(JSON.stringify(args)) as unknown;
+  if (validate(cloned)) return { valid: true, value: cloned as Record<string, unknown> };
   const first = validate.errors?.[0];
   const detail = first === undefined ? "arguments did not match tool schema" : `${first.instancePath || "(root)"} ${first.message ?? "invalid"}`;
   return { valid: false, reason: "SCHEMA_VALIDATION_FAILED", detail };
