@@ -3,6 +3,7 @@ kind: Agent
 metadata:
   name: manager
   owner: sre-platform
+  description: "Orchestrator agent that routes user requests to specialist agents and synthesizes their findings."
 spec:
   type: manager
   model: { tier: small, profile: manager-router }

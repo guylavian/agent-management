@@ -135,7 +135,7 @@ describe("a merged Agent appears, reconciles and becomes routable with no restar
       "utf8",
     );
     // every checked-in specialist enabled, so the baseline is a working platform
-    for (const file of ["active-directory", "keycloak", "network-observability", "observability", "openshift", "guy"]) {
+    for (const file of ["active-directory", "keycloak", "network-observability", "observability", "openshift"]) {
       mergeOverlay(file, true);
     }
 

@@ -28,6 +28,59 @@
       ],
       "additionalProperties": false
     },
+    "desiredState": {
+      "type": "object",
+      "properties": {
+        "agents": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]*$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "prompts": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]*$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "overlays": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]*$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "environmentFiles": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]*$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "prompts"
+      ],
+      "additionalProperties": false
+    },
     "deploymentEnvironment": {
       "type": "string",
       "minLength": 1

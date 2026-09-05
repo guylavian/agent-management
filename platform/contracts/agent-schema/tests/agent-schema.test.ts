@@ -13,7 +13,7 @@ import {
 const VALID = {
   apiVersion: "sre.ai/v1alpha1",
   kind: "Agent",
-  metadata: { name: "check-point", owner: "network-security", displayName: "Check Point Agent" },
+  metadata: { name: "check-point", owner: "network-security", displayName: "Check Point Agent", description: "Check Point firewalls and policy management" },
   spec: {
     type: "specialist",
     lifecycle: "active",

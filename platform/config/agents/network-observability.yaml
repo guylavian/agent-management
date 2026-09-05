@@ -2,7 +2,7 @@ apiVersion: sre.ai/v1alpha1
 kind: Agent
 metadata:
   name: network-observability
-  owner: network-observability
+  owner: sre-network
   description: "Network paths, interfaces, load balancers, Prometheus, Splunk, and observability"
   displayName: Network Observability Agent
 spec:

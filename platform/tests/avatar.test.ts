@@ -141,7 +141,7 @@ describe("the change-set carries the document and the image together", () => {
   const base = (): AgentDraft => {
     const detail = agentDetail(registry.listSpecialists()[0] as never, registry.catalog);
     return {
-      name: detail.id, owner: detail.owner, displayName: detail.displayName,
+      name: detail.id, owner: detail.owner, displayName: detail.displayName, description: detail.description,
       lifecycle: detail.lifecycle, modelTier: detail.modelTier as "small" | "large",
       modelProfile: detail.modelProfile, promptFile: detail.promptFile, prompt: detail.prompt,
       environments: detail.environments, routing: detail.routing,

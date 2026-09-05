@@ -154,7 +154,7 @@ describe("secrets never reach Git", () => {
       ...JSON.parse(JSON.stringify({
         apiVersion: "sre.ai/v1alpha1",
         kind: "Agent",
-        metadata: { name: "temp", owner: "team" },
+        metadata: { name: "temp", owner: "team", description: "Temporary test agent for security regression" },
         spec: {
           type: "specialist",
           model: { tier: "small", profile: "tool-caller" },

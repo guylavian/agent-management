@@ -223,7 +223,7 @@ export const agentDocumentSchema = z
         owner: z.string().min(1),
         displayName: z.string().min(1).optional(),
         // shown to the Manager model as a routing descriptor and to the portal
-        description: z.string().min(1).max(500).optional(),
+        description: z.string().min(20).max(500),
         /**
          * PRESENTATION ONLY. The console renders it; the runtime reads nothing
          * from it, and an Agent without one is complete — the console falls

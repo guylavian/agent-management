@@ -27,7 +27,7 @@
         },
         "description": {
           "type": "string",
-          "minLength": 1,
+          "minLength": 20,
           "maxLength": 500
         },
         "avatar": {
@@ -55,7 +55,8 @@
       },
       "required": [
         "name",
-        "owner"
+        "owner",
+        "description"
       ],
       "additionalProperties": false
     },
