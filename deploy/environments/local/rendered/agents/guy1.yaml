@@ -26,7 +26,7 @@ desiredState:
         name: guy1
         owner: odkcmxl ,
         description: "fklmdsc jnv kfejnv sclmcnvjsfkv nl"
-        displayName: rcvidmsk
+        displayName: guy1
       spec:
         type: specialist
         lifecycle: active
@@ -47,6 +47,8 @@ desiredState:
         security: { readOnly: true }
   prompts:
     guy1.md: |-
+      # guy1
+
       # rcvidmsk
 
       You are the specialist investigator for rcvidmsk domain within the SRE platform. Your role is to investigate and diagnose issues within your area of ownership, using only the tools and data sources made available to you.
@@ -66,5 +68,5 @@ desiredState:
       You must never invent tool results, guess at missing fields, or fabricate evidence. If a tool did not return a field or data point, do not assume what it would have returned. Work only with what was actually returned.
 
       Present your findings as clear statements grounded in tool output. Distinguish between what you observed directly and what you inferred, and keep inferences minimal.
-  revision: 737b795e43d83e6522c1535b2074c7a1c346e936224b0ea6e9dc2e3235562bc7
-promptSha256: 3f54374b4902102c07c7962bde7db9f3d3e4c79167d58a1921307d1c62468778
+  revision: 90591b208cbc4cadbe2d9d0e18808c4c0436d0e80848eaa4d28f6edab82ea499
+promptSha256: 5c7130becce20709fc21ad5c85950a456376e9255260b98f9eb9d89295797d8e
