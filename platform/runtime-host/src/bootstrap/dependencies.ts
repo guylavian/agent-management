@@ -44,11 +44,15 @@ import { InProcessSpecialistTransport } from "../transport/in-process.ts";
 import { DirectMcpClient, mcpEndpointsFromEnv, MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "../adapters/index.ts";
 
 /**
- * Creates a reachability probe for the OIDC JWKS endpoint.
- * GET the JWKS URL with a short timeout (2s). Any HTTP response (including 401/404)
- * is treated as reachable; only connection failure or timeout means unreachable.
+ * READINESS probe for the OIDC JWKS endpoint.
+ *
+ * It used to accept any HTTP response, 404 included, on the reasoning that a
+ * reply proves the endpoint is up. But this answer is what the kubelet uses to
+ * decide whether to send the pod traffic, and a key set that 404s authenticates
+ * nothing: the pod would stay Ready while rejecting every request it received.
+ * A usable key set is the bar, because that is what "ready" is claiming.
  */
-function createOidcProbe(oidc: OidcClient, config: AppConfig): (() => Promise<void>) | undefined {
+export function createOidcProbe(oidc: OidcClient, config: AppConfig): (() => Promise<void>) | undefined {
   if (oidc.mode !== "real") return undefined;
   // RealOidcClient requires a jwksUri; it throws in constructor if missing
   const jwksUri = config.oidc.jwksUri;
@@ -58,8 +62,9 @@ function createOidcProbe(oidc: OidcClient, config: AppConfig): (() => Promise<vo
     const timeout = setTimeout(() => controller.abort(), 2000);
     try {
       const response = await fetch(jwksUri, { signal: controller.signal });
-      // Any HTTP response (including 401/404) is treated as reachable
-      if (!response.ok) return;
+      if (!response.ok) throw new Error(`JWKS endpoint returned ${response.status}`);
+      const body = await response.json() as { keys?: unknown[] };
+      if (!Array.isArray(body.keys) || body.keys.length === 0) throw new Error("JWKS endpoint returned no keys");
     } finally {
       clearTimeout(timeout);
     }
@@ -67,12 +72,11 @@ function createOidcProbe(oidc: OidcClient, config: AppConfig): (() => Promise<vo
 }
 
 /**
- * Creates a reachability probe for the model endpoint.
- * GET the base URL with a short timeout (2s). Any HTTP response (including 401/404)
- * is treated as reachable; only connection failure or timeout means unreachable.
- * Comment: this probes reachability, not readiness — a 401 means the endpoint is up.
+ * READINESS probe for the model endpoint. Strict for the same reason as the
+ * JWKS probe: a sustained 5xx means every query this pod accepts will fail, and
+ * staying Ready through that routes traffic into a hole.
  */
-function createModelProbe(model: ModelClient, config: AppConfig): (() => Promise<void>) | undefined {
+export function createModelProbe(model: ModelClient, config: AppConfig): (() => Promise<void>) | undefined {
   if (model.mode !== "real") return undefined;
   const baseUrl = config.llm.baseUrl ?? config.llm.tierSUrl;
   if (!baseUrl) return undefined;
@@ -82,8 +86,7 @@ function createModelProbe(model: ModelClient, config: AppConfig): (() => Promise
     try {
       const probeUrl = baseUrl.endsWith("/v1") ? `${baseUrl}/models` : `${baseUrl}/v1/models`;
       const response = await fetch(probeUrl, { signal: controller.signal });
-      // Any HTTP response (including 401/404) is treated as reachable
-      if (!response.ok) return;
+      if (!response.ok) throw new Error(`model endpoint returned ${response.status}`);
     } finally {
       clearTimeout(timeout);
     }

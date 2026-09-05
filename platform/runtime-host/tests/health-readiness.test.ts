@@ -202,3 +202,55 @@ describe("readiness reports what it actually checked", () => {
     await app.close();
   });
 });
+
+/**
+ * A PROBE THAT ACCEPTS ANY HTTP RESPONSE IS NOT A READINESS CHECK.
+ *
+ * Both external probes treated every response as success — the comments said so
+ * outright — so a JWKS endpoint answering 404 and a model endpoint answering 500
+ * both reported "healthy". Kubernetes then keeps the pod Ready and routes
+ * traffic to a process that cannot authenticate a single request.
+ *
+ * Reachability was the stated intent, but readiness is what the endpoint is
+ * used for: the kubelet removes a pod from Service endpoints on this answer.
+ */
+import { createOidcProbe, createModelProbe } from "../src/bootstrap/dependencies.ts";
+
+describe("external probes reject a dependency that answers but cannot serve", () => {
+  const config = { oidc: { jwksUri: "https://idp.test/jwks" }, llm: { baseUrl: "https://model.test/v1" } } as never;
+
+  function withFetch(status: number, body: unknown, run: () => Promise<void>): Promise<void> {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })) as typeof fetch;
+    return run().finally(() => { globalThis.fetch = original; });
+  }
+
+  it("fails the OIDC probe when the JWKS endpoint 404s", async () => {
+    const probe = createOidcProbe({ mode: "real" } as never, config);
+    await withFetch(404, { error: "not found" }, async () => {
+      await expect(probe?.()).rejects.toThrow();
+    });
+  });
+
+  it("fails the OIDC probe when the response carries no usable keys", async () => {
+    // a 200 that is not a key set authenticates nothing
+    const probe = createOidcProbe({ mode: "real" } as never, config);
+    await withFetch(200, { keys: [] }, async () => {
+      await expect(probe?.()).rejects.toThrow();
+    });
+  });
+
+  it("passes the OIDC probe on a real key set", async () => {
+    const probe = createOidcProbe({ mode: "real" } as never, config);
+    await withFetch(200, { keys: [{ kid: "k1", kty: "RSA" }] }, async () => {
+      await expect(probe?.()).resolves.toBeUndefined();
+    });
+  });
+
+  it("fails the model probe on a 500", async () => {
+    const probe = createModelProbe({ mode: "real" } as never, config);
+    await withFetch(500, { error: "boom" }, async () => {
+      await expect(probe?.()).rejects.toThrow();
+    });
+  });
+});
