@@ -109,4 +109,12 @@ spec:
         - { protocol: TCP, port: {{ . }} }
         {{- end }}
     {{- end }}
+    {{- /*
+      Egress the selectors above cannot express — a model endpoint outside the
+      cluster, a collector reached by IP. Empty by default: the closed posture
+      holds unless an operator writes a rule down.
+    */}}
+    {{- with .Values.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 {{- end }}

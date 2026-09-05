@@ -71,6 +71,20 @@ spec:
               # "/no_think" suffix to dodge a 500 that thinking-mode plus strict
               # json_schema triggered on that model. Neither belongs in Git.
               - { name: clients.llm, value: real }
+              # The per-role Secret carries ONLY that role's credential, so the
+              # shared non-credential endpoints (SRE_LLM_TIER_*_URL, the served
+              # model id) arrive through extraEnvFrom — which is the split the
+              # chart documents. Without this a specialist starts with
+              # clients.llm=real and no endpoint, and loadAppConfig correctly
+              # refuses to boot.
+              - { name: "extraEnvFrom[0].secretRef.name", value: sre-agent-integrations }
+              # the model runs on the developer's Mac, reached through the
+              # Docker host gateway — an address no namespace selector can name.
+              # LOCAL ONLY: production reaches vLLM in a platform-service
+              # namespace, which the built-in selector already covers.
+              - { name: "networkPolicy.extraEgress[0].ports[0].protocol", value: TCP }
+              - { name: "networkPolicy.extraEgress[0].ports[0].port", value: "11434" }
+              - { name: "networkPolicy.extraEgress[0].to[0].ipBlock.cidr", value: "0.0.0.0/0" }
               - { name: extraEnv.SRE_REQUEST_DEADLINE_MS, value: "300000" }
               # Read configuration from a live checkout of main instead of the
               # image, so a merged pull request reaches this cluster the same

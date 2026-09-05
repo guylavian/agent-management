@@ -60,6 +60,29 @@ describe("a gitSync pod cannot be rendered unable to reach its remote", () => {
   });
 });
 
+/**
+ * The built-in egress shapes cover the platform services this chart knows about.
+ * A deployment whose model endpoint, IdP or collector sits somewhere those
+ * selectors cannot name has no way to reach it, and the failure appears as a
+ * timeout inside the runtime rather than as a policy decision. The escape hatch
+ * is explicit and empty by default, so the closed posture is what you get
+ * unless an operator writes a rule down.
+ */
+describe("an operator can permit egress the built-in shapes cannot express", () => {
+  it("emits nothing extra by default", () => {
+    const rendered = execFileSync("helm", ["template", "np", chart, "--set", "agent.mode=specialist", "--set", "agent.name=probe", "--set", "networkPolicy.enabled=true"], { encoding: "utf8" });
+    expect(rendered).not.toContain("11434");
+  });
+
+  it("emits the operator's rule verbatim when one is given", () => {
+    const rendered = execFileSync("helm", ["template", "np", chart, "--set", "agent.mode=specialist", "--set", "agent.name=probe", "--set", "networkPolicy.enabled=true",
+      "--set", "networkPolicy.extraEgress[0].ports[0].protocol=TCP",
+      "--set", "networkPolicy.extraEgress[0].ports[0].port=11434"], { encoding: "utf8" });
+    const policy = rendered.split(/^---$/mu).map((doc) => parse(doc) as Record<string, unknown>).find((doc) => doc?.kind === "NetworkPolicy") as { spec: { egress: Rule[] } };
+    expect(policy.spec.egress.some((rule) => (rule.ports ?? []).some((port) => port.port === 11434))).toBe(true);
+  });
+});
+
 describe("manager egress cannot reach ToolHive", () => {
   it("excludes a ToolHive-labelled namespace rather than relying on the port", () => {
     const rules = platformEgress("manager");

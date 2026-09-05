@@ -79,6 +79,28 @@ kubectl -n sre-assistant create secret generic sre-agent-integrations \
   --from-literal=SRE_DELEGATION_MOCK_SECRET="${SRE_DELEGATION_MOCK_SECRET:-local-shared-delegation-secret-change-me-0001}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
+# --- per-role credential secrets --------------------------------------------
+# Each workload's envFrom names its OWN Secret, and the kubelet refuses to start
+# a container whose envFrom is missing. That is deliberate: a specialist
+# authenticates as its own client, so one shared Secret would put every
+# specialist inside one credential boundary.
+#
+# Locally every client is a mock, so these carry a placeholder — but they must
+# EXIST, and they are created one per agent rather than once, so this cluster
+# has the same shape as production. The agents are discovered from the rendered
+# desired state, which is the same list Argo generates Applications from.
+echo "==> creating per-role secrets"
+kubectl -n sre-assistant create secret generic sre-agent-manager-secrets \
+  --from-literal=SRE_LOCAL_PLACEHOLDER=unused \
+  --dry-run=client -o yaml | kubectl apply -f -
+for agent_file in "${here}/../environments/local/rendered/agents/"*.yaml; do
+  agent_name="$(basename "${agent_file}" .yaml)"
+  [ "${agent_name}" = "manager" ] && continue
+  kubectl -n sre-assistant create secret generic "sre-agent-${agent_name}-secrets" \
+    --from-literal=SRE_TOOL_CREDENTIAL_CLIENT_SECRET=local-mock-not-a-real-credential \
+    --dry-run=client -o yaml | kubectl apply -f -
+done
+
 # --- desired state ----------------------------------------------------------
 # From here on Git is in charge. These two objects are the last manual apply.
 echo "==> applying project + ApplicationSet"

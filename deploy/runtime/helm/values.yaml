@@ -229,3 +229,8 @@ networkPolicy:
   specialistPlatformPorts: [443, 4318, 8000]
   # reconciler: IdP/HTTPS 443 (Keycloak admin), OTLP 4318, PostgreSQL 5432 (attestation store)
   reconcilerPlatformPorts: [443, 4318, 5432]
+  # Raw NetworkPolicy egress rules for destinations the selectors above cannot
+  # name — a model endpoint outside the cluster, a service reached by IP. Each
+  # entry is a NetworkPolicyEgressRule, emitted verbatim. Empty by default, so
+  # the closed posture holds unless an operator writes a rule down.
+  extraEgress: []
