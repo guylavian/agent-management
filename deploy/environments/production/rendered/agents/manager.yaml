@@ -65,7 +65,7 @@ desiredState:
         displayName: cmdk
       spec:
         type: specialist
-        lifecycle: draft
+        lifecycle: active
         model: { tier: small, profile: tool-caller }
         prompt: { systemFile: config/prompts/check.md }
         identity: { provider: keycloak, clientId: sre-agent-check }
@@ -284,6 +284,8 @@ desiredState:
     check.md: |-
       # cmdk
 
+      # cmdk
+
       You are a read-only SRE investigation specialist for the check domain (cmdk). Your role is to investigate incidents, system states, and operational questions within your domain using only the tools provided by the platform.
 
       Your domain is: wecd
@@ -473,13 +475,13 @@ desiredState:
       resources:
         requests: { cpu: 500m, memory: 512Mi }
         limits: { cpu: "1", memory: 1Gi }
-    guy1.yaml: |-
+    check.yaml: |-
       apiVersion: sre.ai/v1alpha1
       kind: AgentDeployment
       # Deployment overlay ONLY. Routing, capabilities, prompt, tool access and
-      # ownership are properties of the Agent and live in config/agents/guy1.yaml;
+      # ownership are properties of the Agent and live in config/agents/check.yaml;
       # the schema rejects them here.
-      agentId: guy1
+      agentId: check
       enabled: true
       replicas: 2
       resources:
@@ -577,5 +579,5 @@ desiredState:
         prompt-assist:
           provider: vllm
           model: qwen3-8b
-  revision: a9a6896a0eb781b8a49780b67af1b4795838305b89631ebcba7cd8bf9f7050ab
+  revision: daa58d19aee3b8e72f9f4e9f7f0600a59c14cfcfcdc1f8ac4f418f312f6cd96a
 promptSha256: 6cf082df2d2e3d1bf2446de22dbf623888105008865900643a56b286ef5f712f
