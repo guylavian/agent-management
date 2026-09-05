@@ -4,7 +4,7 @@ import { assertLoadProfileSafe } from "../load/run-load.ts";
 
 describe("load safety", () => {
   it("refuses the storm profile against real ToolHive", () => {
-    const config = loadAppConfig({ SRE_CLIENT_TOOLHIVE: "real", SRE_TOOLHIVE_URL: "https://toolhive.internal", SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT: "https://sts.internal/token" });
+    const config = loadAppConfig({ SRE_CLIENT_TOOLHIVE: "real", SRE_TOOLHIVE_URL: "https://toolhive.internal", SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT: "https://sts.internal/token", SRE_TOOL_CREDENTIAL_CLIENT_SECRET: "load-test-secret" });
     expect(() => assertLoadProfileSafe(config, "storm", true)).toThrow(/50-user storm.*mock ToolHive/iu);
   });
 
@@ -16,13 +16,14 @@ describe("load safety", () => {
     const config = loadAppConfig({
       SRE_CLIENT_AGENT: "real",
       SRE_INTERNAL_OIDC_JWKS_URI: "https://workload-idp.internal/jwks",
+      SRE_INTERNAL_EXPECTED_SUBJECT: "system:serviceaccount:sre-assistant:sre-agent-manager",
       SRE_WORKLOAD_TOKEN_FILE: "/var/run/secrets/sre/token",
     });
     expect(() => assertLoadProfileSafe(config, "storm", true)).toThrow(/mock agent client/iu);
   });
 
   it("requires explicit approval for any real-backend load", () => {
-    const config = loadAppConfig({ SRE_CLIENT_TOOLHIVE: "real", SRE_TOOLHIVE_URL: "https://toolhive.internal", SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT: "https://sts.internal/token" });
+    const config = loadAppConfig({ SRE_CLIENT_TOOLHIVE: "real", SRE_TOOLHIVE_URL: "https://toolhive.internal", SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT: "https://sts.internal/token", SRE_TOOL_CREDENTIAL_CLIENT_SECRET: "load-test-secret" });
     expect(() => assertLoadProfileSafe(config, "normal", false)).toThrow(/owner approval/iu);
   });
 });

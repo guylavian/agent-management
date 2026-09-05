@@ -82,6 +82,8 @@ export const appConfigSchema = z
     /** the active environment's deployment desired state — enablement, placement, model bindings */
     deploymentEnvironmentDir: z.string().min(1).default(`${DEPLOY_ROOT}/environments/production`),
     requestDeadlineMs: z.coerce.number().int().min(1_000).max(600_000).default(45_000),
+    /** in-flight /v1/query bound per instance; beyond it the runtime sheds load instead of queueing without limit */
+    maxConcurrentQueries: z.coerce.number().int().min(1).max(10_000).default(64),
     defaultEnvironment: z.string().min(1).default("prod"),
     clients: z
       .object({
@@ -109,6 +111,13 @@ export const appConfigSchema = z
       issuer: z.string().min(1).default("https://mock-workload-idp.sre.local"),
       audience: z.string().min(1).default("sre-agent-runtime"),
       jwksUri: z.string().optional(),
+      /**
+       * The Manager's own service-account subject. Every pod mounts a projected
+       * token for the SAME audience, so audience alone proves only "some agent
+       * in this platform" — a specialist could present its own token and be
+       * taken for the Manager. Specialists therefore pin the caller's subject.
+       */
+      expectedSubject: z.string().min(1).optional(),
     }).strict(),
     llm: z
       .object({
@@ -164,6 +173,12 @@ export const appConfigSchema = z
       }).strict().optional(),
       /** probe each enabled agent's own Service for readiness */
       probeRuntime: z.coerce.boolean().default(false),
+      /**
+       * Who writes the activation and attestation rows the operational plane
+       * reads. Nothing in this repository runs that reconciler yet, so it must
+       * be named explicitly rather than assumed — see the guard below.
+       */
+      reconciler: z.enum(["external"]).optional(),
       /*
        * The PostgreSQL operational control plane (suspend/resume + attested
        * readiness). OFF by default, and deliberately not inferred from Postgres
@@ -234,6 +249,7 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
     toolPolicyFile: env.SRE_TOOL_POLICY,
     deploymentEnvironmentDir: env.SRE_DEPLOYMENT_ENVIRONMENT_DIR,
     requestDeadlineMs: env.SRE_REQUEST_DEADLINE_MS,
+    maxConcurrentQueries: env.SRE_MAX_CONCURRENT_QUERIES,
     defaultEnvironment: env.SRE_DEFAULT_ENVIRONMENT,
     clients: {
       oidc: env.SRE_CLIENT_OIDC,
@@ -255,6 +271,7 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
       issuer: env.SRE_INTERNAL_OIDC_ISSUER,
       audience: env.SRE_INTERNAL_OIDC_AUDIENCE,
       jwksUri: env.SRE_INTERNAL_OIDC_JWKS_URI,
+      expectedSubject: env.SRE_INTERNAL_EXPECTED_SUBJECT,
     },
     llm: {
       baseUrl: env.SRE_LLM_BASE_URL,
@@ -289,6 +306,7 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
         : {}),
       probeRuntime: env.SRE_RUNTIME_PROBE === "on",
       operationalPlane: env.SRE_OPERATIONAL_PLANE === "on",
+      ...(env.SRE_OPERATIONAL_RECONCILER ? { reconciler: env.SRE_OPERATIONAL_RECONCILER } : {}),
     },
     toolCredential: {
       issuer: env.SRE_TOOL_CREDENTIAL_ISSUER,
@@ -337,6 +355,31 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
   }
   if (config.clients.oidc === "real" && !config.oidc.jwksUri) {
     problems.push("oidc client is real but SRE_OIDC_JWKS_URI is unset");
+  }
+  // The operational plane decides whether an agent is routable at all. With no
+  // database it silently falls back to a repository that reports nothing, and
+  // with no reconciler the tables stay empty — both read as "no agent is
+  // ready", which is a total routing outage produced by one variable.
+  if (config.reconciliation.operationalPlane) {
+    if (config.clients.postgres !== "real" || !config.postgres.connectionString) {
+      problems.push("operational plane is on but Postgres is not configured — every agent would resolve to not-routable");
+    }
+    if (config.reconciliation.reconciler === undefined) {
+      problems.push("operational plane is on but SRE_OPERATIONAL_RECONCILER is unset — nothing would write the activation and attestation rows it reads");
+    }
+  }
+  if (config.clients.agent === "real" && !config.internalOidc.expectedSubject) {
+    problems.push("agent client is real but SRE_INTERNAL_EXPECTED_SUBJECT is unset — a specialist would accept any platform workload token as the Manager");
+  }
+  // Only the token-exchange strategy presents the human as a verifiable
+  // assertion. The others authorize the agent alone or rest on a single
+  // platform key, so production refuses them rather than running weaker than
+  // its own design claims.
+  if (config.env === "production" && config.clients.toolhive !== "disabled" && config.toolCredential.strategy !== "token-exchange") {
+    problems.push(`tool-credential strategy "${config.toolCredential.strategy}" is not permitted in production (use token-exchange, which delegates the human)`);
+  }
+  if (config.clients.toolhive === "real" && config.toolCredential.strategy === "token-exchange" && !config.toolCredential.clientSecret) {
+    problems.push("token-exchange ToolHive credentials require SRE_TOOL_CREDENTIAL_CLIENT_SECRET to authenticate the exchange");
   }
   if (config.clients.agent === "real" && !config.internalOidc.jwksUri) {
     problems.push("agent client is real but SRE_INTERNAL_OIDC_JWKS_URI is unset");

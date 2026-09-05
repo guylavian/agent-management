@@ -55,7 +55,7 @@ describe("startup configuration", () => {
       [{ file: "invented.yaml", doc: agentDocumentSchema.parse({
         apiVersion: "sre.ai/v1alpha1",
         kind: "Agent",
-        metadata: { name: "manager", owner: "sre-platform" },
+        metadata: { name: "manager", owner: "sre-platform", description: "Test manager agent description" },
         spec: {
           type: "manager",
           model: { tier: "small", profile: "no-such-profile" },
@@ -102,6 +102,7 @@ describe("startup configuration", () => {
       SRE_CLIENT_DELEGATION: "real",
       SRE_OIDC_JWKS_URI: "http://localhost/idp/jwks",
       SRE_INTERNAL_OIDC_JWKS_URI: "http://localhost/idp/jwks",
+      SRE_INTERNAL_EXPECTED_SUBJECT: "service-account-sre-manager-workload",
       SRE_LLM_BASE_URL: "http://localhost:11434",
       SRE_TOOLHIVE_ENDPOINTS_JSON: '{"keycloak":"http://localhost:8301/mcp"}',
       SRE_TOOL_CREDENTIAL_STRATEGY: "signed-jwt",

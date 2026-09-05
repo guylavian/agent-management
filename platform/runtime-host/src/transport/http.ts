@@ -8,6 +8,7 @@
  */
 import { context, propagation } from "@opentelemetry/api";
 import { readFile } from "node:fs/promises";
+import { MOCK_WORKLOAD_TOKEN } from "@sre/auth";
 import {
   AGENT_EXECUTION_PATH,
   AgentTransportError,
@@ -45,6 +46,7 @@ export class ClientCredentialsWorkloadTokenProvider implements WorkloadTokenProv
   readonly #clientId: string;
   readonly #clientSecret: string;
   readonly #fetch: typeof fetch;
+  readonly #cache = new Map<string, { token: string; expiresAtMs: number }>();
 
   constructor(settings: { tokenEndpoint: string; clientId: string; clientSecret: string }, fetchImplementation: typeof fetch = fetch) {
     this.#tokenEndpoint = settings.tokenEndpoint;
@@ -53,18 +55,28 @@ export class ClientCredentialsWorkloadTokenProvider implements WorkloadTokenProv
     this.#fetch = fetchImplementation;
   }
 
-  async getToken(_audience: string): Promise<string> {
+  async getToken(audience: string): Promise<string> {
+    const cached = this.#cache.get(audience);
+    // ponytail: 5s skew guard matching workload-credential.ts style
+    if (cached !== undefined && cached.expiresAtMs - 5_000 > Date.now()) {
+      return cached.token;
+    }
+
     const body = new URLSearchParams({ grant_type: "client_credentials", client_id: this.#clientId, client_secret: this.#clientSecret });
     const response = await this.#fetch(this.#tokenEndpoint, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body, signal: AbortSignal.timeout(10_000) });
     if (!response.ok) throw new AgentTransportError("AGENT_UNAUTHORIZED", "Workload identity token is unavailable", false);
-    const payload = await response.json() as { access_token?: string };
+    const payload = await response.json() as { access_token?: string; expires_in?: number };
     if (payload.access_token === undefined || payload.access_token.length < 32) throw new AgentTransportError("AGENT_UNAUTHORIZED", "Workload identity token is unavailable", false);
+    
+    const lifetimeMs = Math.min((payload.expires_in ?? 60) * 1000, 300_000);
+    const expiresAtMs = Date.now() + lifetimeMs;
+    this.#cache.set(audience, { token: payload.access_token, expiresAtMs });
     return payload.access_token;
   }
 }
 
 export class MockWorkloadTokenProvider implements WorkloadTokenProvider {
-  async getToken(_audience: string): Promise<string> { return "mock-manager-workload-token-for-local-tests"; }
+  async getToken(_audience: string): Promise<string> { return MOCK_WORKLOAD_TOKEN; }
 }
 
 export class HttpSpecialistTransport implements SpecialistTransport {

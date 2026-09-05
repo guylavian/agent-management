@@ -260,7 +260,9 @@ describe("production refuses to serve desired state baked into its image", () =>
     SRE_CLIENT_DELEGATION: "real",
     SRE_DELEGATION_PRIVATE_KEY_PKCS8: "unused-because-startup-fails-earlier",
     SRE_INTERNAL_OIDC_JWKS_URI: "https://idp.internal/realms/sre/protocol/openid-connect/certs",
+    SRE_INTERNAL_EXPECTED_SUBJECT: "system:serviceaccount:sre-assistant:sre-agent-manager",
     SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT: "https://idp.internal/realms/sre/protocol/openid-connect/token",
+    SRE_TOOL_CREDENTIAL_CLIENT_SECRET: "unused-because-startup-fails-earlier",
   };
 
   it("fails startup when the Agent registry is not a mounted volume", async () => {

@@ -19,9 +19,32 @@ export const toolCredentialSchema = z
     subjectHash: z.string().regex(/^[a-f0-9]{64}$/u),
     /** workload client that executed the call; audit needs both actors — TDD §13 */
     workloadClientId: z.string().min(1),
+    /**
+     * Epoch millis at which the token stops being accepted.
+     *
+     * The engine treats a credential as opaque and caches one per server for a
+     * whole run, so it will never ask again mid-run. The platform therefore
+     * refreshes at the ToolProvider boundary, and needs to be told when.
+     */
+    expiresAt: z.number().int().positive().optional(),
   })
   .strict();
 export type ToolCredential = z.infer<typeof toolCredentialSchema>;
+
+/**
+ * Bind one request's delegation assertion to an exchanger.
+ *
+ * The assertion is per REQUEST and the exchanger is per PROCESS, so the
+ * assertion travels with the identity rather than being held anywhere it could
+ * outlive the request or be attached to the wrong human.
+ */
+export function withDelegationAssertion(inner: ToolCredentialExchanger, assertion: string): ToolCredentialExchanger {
+  return {
+    mode: inner.mode,
+    exchange: (workload, identity, audience, deadline, signal) =>
+      inner.exchange(workload, { ...identity, assertion }, audience, deadline, signal),
+  };
+}
 
 export interface VerifiedToolPrincipal {
   subject: string;
@@ -84,7 +107,7 @@ export class MockToolCredentialAuthority implements ToolCredentialExchanger, Too
       .setNotBefore(now - 1)
       .setExpirationTime(expiry)
       .sign(this.#key);
-    return toolCredentialSchema.parse({ token, tokenType: "urn:ietf:params:oauth:token-type:access_token", issuer: this.#issuer, audience, subjectHash: hashSubject(identity.subject), workloadClientId: workload.clientId });
+    return toolCredentialSchema.parse({ token, tokenType: "urn:ietf:params:oauth:token-type:access_token", issuer: this.#issuer, audience, subjectHash: hashSubject(identity.subject), workloadClientId: workload.clientId, expiresAt: expiry * 1000 });
   }
 
   async verify(credential: ToolCredential, expectedAudience: string, requestId: string): Promise<VerifiedToolPrincipal> {
@@ -122,14 +145,26 @@ function verifiedActor(payload: Record<string, unknown>): string | undefined {
 export interface RealTokenExchangeSettings {
   tokenEndpoint?: string;
   audiencePrefix: string;
+  /** issuer of the tokens this endpoint mints; recorded on the credential envelope */
+  issuer: string;
+  /** client authentication for the exchange request; sourced from a Secret, never stored here */
+  clientSecret: () => Promise<string> | string;
+  /** the Specialist's own workload token, presented as the delegation ACTOR */
+  actorToken: () => Promise<string>;
 }
 
 /**
- * RFC 8693 OAuth 2.0 Token Exchange client — INTEGRATION BLOCKER.
+ * RFC 8693 OAuth 2.0 Token Exchange — the production path.
  *
- * The shape is complete but exchange() cannot succeed until the enterprise STS
- * endpoint, the workload subject-token source, and the accepted audience values
- * are provisioned and pinned. It never falls back to an unsigned identity.
+ * The delegation chain is the point. The SUBJECT is the human, presented as the
+ * manager-signed assertion the Specialist already holds and has verified; the
+ * ACTOR is the Specialist's own workload token. The identity provider — not
+ * this code — then decides whether that agent may act for that human against
+ * that one audience, and issues a token whose `sub` is the person and whose
+ * `act` is the agent.
+ *
+ * It never falls back to an agent-only token: without an assertion there is no
+ * human to delegate for, and the exchange is refused.
  */
 export class RealTokenExchangeCredentialExchanger implements ToolCredentialExchanger {
   readonly mode = "real" as const;
@@ -141,9 +176,12 @@ export class RealTokenExchangeCredentialExchanger implements ToolCredentialExcha
     this.#fetch = fetchImplementation;
   }
 
-  async exchange(workload: WorkloadIdentity, identity: RequestIdentity, audience: string, deadline: number): Promise<ToolCredential> {
+  async exchange(workload: WorkloadIdentity, identity: RequestIdentity, audience: string, deadline: number, signal?: AbortSignal): Promise<ToolCredential> {
     if (this.#settings.tokenEndpoint === undefined) {
-      throw Object.assign(new Error("INTEGRATION BLOCKER: enterprise token-exchange endpoint (RFC 8693) is not configured"), { code: "TOOL_DENIED" });
+      throw Object.assign(new Error("token-exchange endpoint (RFC 8693) is not configured"), { code: "TOOL_DENIED" });
+    }
+    if (identity.assertion === undefined) {
+      throw Object.assign(new Error("no delegated assertion to exchange"), { code: "TOOL_DENIED" });
     }
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) throw Object.assign(new Error("tool credential deadline expired"), { code: "REQUEST_TIMEOUT" });
@@ -151,29 +189,32 @@ export class RealTokenExchangeCredentialExchanger implements ToolCredentialExcha
       grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
       requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
       audience,
+      // the human, as a verifiable manager-signed assertion
+      subject_token: identity.assertion,
       subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
-      // the effective human subject; the Agent workload is the authenticated
-      // client of this request and becomes the `act` claim in the issued token
-      subject_token: identity.subject,
+      // the agent, as the actor of the delegation chain
+      actor_token: await this.#settings.actorToken(),
       actor_token_type: "urn:ietf:params:oauth:token-type:jwt",
       client_id: workload.clientId,
+      client_secret: String(await this.#settings.clientSecret()),
     });
     const response = await this.#fetch(this.#settings.tokenEndpoint, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body,
-      signal: AbortSignal.timeout(remainingMs),
+      signal: signal === undefined ? AbortSignal.timeout(remainingMs) : AbortSignal.any([AbortSignal.timeout(remainingMs), signal]),
     });
     if (!response.ok) throw Object.assign(new Error("token exchange failed"), { code: "TOOL_DENIED" });
-    const json = (await response.json()) as { access_token?: string; issued_token_type?: string };
+    const json = (await response.json()) as { access_token?: string; expires_in?: number };
     if (json.access_token === undefined) throw Object.assign(new Error("token exchange returned no access token"), { code: "TOOL_DENIED" });
     return toolCredentialSchema.parse({
       token: json.access_token,
       tokenType: "urn:ietf:params:oauth:token-type:access_token",
-      issuer: this.#settings.audiencePrefix,
+      issuer: this.#settings.issuer,
       audience,
       subjectHash: hashSubject(identity.subject),
       workloadClientId: workload.clientId,
+      expiresAt: Date.now() + (json.expires_in ?? 60) * 1000,
     });
   }
 }
@@ -186,10 +227,12 @@ export class RealTokenExchangeCredentialExchanger implements ToolCredentialExcha
 export class PrivateKeyToolCredentialExchanger implements ToolCredentialExchanger {
   readonly mode = "real" as const;
   readonly #issuer: string;
+  readonly #agentId: string;
   readonly #keyPromise: ReturnType<typeof importPKCS8>;
 
-  constructor(settings: { issuer: string; privateKeyPkcs8: string }) {
+  constructor(settings: { issuer: string; privateKeyPkcs8: string; agentId: string }) {
     this.#issuer = settings.issuer;
+    this.#agentId = settings.agentId;
     this.#keyPromise = importPKCS8(settings.privateKeyPkcs8, "RS256");
   }
 
@@ -198,7 +241,9 @@ export class PrivateKeyToolCredentialExchanger implements ToolCredentialExchange
     const expiry = Math.min(now + 60, Math.floor(deadline / 1000));
     if (expiry <= now) throw Object.assign(new Error("tool credential deadline expired"), { code: "REQUEST_TIMEOUT" });
     const token = await new SignJWT({ groups: identity.groups, roles: identity.roles, request_id: identity.requestId, ...actorClaims(workload) })
-      .setProtectedHeader({ alg: "RS256", typ: "at+jwt", kid: "sre-real-poc" })
+      // the key id names the AGENT, so a verifier can bind kid to agent rather
+      // than accepting one platform-wide key for whichever azp is claimed
+      .setProtectedHeader({ alg: "RS256", typ: "at+jwt", kid: `sre-${this.#agentId}` })
       .setIssuer(this.#issuer)
       .setAudience(audience)
       .setSubject(identity.subject)
@@ -206,6 +251,6 @@ export class PrivateKeyToolCredentialExchanger implements ToolCredentialExchange
       .setNotBefore(now - 1)
       .setExpirationTime(expiry)
       .sign(await this.#keyPromise);
-    return toolCredentialSchema.parse({ token, tokenType: "urn:ietf:params:oauth:token-type:access_token", issuer: this.#issuer, audience, subjectHash: hashSubject(identity.subject), workloadClientId: workload.clientId });
+    return toolCredentialSchema.parse({ token, tokenType: "urn:ietf:params:oauth:token-type:access_token", issuer: this.#issuer, audience, subjectHash: hashSubject(identity.subject), workloadClientId: workload.clientId, expiresAt: expiry * 1000 });
   }
 }

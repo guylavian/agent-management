@@ -57,11 +57,14 @@ export class KeycloakWorkloadCredentialExchanger implements ToolCredentialExchan
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) throw Object.assign(new Error("tool credential deadline expired"), { code: "REQUEST_TIMEOUT" });
 
-    const cacheKey = `${workload.clientId}|${audience}`;
+    // the SUBJECT is part of the key. Caching on (client, audience) alone and
+    // re-stamping subjectHash handed one human's token to the next, with an
+    // envelope that claimed otherwise — a token is never shared across people.
+    const cacheKey = `${workload.clientId}|${audience}|${hashSubject(identity.subject)}`;
     const cached = this.#cache.get(cacheKey);
     // 5s skew guard so a token cannot expire mid-flight
     if (cached !== undefined && cached.expiresAtMs - 5_000 > Date.now()) {
-      return { ...cached.credential, subjectHash: hashSubject(identity.subject) };
+      return cached.credential;
     }
 
     const body = new URLSearchParams({
@@ -84,6 +87,7 @@ export class KeycloakWorkloadCredentialExchanger implements ToolCredentialExchan
 
     await this.#assertAudience(json.access_token, audience);
 
+    const lifetimeMs = Math.min((json.expires_in ?? 60) * 1000, 300_000);
     const credential = toolCredentialSchema.parse({
       token: json.access_token,
       tokenType: "urn:ietf:params:oauth:token-type:access_token",
@@ -91,8 +95,8 @@ export class KeycloakWorkloadCredentialExchanger implements ToolCredentialExchan
       audience,
       subjectHash: hashSubject(identity.subject),
       workloadClientId: workload.clientId,
+      expiresAt: Date.now() + lifetimeMs,
     });
-    const lifetimeMs = Math.min((json.expires_in ?? 60) * 1000, 300_000);
     this.#cache.set(cacheKey, { credential, expiresAtMs: Date.now() + lifetimeMs });
     return credential;
   }

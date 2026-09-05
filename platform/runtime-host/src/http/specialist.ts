@@ -6,6 +6,7 @@ import {
   agentExecutionRequestSchema,
   assertSerializedLimit,
 } from "@sre/agent-protocol";
+import { MOCK_WORKLOAD_TOKEN, withDelegationAssertion } from "@sre/auth";
 import { redactText } from "@sre/redaction";
 import { withExtractedContext } from "@sre/telemetry";
 import type { Express } from "express";
@@ -54,7 +55,10 @@ export function registerSpecialistRoutes(app: Express, deps: SpecialistDependenc
         const result = await runSpecialistInstance(deps.agentOf(), deps.catalog, executionContext, {
           model: deps.model,
           toolhive: deps.toolhive,
-          credentialExchanger: deps.credentialExchanger,
+          // the manager-signed assertion travels with THIS request, so the tool
+          // credential can name the human it was issued for rather than only
+          // the agent executing on their behalf
+          ...(deps.credentialExchanger ? { credentialExchanger: withDelegationAssertion(deps.credentialExchanger, parsed.data.identityContext.token) } : {}),
         }, parsed.data.handoff);
         assertSerializedLimit(result, MAX_AGENT_RESPONSE_BYTES, "agent response");
         response.status(200).json(result);
@@ -71,12 +75,21 @@ export function registerSpecialistRoutes(app: Express, deps: SpecialistDependenc
 }
 
 
+/**
+ * Every pod in the platform mounts a projected token for the SAME audience, so
+ * a valid audience proves only that the caller is some agent here — a
+ * specialist could present its own token and be taken for the Manager. The
+ * caller's SUBJECT is therefore pinned to the Manager's service account, which
+ * is the claim that actually distinguishes it.
+ */
 async function verifyWorkloadIdentity(deps: SpecialistDependencies, authorization: string | undefined, requestId: string): Promise<void> {
   const match = authorization?.match(/^Bearer (.+)$/u);
   if (match?.[1] === undefined) throw new Error("missing workload identity");
   if (deps.workloadOidc === undefined) {
-    if (match[1] !== "mock-manager-workload-token-for-local-tests") throw new Error("invalid workload identity");
+    if (match[1] !== MOCK_WORKLOAD_TOKEN) throw new Error("invalid workload identity");
     return;
   }
-  await deps.workloadOidc.verify(match[1], requestId);
+  const caller = await deps.workloadOidc.verify(match[1], requestId);
+  const expected = deps.expectedManagerSubject;
+  if (expected !== undefined && caller.subject !== expected) throw new Error("workload identity is not the Manager");
 }

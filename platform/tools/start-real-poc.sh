@@ -108,6 +108,7 @@ common_env=(
   SRE_INTERNAL_OIDC_ISSUER="http://localhost:${KEYCLOAK_HTTP_PORT:-8080}/realms/${KEYCLOAK_REALM:-sre-test}"
   SRE_INTERNAL_OIDC_AUDIENCE=sre-agent-runtime
   SRE_INTERNAL_OIDC_JWKS_URI="https://localhost:${KEYCLOAK_HTTPS_PORT:-8443}/realms/${KEYCLOAK_REALM:-sre-test}/protocol/openid-connect/certs"
+  SRE_INTERNAL_EXPECTED_SUBJECT="${SRE_INTERNAL_EXPECTED_SUBJECT:-service-account-${SRE_WORKLOAD_CLIENT_ID:-sre-manager-workload}}"
   SRE_LLM_BASE_URL="$SRE_LLM_BASE_URL" SRE_MODEL_MANAGER="$SRE_MODEL_MANAGER"
   SRE_MODEL_TOOL_CALLER="$SRE_MODEL_TOOL_CALLER" SRE_MODEL_SYNTHESIS="$SRE_MODEL_SYNTHESIS"
   SRE_TOOLHIVE_ENDPOINTS_JSON='{"keycloak":"http://127.0.0.1:8301/mcp","prometheus":"http://127.0.0.1:8302/mcp","wiki":"http://127.0.0.1:8303/mcp","kubernetes":"http://127.0.0.1:8304/mcp"}'
