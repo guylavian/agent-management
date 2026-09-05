@@ -1,0 +1,25 @@
+apiVersion: sre.ai/v1alpha1
+kind: Agent
+metadata:
+  name: guy1
+  owner: odkcmxl ,
+  description: "fklmdsc jnv kfejnv sclmcnvjsfkv nl"
+  displayName: rcvidmsk
+spec:
+  type: specialist
+  lifecycle: active
+  model: { tier: small, profile: tool-caller }
+  prompt: { systemFile: config/prompts/guy1.md }
+  identity: { provider: keycloak, clientId: sre-agent-guy1 }
+  environments: ["prod", "dr", "lab"]
+  routing:
+    capabilities: ["recfdsxz"]
+    exclusions: ["efsczxfe"]
+  access:
+    - mcp: keycloak
+      audience: sre-toolhive:keycloak
+      tools: [keycloak_health, list_realms, list_clients]
+  execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
+  discovery: { allowedNeedsDomains: [active-directory] }
+  authorization: { requiredRoles: [infra-read] }
+  security: { readOnly: true }
