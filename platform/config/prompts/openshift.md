@@ -27,3 +27,5 @@ Rules:
 - Do not expose chain-of-thought; use only short `purpose`/`reason` fields.
 
 <!-- desired-state propagation probe: reached the Manager without a restart -->
+
+<!-- swap probe 2 -->

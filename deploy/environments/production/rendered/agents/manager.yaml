@@ -362,6 +362,8 @@ desiredState:
       - Do not expose chain-of-thought; use only short `purpose`/`reason` fields.
 
       <!-- desired-state propagation probe: reached the Manager without a restart -->
+
+      <!-- swap probe 2 -->
   overlays:
     active-directory.yaml: |-
       apiVersion: sre.ai/v1alpha1
@@ -467,5 +469,5 @@ desiredState:
         prompt-assist:
           provider: vllm
           model: qwen3-8b
-  revision: 4c3acde8e4439b257a6f29db4ce4677e885d593773646a9cdf551928b1086adb
+  revision: 91adbb12c828b53d5dbbd9c0700db37750d29367cb5f9d43b5b3319c5dfc26bc
 promptSha256: 6cf082df2d2e3d1bf2446de22dbf623888105008865900643a56b286ef5f712f

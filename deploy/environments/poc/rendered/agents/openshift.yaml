@@ -88,5 +88,7 @@ desiredState:
       - Do not expose chain-of-thought; use only short `purpose`/`reason` fields.
 
       <!-- desired-state propagation probe: reached the Manager without a restart -->
-  revision: 61d68f3c1f7559c0ef06273650c41ffa7468ba583132d383929bfd717447b426
-promptSha256: ec7532e12a62d659317e6502822c13c22b0580c51b8f4a2c95cd10c72375791f
+
+      <!-- swap probe 2 -->
+  revision: 28f07e5a546ac4897437b06b5b2cd7f69333b876397a6aed0858924f4bd2f266
+promptSha256: 3a8d60fac4f323bf2692774258fe285f57243c4737c3bcc588160e43e61bc97b
