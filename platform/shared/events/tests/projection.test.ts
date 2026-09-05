@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { exportPKCS8, generateKeyPair } from "jose";
 import { assertSafeMetadata, parseEvent, UnsafeEventMetadataError, type ExecutionEvent } from "../src/event.ts";
 import { eventId, projectStream } from "../src/projection.ts";
 import { DisabledEventStore, MockEventStore } from "../src/store.ts";
@@ -142,10 +143,12 @@ describe("metadata carries facts, never payloads", () => {
     expect(() => assertSafeMetadata({ detail: { nested: true } })).toThrow(/not a scalar/u);
   });
 
-  it("refuses credential-shaped values even under an innocuous key", () => {
+  it("refuses credential-shaped values even under an innocuous key", async () => {
     // the key check catches carelessness; this catches someone renaming the key
     // to get past it
-    expect(() => assertSafeMetadata({ note: "-----BEGIN PRIVATE KEY-----abc" })).toThrow(/credential/u);
+    const { privateKey } = await generateKeyPair("RS256", { extractable: true });
+    const pem = await exportPKCS8(privateKey);
+    expect(() => assertSafeMetadata({ note: pem })).toThrow(/credential/u);
     expect(() => assertSafeMetadata({ note: "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhbGljZSJ9.c2lnbmF0dXJl" })).toThrow(/credential/u);
     expect(() => assertSafeMetadata({ note: "Bearer sk-abcdefghijklmnopqrstuvwxyz" })).toThrow(/credential/u);
   });

@@ -23,7 +23,7 @@ const productionBase = {
   SRE_TOOLHIVE_ENDPOINTS_JSON: '{"keycloak":"https://toolhive.test/mcp"}',
   SRE_WORKLOAD_TOKEN_FILE: "/var/run/secrets/sre-workload/token",
   SRE_DELEGATION_PUBLIC_KEY_FILE: "/etc/sre/delegation/public.pem",
-  SRE_DELEGATION_PRIVATE_KEY_PKCS8: "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----",
+  SRE_DELEGATION_PRIVATE_KEY_PKCS8: "test-delegation-key-not-a-real-key",
 };
 
 describe("production tool-credential strategy", () => {

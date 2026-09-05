@@ -30,7 +30,7 @@ const base = {
   SRE_TOOL_CREDENTIAL_CLIENT_SECRET: "specialist-secret",
   SRE_WORKLOAD_TOKEN_FILE: "/var/run/secrets/sre-workload/token",
   SRE_DELEGATION_PUBLIC_KEY_FILE: "/etc/sre/delegation/public.pem",
-  SRE_DELEGATION_PRIVATE_KEY_PKCS8: "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----",
+  SRE_DELEGATION_PRIVATE_KEY_PKCS8: "test-delegation-key-not-a-real-key",
 };
 
 describe("operational plane refuses to run without what it depends on", () => {

@@ -1,1 +1,6 @@
+# Build output and installed dependencies are reproduced on demand, never
+# authored — platform/tools/check-tracked-files.ts fails the build if one is
+# committed, and a `git add -A` would otherwise sweep them in.
+node_modules/
+dist/
 *.zip

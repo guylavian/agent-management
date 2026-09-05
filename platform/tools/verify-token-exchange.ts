@@ -168,7 +168,7 @@ async function deleteRealm(realmName: string): Promise<void> {
   await adminCallRealm(`/${realmName}`, { method: "DELETE" });
 }
 
-async function createClient(clientId: string, name: string, attributes?: Record<string, string>): Promise<string> {
+async function createClient(clientId: string, name: string, attributes?: Record<string, string>, audiences: string[] = []): Promise<string> {
   const result = await adminCall<{ id?: string }>(
     "/clients",
     {
@@ -183,6 +183,18 @@ async function createClient(clientId: string, name: string, attributes?: Record<
         directAccessGrantsEnabled: true,
         protocol: "openid-connect",
         attributes: attributes ?? {},
+        /*
+         * An inline audience mapper, not an attached client scope. Condition 3
+         * is that the ACTOR can mint the requested audience; a scope only
+         * applies when it is requested or default, and relying on that made the
+         * exchanged token come back with no target audience at all.
+         */
+        protocolMappers: audiences.map((audience) => ({
+          name: `aud-${audience}`,
+          protocol: "openid-connect",
+          protocolMapper: "oidc-audience-mapper",
+          config: { "included.client.audience": audience, "access.token.claim": "true", "id.token.claim": "false" },
+        })),
       } as ClientRepresentation),
     }
   );
@@ -343,7 +355,7 @@ try {
   const actorId = await createClient("probe-actor", "Token Exchange Actor", {
     "standard.token.exchange.enabled": "true",
     "access.token.lifespan": "60",
-  });
+  }, ["test-target"]);
 
   // Create client scopes for test audiences
   // The test-actor-scope should include the ACTOR CLIENT ID as the audience
@@ -359,12 +371,8 @@ try {
   await attachClientScope(loginId, "test-target-scope");
   await attachClientScope(loginId, "test-actor-scope");
 
-  // Create the actor client WITH the exchange attribute (the workload identity)
-  const actorId = await createClient("probe-actor", "Token Exchange Actor", {
-    "standard.token.exchange.enabled": "true",
-    "access.token.lifespan": "60",
-  });
-  // Attach audience mapper so actor can mint target audience
+  // the actor was already created above, before the login client, so its id
+  // could be named in that client's audience mapper — condition 2
   await attachClientScope(actorId, "test-target-scope");
 
   // Create a control actor WITHOUT the exchange attribute to test the negative case
@@ -396,7 +404,9 @@ try {
   const userAud = ([] as string[]).concat((userClaims.aud as string | string[] | undefined) ?? []);
   record(
     "subject token aud includes the actor",
-    userAud.includes("test-actor"),
+    // the actor client is `probe-actor`; Keycloak refuses the exchange unless
+    // the SUBJECT token's audience already names the client doing the exchanging
+    userAud.includes("probe-actor"),
     `aud=${JSON.stringify(userAud)}`
   );
 
@@ -418,11 +428,18 @@ try {
       `sub=${String(exchangedClaims.sub)}, user_id=${userId}`
     );
 
-    // Verify the audience is exactly the requested target
+    /*
+     * The requested target is present, and no OTHER exchange target leaked in.
+     * Not "exactly one": Keycloak always adds its own `account` audience, so an
+     * equality check would fail against a correct token and teach the reader
+     * the wrong invariant. What matters is that one tool audience was granted
+     * and the others were not.
+     */
     const exchangedAud = ([] as string[]).concat((exchangedClaims.aud as string | string[] | undefined) ?? []);
+    const otherTargets = exchangedAud.filter((entry) => entry.startsWith("probe-") || (entry.startsWith("test-") && entry !== "test-target"));
     record(
-      "exchanged token aud is exactly the requested target",
-      exchangedAud.length === 1 && exchangedAud[0] === "test-target",
+      "exchanged token aud grants the requested target and no other",
+      exchangedAud.includes("test-target") && otherTargets.length === 0,
       `aud=${JSON.stringify(exchangedAud)}`
     );
 

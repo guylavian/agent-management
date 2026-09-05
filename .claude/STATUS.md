@@ -79,7 +79,7 @@ against 8 denials, all of them unauthenticated probes rather than tool calls.
 | Deterministic multi-specialist fallback | **COMPLETE** |
 | Multi-turn (bounded follow-up) | **COMPLETE** |
 | Metrics + batched OTel | **COMPLETE** |
-| **End-to-end identity to ToolHive (Gate #1)** | **runtime path COMPLETE and tested; RFC 8693 exchange now IMPLEMENTED (the manager-signed assertion is the `subject_token`, the specialist its `actor_token`) but UNVERIFIED against a real STS** |
+| **End-to-end identity to ToolHive (Gate #1)** | **COMPLETE and verified against a real Keycloak 26.6.** The subject of the exchange is the human's own IdP token — an identity provider will not exchange an assertion it did not issue, which only a real STS revealed. |
 | Real vLLM (Tier-S/Tier-L) integration | **PENDING** (no mirrored model endpoint) |
 | Real-model reliability | **UNVALIDATED** — see below |
 | Real RAG ACL integration | **OUT OF CURRENT POC** (Wiki MCP replaces baseline retrieval) |
@@ -103,10 +103,10 @@ against 8 denials, all of them unauthenticated probes rather than tool calls.
 | Blocker | Why it is blocked |
 |---|---|
 | ToolHive live policy reconciliation | 0.46 reads `--authz-config` when a proxy STARTS and exposes no API to reconcile a running one. Applying a change means restarting that proxy. The desired state is rendered and verified; converging a live proxy is not implemented because it is not supported. |
-| Enterprise RFC 8693 token exchange | The exchange is now implemented properly — the manager-signed delegation JWT is the `subject_token`, the specialist's workload token the `actor_token`, with client authentication — and it never falls back to an agent-only token. It has NOT run against an enterprise STS; the PoC still uses `signed-jwt`, which production config now refuses. |
+| ~~Enterprise RFC 8693 token exchange~~ | **CLOSED.** Proven against a live Keycloak 26.6: the exchange returns 200 with `sub` = the human, `aud` = exactly one target, `azp` = the agent workload. Three conditions were each established by a distinct error — the actor client needs `standard.token.exchange.enabled`, the subject token's `aud` must name the ACTOR, and the actor must be able to mint the requested audience. `npm run verify:token-exchange` reproduces it, negative control included. It has not run against an ENTERPRISE STS, only a real one. |
 | Delegated assertion lifetime | An assertion now lives for the whole run so it can be re-exchanged late in a long investigation. That is a longer credential window than before — bounded to one human, one agent audience and one request id, and never beyond the deadline. |
-| Operational-plane reconciler | Nothing in this repository writes the activation and attestation rows the operational plane reads. The flag now refuses to start without an acknowledged external reconciler, rather than reading an empty table as "no agent is ready". |
-| `npm run validate:deploy` | Fails at HEAD and still fails: the portal chart requires `oidc.metadataUrl` and the check renders it with no values file. Out of scope for this pass; it means `npm run check` is red on that step alone. |
+| ~~Operational-plane reconciler~~ | **CLOSED.** It runs as its own workload with four separate PostgreSQL roles. Verified against a live database: one round activated 3 agents and wrote 9 attestations, every one `ready=false` naming exactly what could not be verified — the fail-closed property, demonstrated rather than asserted. |
+| ~~`npm run validate:deploy`~~ | **CLOSED.** A committed CI values file supplies placeholder endpoints; the chart's `required` guards stay, so a real deploy still fails loudly on a missing value. |
 | Backstage IdP group → platform role mapping | The permission policy is implemented and tested; which enterprise groups carry the role is configuration (`permission.agentManagement.adminGroups`) that needs a real IdP. Unset denies every write. |
 | Real-model reliability | `pass@1 = pass^8 = 0.983` comes from the **mock** regression track (deterministic model). It validates harness and runtime behaviour, not model reliability. Three real smoke cases currently fail on `MODEL_RATE_LIMITED` from the provider. |
 | Argo CD apply | The ApplicationSet is validated statically. No live cluster was available. |
@@ -150,3 +150,22 @@ It therefore has its own `package.json` and `node_modules`, and links the
 platform packages it needs by path. `npm run check` in `platform/` delegates into
 it, so there is still one command and one baseline. Nothing under
 `agent-engine/src` knows any SRE domain; check-boundaries enforces that.
+
+
+## What a real STS changed about the design
+
+The approved design made the manager-signed delegation JWT the RFC 8693
+`subject_token`. Against a live Keycloak that cannot work: an identity provider
+will not exchange an assertion it did not issue. The subject is now the human's
+own IdP token, forwarded to the specialist strictly as exchange material and
+named as such on the wire.
+
+The condition that forced it turns out to be the safeguard the original design
+was reaching for. Keycloak refuses the exchange unless the subject token's
+audience already names the ACTOR client, so **which agents may act for a user is
+the identity provider's decision**, expressed in that user's own token — not a
+property this platform asserts about itself.
+
+Residual: the forwarded token's audience names every agent client the login flow
+maps, not only the specialist being called. Narrowing it with a chained exchange
+in the Manager is real hardening that has not been done.
