@@ -420,7 +420,7 @@ desiredState:
       # ownership are properties of the Agent and live in config/agents/openshift.yaml;
       # the schema rejects them here.
       agentId: openshift
-      enabled: false
+      enabled: true
       replicas: 2
       resources:
         requests: { cpu: 500m, memory: 512Mi }
@@ -481,5 +481,5 @@ desiredState:
         prompt-assist:
           provider: openai-compatible
           model: claude-haiku
-  revision: f2fc4fe3d3d70df2d4f4353fffea4bb38a439eb7b21c704f38b029080503f6c8
+  revision: de23c69ad15cc622a0923c7eca459db894c9133f2a089cf3f8e19e377958cb64
 promptSha256: 6cf082df2d2e3d1bf2446de22dbf623888105008865900643a56b286ef5f712f
