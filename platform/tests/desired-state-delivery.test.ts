@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -427,5 +428,45 @@ describe("a specialist re-reads its own document while running", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * GIT-SYNC SWAPS A SYMLINK AND DELETES WHAT IT REPLACED.
+ *
+ * `--link=current` points /repo/current at .worktrees/<sha>, and on the next
+ * commit it repoints the link and garbage-collects the previous worktree. A
+ * process whose workingDir is /repo/current/platform has its CWD pinned to the
+ * old inode by the kernel — the link swap does not move it — so every RELATIVE
+ * config path resolves inside a deleted directory.
+ *
+ * Observed in the cluster: the Manager reported every config path `absent` and
+ * went NotReady on the first commit after startup, holding a worktree that no
+ * longer existed. It fails closed, but it is still a self-inflicted outage on
+ * every commit — and it defeats the one property gitSync exists to provide.
+ *
+ * Absolute paths THROUGH the link re-resolve on each read, which is what makes
+ * the swap visible instead of fatal.
+ */
+describe("config paths survive a git-sync worktree swap", () => {
+  function managerEnv(extra: string[]): Record<string, string> {
+    const out = execFileSync("helm", ["template", "m", join(import.meta.dirname, "..", "..", "deploy", "runtime", "helm"),
+      "--set", "agent.mode=manager", "--set", "agent.name=manager", ...extra], { encoding: "utf8" });
+    const deployment = out.split(/^---$/mu).map((doc) => parseYaml(doc) as Record<string, unknown>)
+      .find((doc) => doc?.kind === "Deployment") as { spec: { template: { spec: { containers: Array<{ env: Array<{ name: string; value?: string }> }> } } } };
+    return Object.fromEntries((deployment.spec.template.spec.containers[0]?.env ?? []).map((e) => [e.name, e.value ?? ""]));
+  }
+
+  it("addresses config through the link, not relative to a pinned CWD", () => {
+    const env = managerEnv(["--set", "gitSync.enabled=true", "--set", "gitSync.repoURL=https://git.example/r.git", "--set", "gitSync.egressCIDRs={10.0.0.0/8}"]);
+    // both must re-resolve `current` on every read
+    expect(env.AGENT_CONFIG).toMatch(/^\/repo\/current\//u);
+    expect(env.SRE_DEPLOYMENT_ENVIRONMENT_DIR).toMatch(/^\/repo\/current\//u);
+  });
+
+  it("keeps the image-relative paths when there is no checkout to follow", () => {
+    const env = managerEnv([]);
+    expect(env.AGENT_CONFIG).not.toMatch(/^\//u);
+    expect(env.SRE_DEPLOYMENT_ENVIRONMENT_DIR).not.toMatch(/^\/repo/u);
   });
 });

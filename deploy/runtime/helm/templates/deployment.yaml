@@ -58,8 +58,16 @@ spec:
           ports:
             - { name: http, containerPort: 3000 }
           env:
+            {{- /*
+              With a git-sync checkout these paths are ABSOLUTE, through the
+              `current` symlink. workingDir cannot carry them: the kernel pins a
+              process's CWD to the inode it resolved at exec, so when git-sync
+              repoints `current` and deletes the worktree it replaced, every
+              relative path resolves inside a directory that no longer exists.
+              Addressing through the link re-resolves it on each read.
+            */}}
             - name: AGENT_CONFIG
-              value: {{ if .Values.agent.configOverride }}/config/agent.yaml{{ else }}{{ .Values.agent.configFile }}{{ end }}
+              value: {{ if .Values.agent.configOverride }}/config/agent.yaml{{ else if .Values.gitSync.enabled }}{{ printf "/repo/current/platform/%s" .Values.agent.configFile }}{{ else }}{{ .Values.agent.configFile }}{{ end }}
             # ROLE and AGENT_ID state the deployment's intent. The Agent document
             # remains authoritative; startup fails if the two disagree, so a
             # manifest cannot quietly mount the wrong configuration.
@@ -94,7 +102,7 @@ spec:
             # the Manager derives its effective catalog from config/agents intersected
             # with this environment's deployment state; the Reconciler reads the same
             # desired state to project it into the operational plane
-            - { name: SRE_DEPLOYMENT_ENVIRONMENT_DIR, value: {{ printf "../deploy/environments/%s" .Values.deploymentEnvironment | quote }} }
+            - { name: SRE_DEPLOYMENT_ENVIRONMENT_DIR, value: {{ if .Values.gitSync.enabled }}{{ printf "/repo/current/deploy/environments/%s" .Values.deploymentEnvironment | quote }}{{ else }}{{ printf "../deploy/environments/%s" .Values.deploymentEnvironment | quote }}{{ end }} }
             {{- end }}
             # Both modes: loadAppConfig requires a workload credential whenever the
             # agent client is real, and a specialist runs the same validation. The
