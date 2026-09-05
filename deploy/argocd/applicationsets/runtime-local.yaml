@@ -55,7 +55,6 @@ spec:
               # no IdP, no ToolHive, no PostgreSQL in this cluster
               - { name: clients.oidc, value: mock }
               - { name: clients.toolhive, value: mock }
-              - { name: clients.postgres, value: mock }
               - { name: clients.delegation, value: mock }
               # The Manager fans out over HTTP to the specialist Services using
               # environment.yaml's endpointTemplate, which is already cluster DNS.
@@ -85,6 +84,20 @@ spec:
               - { name: "networkPolicy.extraEgress[0].ports[0].protocol", value: TCP }
               - { name: "networkPolicy.extraEgress[0].ports[0].port", value: "11434" }
               - { name: "networkPolicy.extraEgress[0].to[0].ipBlock.cidr", value: "0.0.0.0/0" }
+              # PostgreSQL, also on the host rather than in the cluster. Only the
+              # manager reaches it: it owns the session store and the run
+              # history, and a specialist has no business holding a database
+              # credential — so the rule is not rendered for specialists at all.
+              - name: "networkPolicy.extraEgress[1].ports[0].port"
+                value: '{{ if eq .agent.mode "manager" }}55433{{ else }}0{{ end }}'
+              - name: "networkPolicy.extraEgress[1].ports[0].protocol"
+                value: TCP
+              - name: "networkPolicy.extraEgress[1].to[0].ipBlock.cidr"
+                value: '{{ if eq .agent.mode "manager" }}0.0.0.0/0{{ else }}127.0.0.1/32{{ end }}'
+              # Durable run history and sessions. Specialists stay on the mock:
+              # they record nothing and must not hold the credential.
+              - name: clients.postgres
+                value: '{{ if eq .agent.mode "manager" }}real{{ else }}mock{{ end }}'
               - { name: extraEnv.SRE_REQUEST_DEADLINE_MS, value: "300000" }
               # Read configuration from a live checkout of main instead of the
               # image, so a merged pull request reaches this cluster the same
