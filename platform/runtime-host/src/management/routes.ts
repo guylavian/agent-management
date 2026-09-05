@@ -16,6 +16,7 @@ import {
   type Signal,
 } from "./reconciliation.ts";
 import { diagnoseRun, RunDiagnosisError } from "./run-diagnosis.ts";
+import { RunHistoryUnavailableError } from "./run-store.ts";
 import type { RunStore } from "./run-store.ts";
 import { agentDetail, agentSummary, managerDetail, mcpServerViews, permissionMatrix } from "./view-model.ts";
 import { AgentDraftError, proposeAgentChange, proposeAgentDeletion, proposePromptChange, type AgentDraft } from "./yaml.ts";
@@ -241,7 +242,18 @@ export function managementRouter(deps: ManagementDeps): Router {
   });
 
   router.get("/runs/:id", async (request: Request, response: Response) => {
-    const run = await deps.runs.get(request.params.id as string);
+    let run;
+    try {
+      run = await deps.runs.get(request.params.id as string);
+    } catch (error) {
+      // A history that cannot be read is not an empty history. 404 here would
+      // tell an operator mid-incident that the run never happened.
+      if (error instanceof RunHistoryUnavailableError) {
+        response.status(503).set("Retry-After", "5").json({ code: "DEPENDENCY_UNAVAILABLE", message: "Run history is temporarily unavailable", retryable: true });
+        return;
+      }
+      throw error;
+    }
     if (run === undefined) { notFound(response, "run"); return; }
     response.json(run);
   });

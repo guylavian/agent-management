@@ -199,6 +199,20 @@ export class InMemoryRunStore implements RunStore {
   }
 }
 
+/**
+ * The durable history could not be READ — as distinct from having nothing to
+ * report. The two must not collapse into one answer: "no such run" closes an
+ * investigation, "the history is unavailable" tells the operator to retry and
+ * to look at the database.
+ */
+export class RunHistoryUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super("run history is unavailable");
+    this.name = "RunHistoryUnavailableError";
+    this.cause = cause;
+  }
+}
+
 /** The slice of a pg Pool this store needs; narrowed so tests can supply one. */
 export interface RunEventWriter {
   query(text: string, values: unknown[]): Promise<unknown>;
@@ -352,7 +366,9 @@ export class PostgresRunStore implements RunStore {
       };
     } catch (error) {
       this.#readFailed("get", error);
-      return undefined;
+      // NOT `undefined`: that is the answer for a run the history does not
+      // hold, and an operator who is told a run never happened stops looking.
+      throw new RunHistoryUnavailableError(error);
     }
   }
 

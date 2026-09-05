@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { PostgresRunStore, type RunRecord } from "../src/management/run-store.ts";
+import { PostgresRunStore, RunHistoryUnavailableError, type RunRecord } from "../src/management/run-store.ts";
 
 /**
  * A run record that only ever lived in one pod's memory was indistinguishable
@@ -31,7 +31,10 @@ function writer() {
   const calls: Array<{ text: string; values: unknown[] }> = [];
   return {
     calls,
-    query: async (text: string, values: unknown[]) => { calls.push({ text, values }); return undefined; },
+    // a real pg pool returns a result object; returning `undefined` made the
+    // store's read path throw a TypeError and be caught, so a "no rows" test
+    // was actually exercising a crash
+    query: async (text: string, values: unknown[]) => { calls.push({ text, values }); return { rows: [] }; },
     end: async () => { /* nothing to close */ },
   };
 }
@@ -199,5 +202,31 @@ describe("run history is durable, and its loss is visible", () => {
     // an empty node list must not read as "nothing happened"
     expect(run?.nodes).toEqual([]);
     expect(run?.traceRetained).toBe(false);
+  });
+});
+/**
+ * "NOT FOUND" AND "CANNOT LOOK" ARE DIFFERENT ANSWERS.
+ *
+ * Observed in the cluster: PostgreSQL was stopped, a run that demonstrably
+ * existed in sre_execution_event was requested, and the API returned 404. The
+ * failure was logged and metered — so it was not silent — but the answer given
+ * to the operator was that the run never happened. Someone investigating an
+ * incident would stop looking.
+ *
+ * A read that could not be performed must say so, and say it is worth retrying.
+ */
+describe("an unreadable history is not reported as an empty one", () => {
+  it("distinguishes a run that is absent from a database that cannot be reached", async () => {
+    const broken = { query: async () => { throw new Error("connect ECONNREFUSED"); }, end: async () => { /* noop */ } };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => { /* silence */ });
+    const store = new PostgresRunStore("postgres://unused", { pool: broken });
+    await expect(store.get("req-unreadable")).rejects.toThrow(RunHistoryUnavailableError);
+    spy.mockRestore();
+  });
+
+  it("still returns undefined for a run the database genuinely does not hold", async () => {
+    const empty = { query: async () => ({ rows: [] }), end: async () => { /* noop */ } };
+    const store = new PostgresRunStore("postgres://unused", { pool: empty });
+    await expect(store.get("req-absent")).resolves.toBeUndefined();
   });
 });
