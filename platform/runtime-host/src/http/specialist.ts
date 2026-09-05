@@ -15,6 +15,25 @@ import { startTimer } from "./metrics.ts";
 
 export function registerSpecialistRoutes(app: Express, deps: SpecialistDependencies): void {
   app.post("/internal/v1/execute", async (request, response) => {
+    /*
+     * FAIL CLOSED ON A STALE POLICY, BEFORE ANYTHING ELSE.
+     *
+     * Keeping the last valid document when a reload fails is deliberate, and
+     * readiness going 503 is right — but neither stops work. The kubelet takes
+     * seconds to remove this pod from its Service endpoints, and a caller
+     * reaching the pod directly is never gated by endpoints at all. In that
+     * window this handler ran against the BROADER document Git was trying to
+     * replace, so a narrowing that failed to parse left the wider grants
+     * enforceable.
+     *
+     * This sits above request parsing on purpose: nothing about the request can
+     * widen or shorten the window.
+     */
+    const policy = deps.policyStatus();
+    if (policy.error !== undefined) {
+      response.status(503).json({ code: "AGENT_UNAVAILABLE", message: "Agent policy could not be reloaded; refusing to execute against a superseded document" });
+      return;
+    }
     const parsed = agentExecutionRequestSchema.safeParse(request.body);
     if (!parsed.success) { response.status(400).json({ code: "AGENT_INVALID_RESPONSE", message: "Invalid agent request" }); return; }
     // continue the Manager's W3C trace context so one distributed trace covers the whole request

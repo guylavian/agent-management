@@ -290,3 +290,72 @@ describe("specialist readiness reflects what it needs to execute", () => {
     await app.close();
   });
 });
+
+/**
+ * A SPECIALIST THAT CANNOT ADOPT ITS NEW POLICY MUST STOP EXECUTING, NOW.
+ *
+ * Keeping the last valid document is deliberate — a specialist that stopped
+ * serving because someone merged a typo is a worse failure. Readiness going 503
+ * is also right. But neither of those stops work: the kubelet takes some seconds
+ * to remove the pod from its Service endpoints, and any caller reaching the pod
+ * directly is not gated by endpoints at all. In that window
+ * `/internal/v1/execute` went on running against `agentOf()`, which is the
+ * BROADER document Git was trying to replace.
+ *
+ * So a narrowing that fails to parse leaves the wider grants briefly — and, for
+ * direct traffic, indefinitely — enforceable. The execute path must refuse on
+ * its own, not rely on something else routing traffic away.
+ *
+ * The specialist's own comment says enforcement reads the LIVE document
+ * "so a boot-time copy would keep granting access Git has already narrowed".
+ * A stale document after a failed reload is exactly that copy.
+ */
+describe("a specialist refuses to execute while its policy is stale", () => {
+  const specialistEnv = { ROLE: "specialist", AGENT_ID: "openshift", AGENT_CONFIG: "config/agents/openshift.yaml" };
+
+  it("refuses immediately rather than waiting to leave its Service endpoints", async () => {
+    const deps = buildDependencies(specialistEnv);
+    if (deps.mode !== "specialist") throw new Error("expected specialist mode");
+    deps.policyStatus = () => ({ revision: "r1", error: "schema validation failed" });
+    const app = createApp(deps);
+    const response = await app.inject({
+      method: "POST",
+      url: "/internal/v1/execute",
+      payload: { requestId: "r-1", question: "anything", environment: "prod", deadline: new Date(Date.now() + 60_000).toISOString(), identityContext: "x" },
+    });
+    // 503: the agent is unavailable, not the caller unauthorized — the Manager
+    // reports a specialist that could not run, which is the truth
+    expect(response.statusCode).toBe(503);
+    expect((response.json() as { code: string }).code).toBe("AGENT_UNAVAILABLE");
+    await app.close();
+  });
+
+  it("refuses BEFORE parsing identity, so the window cannot be widened by a slow verify", async () => {
+    const deps = buildDependencies(specialistEnv);
+    if (deps.mode !== "specialist") throw new Error("expected specialist mode");
+    deps.policyStatus = () => ({ revision: "r1", error: "broken" });
+    const app = createApp(deps);
+    // a body that would otherwise fail admission for a different reason
+    const response = await app.inject({
+      method: "POST",
+      url: "/internal/v1/execute",
+      payload: { requestId: "r-2", question: "anything", environment: "prod", deadline: new Date(Date.now() + 60_000).toISOString(), identityContext: "not-a-valid-assertion" },
+    });
+    expect(response.statusCode).toBe(503);
+    await app.close();
+  });
+
+  it("executes normally once a valid document is adopted", async () => {
+    const deps = buildDependencies(specialistEnv);
+    if (deps.mode !== "specialist") throw new Error("expected specialist mode");
+    const app = createApp(deps);
+    const response = await app.inject({
+      method: "POST",
+      url: "/internal/v1/execute",
+      payload: { requestId: "r-3", question: "anything", environment: "prod", deadline: new Date(Date.now() + 60_000).toISOString(), identityContext: "x" },
+    });
+    // whatever it answers, it must not be the stale-policy refusal
+    expect(response.statusCode).not.toBe(503);
+    await app.close();
+  });
+});

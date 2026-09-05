@@ -84,6 +84,19 @@ export interface GatewayToolAccessSettings {
   catalog: ApprovedCatalog;
   /** per-server gateway endpoints, so the probe asks the endpoint the Agent would actually call */
   endpoints: ReadonlyMap<string, string>;
+  /**
+   * Attest tool access even though the gateway's loaded per-Agent policy cannot
+   * be read back.
+   *
+   * ToolHive reads its authorization configuration when a proxy starts and
+   * exposes no way to ask what it currently holds. Without that, this verifier
+   * can confirm the grants and that the gateway rejects anonymous calls, but
+   * not that a REVOKED grant actually stopped working — which is the property
+   * the operational plane exists to guarantee. Default closed; an operator who
+   * accepts the weaker basis says so here, and the acceptance is recorded in
+   * the attestation's detail rather than inferred from its absence.
+   */
+  acceptUnintrospectablePolicy?: boolean;
   fetchImplementation?: typeof fetch;
 }
 
@@ -141,9 +154,31 @@ export class GatewayToolAccessVerifier implements ToolAccessVerifier {
 
     if (unreachable.length > 0) return { ready: false, detail: `tool gateway not reachable: ${unreachable.join(", ")}` };
     if (unprotected.length > 0) return { ready: false, detail: `tool gateway is not enforcing authorization: ${unprotected.join(", ")}` };
+    /*
+     * WHAT THIS COULD NOT CHECK DECIDES THE ANSWER.
+     *
+     * Everything above is real: every grant is in the approved catalog and
+     * read-only verified, and every gateway refused an unauthenticated call.
+     * None of it shows which per-Agent policy the proxy actually holds, and
+     * ToolHive exposes no way to ask.
+     *
+     * This used to return ready:true and say so in the detail. But `ready`
+     * drives routing, and the operational plane exists so that disabling an
+     * Agent revokes its ACCESS as well as its routing — a property this
+     * verifier cannot observe. Attesting to it anyway is the one thing an
+     * attestation must never do, so the default is now closed and an operator
+     * who accepts the weaker basis records that acceptance here.
+     */
+    const verified = `every granted tool is approved and read-only verified, and ${servers.size} gateway(s) refused an unauthenticated call`;
+    if (this.#settings.acceptUnintrospectablePolicy !== true) {
+      return {
+        ready: false,
+        detail: `${verified}, but the per-Agent policy loaded in the gateway cannot be introspected, so revocation cannot be confirmed; set acceptUnintrospectablePolicy to attest on the weaker basis`,
+      };
+    }
     return {
       ready: true,
-      detail: `every granted tool is approved and read-only verified, and ${servers.size} gateway(s) refused an unauthenticated call (loaded per-Agent policy is not introspectable)`,
+      detail: `${verified}; the loaded per-Agent policy was not introspectable and this weaker basis was explicitly accepted`,
     };
   }
 }

@@ -72,12 +72,16 @@ describe("identity attestation", () => {
 describe("tool-access attestation", () => {
   const gatewayRefusing = (async () => new Response("unauthorized", { status: 401 })) as unknown as typeof fetch;
 
-  it("is ready when every grant is approved and the gateway refuses an unauthenticated call", async () => {
+  it("verifies what it can, and refuses to attest what it cannot", async () => {
+    // this test previously asserted ready:true with the limit merely stated in
+    // the detail. `ready` drives ROUTING, and the unverifiable part is exactly
+    // the revocation guarantee the operational plane exists for — so stating
+    // the limit while attesting anyway was the overclaim.
     const verifier = new GatewayToolAccessVerifier({ catalog: catalog(), endpoints: new Map([["keycloak", "https://toolhive.test/mcp"]]), fetchImplementation: gatewayRefusing });
     const result = await verifier.verify(agent, "prod");
-    expect(result.ready).toBe(true);
-    // the limit is stated rather than implied
-    expect(result.detail).toMatch(/not introspectable/u);
+    expect(result.ready).toBe(false);
+    expect(result.detail).toMatch(/approved and read-only verified/u);
+    expect(result.detail).toMatch(/cannot be introspected/u);
   });
 
   it("is NOT ready when the gateway answers an unauthenticated call", async () => {
@@ -115,5 +119,54 @@ describe("tool-access attestation", () => {
     const result = await verifier.verify(agent, "prod");
     expect(result.ready).toBe(false);
     expect(result.detail).toMatch(/no endpoint configured/u);
+  });
+});
+
+/**
+ * AN ATTESTATION MUST NOT BE READY FOR SOMETHING IT CANNOT SEE.
+ *
+ * This verifier checks real things — every grant is in the approved catalog and
+ * read-only verified, and every gateway refuses an unauthenticated call — and
+ * then returns ready:true while its own detail string admits "loaded per-Agent
+ * policy is not introspectable". So `tool_access: ready` attests to a WEAKER
+ * property than its name claims.
+ *
+ * That matters for revocation, which is the whole point of the operational
+ * plane. The design says disable = routing off + identity revoked + access
+ * revoked. Nothing here can show the third: after an Agent is disabled, this
+ * verifier would go on attesting tool access exactly as before, because it
+ * never asked the proxy what policy it holds.
+ *
+ * Fail closed by default. An operator who accepts the weaker attestation says
+ * so explicitly, and that acknowledgement is recorded in the detail.
+ */
+describe("tool-access attestation is honest about what it could not verify", () => {
+  const gatewayRefusing = (async () => new Response("{}", { status: 401 })) as unknown as typeof fetch;
+
+  it("is NOT ready when the loaded policy cannot be introspected", async () => {
+    const verifier = new GatewayToolAccessVerifier({ catalog: catalog(), endpoints: new Map([["keycloak", "https://toolhive.test/mcp"]]), fetchImplementation: gatewayRefusing });
+    const result = await verifier.verify(agent, "prod");
+    expect(result.ready).toBe(false);
+    expect(result.detail).toMatch(/introspect/iu);
+  });
+
+  it("names the setting that would let an operator accept the weaker attestation", async () => {
+    const verifier = new GatewayToolAccessVerifier({ catalog: catalog(), endpoints: new Map([["keycloak", "https://toolhive.test/mcp"]]), fetchImplementation: gatewayRefusing });
+    expect((await verifier.verify(agent, "prod")).detail).toMatch(/acceptUnintrospectablePolicy/u);
+  });
+
+  it("is ready when the operator has explicitly accepted it, and says so", async () => {
+    const verifier = new GatewayToolAccessVerifier({ catalog: catalog(), endpoints: new Map([["keycloak", "https://toolhive.test/mcp"]]), fetchImplementation: gatewayRefusing, acceptUnintrospectablePolicy: true });
+    const result = await verifier.verify(agent, "prod");
+    expect(result.ready).toBe(true);
+    // the acknowledgement travels with the attestation, so a reader of the
+    // operational plane can see the weaker basis rather than infer it
+    expect(result.detail).toMatch(/accepted/iu);
+  });
+
+  it("still fails for the reasons it CAN see, regardless of the acknowledgement", async () => {
+    const answering = (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
+    const verifier = new GatewayToolAccessVerifier({ catalog: catalog(), endpoints: new Map([["keycloak", "https://toolhive.test/mcp"]]), fetchImplementation: answering, acceptUnintrospectablePolicy: true });
+    expect((await verifier.verify(agent, "prod")).ready).toBe(false);
   });
 });
