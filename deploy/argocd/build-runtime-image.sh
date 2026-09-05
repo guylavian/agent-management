@@ -23,7 +23,16 @@ docker build -f "${root}/deploy/runtime/Dockerfile" -t "${image}" "${root}"
 # it explicitly. imagePullPolicy: Never then guarantees the cluster never
 # reaches for a registry — which is the same air-gapped posture as production,
 # just proved on a laptop.
-node="$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')"
+# The context is PINNED, not inherited. This script loads an image into a
+# specific cluster's containerd, and the ambient kubectl context has been
+# observed changing underfoot (an EKS context from unrelated work). Without this
+# the script resolved a node in another cluster, decided it was "a shared image
+# store", and exited 0 having loaded nothing — so the deployment kept running
+# the previous image while every log said the build had succeeded.
+ctx="${KUBE_CONTEXT:-docker-desktop}"
+kubectl config get-contexts "${ctx}" >/dev/null 2>&1 || {
+  echo "refusing to run: kube context '${ctx}' does not exist" >&2; exit 1; }
+node="$(kubectl --context="${ctx}" get nodes -o jsonpath='{.items[0].metadata.name}')"
 if docker exec "${node}" true 2>/dev/null; then
   echo "loading ${image} into node ${node}"
   docker save "${image}" | docker exec -i "${node}" ctr --namespace k8s.io images import -
