@@ -261,3 +261,4 @@ Execute Gate 2 — the 4–5 hours scoped above — and Gate 7's OIDC login with
 Nothing found in two adversarial passes suggests the architecture is wrong; the
 defects were consistently in deployment wiring and in probes that reported more
 confidence than they had earned.
+
