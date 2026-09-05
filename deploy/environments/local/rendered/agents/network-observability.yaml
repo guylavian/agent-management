@@ -16,7 +16,7 @@ resources:
   requests: { cpu: "500m", memory: "512Mi" }
   limits: { cpu: "1", memory: "1Gi" }
 modelEnv:
-  SRE_MODEL_TOOL_CALLER: "qwen3:8b"
+  SRE_MODEL_TOOL_CALLER: "claude-haiku"
 desiredState:
   agents:
     network-observability.yaml: |-

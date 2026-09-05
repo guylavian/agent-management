@@ -16,8 +16,8 @@ resources:
   requests: { cpu: "500m", memory: "512Mi" }
   limits: { cpu: "1", memory: "1Gi" }
 modelEnv:
-  SRE_MODEL_MANAGER: "qwen3:8b"
-  SRE_MODEL_SYNTHESIS: "qwen3:8b"
+  SRE_MODEL_MANAGER: "claude-haiku"
+  SRE_MODEL_SYNTHESIS: "claude-haiku"
 desiredState:
   agents:
     active-directory.yaml: |-
@@ -457,27 +457,29 @@ desiredState:
       # gpt-oss-20b while the endpoint served Ollama, so every routing call returned
       # MODEL_UNAVAILABLE: the ids and the endpoint described different providers.
       #
-      # qwen3:8b is what that endpoint serves. It converges less reliably on strict
-      # json_schema and needs the "/no_think" suffix the Secret already carries, which
-      # is the cost of local fidelity; poc and production keep gpt-oss-20b.
+      # qwen3:8b served that endpoint first and could not hold strict json_schema:
+      # routing returned ROUTE_INVALID from a model that was reachable and answering.
+      # The endpoint now fronts the Claude CLI, which does hold the schema. The id is
+      # recorded so this file names what actually answers; poc and production keep
+      # gpt-oss-20b.
       #
       # Only logical model ids are recorded here. The endpoint and its credential come
       # from the environment, so this file stays credential-free.
       profiles:
         manager-router:
           provider: openai-compatible
-          model: qwen3:8b
+          model: claude-haiku
         tool-caller:
           provider: openai-compatible
-          model: qwen3:8b
+          model: claude-haiku
         tier-l-synthesis:
           provider: openai-compatible
-          model: qwen3:8b
+          model: claude-haiku
         # PLATFORM profile, not an Agent's. It backs console assistance such as
         # drafting a system prompt, and is bound here like any other profile so an
         # air-gapped deployment resolves it to the same internal endpoint as the rest.
         prompt-assist:
           provider: openai-compatible
-          model: qwen3:8b
-  revision: fc0b1aa0d1d56f3cdc2118bad14a78aedd5ce4adae6141c6cf03d13bb3890a0d
+          model: claude-haiku
+  revision: de23c69ad15cc622a0923c7eca459db894c9133f2a089cf3f8e19e377958cb64
 promptSha256: 6cf082df2d2e3d1bf2446de22dbf623888105008865900643a56b286ef5f712f
