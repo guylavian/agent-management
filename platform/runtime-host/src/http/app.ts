@@ -15,6 +15,8 @@ export type TestableApp = Express & {
   close(): Promise<void>;
 };
 
+const OPERATIONAL_SNAPSHOT_TTL_MS = 30_000;
+
 export function createApp(deps: ApiDependencies): TestableApp {
   const bodyLimit = deps.mode === "specialist" ? MAX_AGENT_REQUEST_BYTES : 64 * 1024;
   const app = express();
@@ -23,15 +25,28 @@ export function createApp(deps: ApiDependencies): TestableApp {
   app.use(express.json({ limit: bodyLimit }));
 
   app.get("/health/live", (_request, response) => { response.json({ status: "ok", mode: deps.mode, agentId: deps.agent.name }); });
-  app.get("/health/ready", (_request, response) => {
+  app.get("/health/ready", async (_request, response) => {
     const snapshot = deps.mode === "manager" ? deps.desiredState.current() : undefined;
     const dependencyStatus: Record<string, string> = { desiredState: snapshot?.error ? "unhealthy" : "healthy" };
     if (deps.mode === "manager") {
       if (deps.config.clients.postgres === "real") {
-        dependencyStatus.postgres = "healthy"; // connection pooled, verified on startup
+        // a pg Pool connects lazily, so its existence proves nothing; ask it
+        try {
+          await deps.runs.ping?.();
+          dependencyStatus.postgres = "healthy";
+        } catch {
+          dependencyStatus.postgres = "unhealthy";
+        }
       }
       if (deps.operational.configured) {
-        dependencyStatus.operational = "healthy"; // monitoring started if configured
+        // routing depends on this snapshot, so "ready" means it was read
+        // recently AND a reconciler has actually written activations — an
+        // empty table is exactly the outage this pod would otherwise serve
+        const operational = deps.operational.snapshot();
+        const fresh = operational.refreshedAt !== undefined
+          && operational.error === undefined
+          && Date.now() - operational.refreshedAt <= OPERATIONAL_SNAPSHOT_TTL_MS;
+        dependencyStatus.operational = fresh && operational.rows.size > 0 ? "healthy" : "unhealthy";
       }
     }
     const statusCode = Object.values(dependencyStatus).some((s) => s === "unhealthy") ? 503 : 200;
@@ -46,8 +61,8 @@ export function createApp(deps: ApiDependencies): TestableApp {
     });
   });
   app.get("/metrics", (_request, response) => { response.type("text/plain; version=0.0.4").send(renderMetrics()); });
-  if (deps.mode === "manager" && deps.delegationPublicJwk) {
-    app.get("/internal/.well-known/jwks.json", (_request, response) => { response.json({ keys: [deps.delegationPublicJwk] }); });
+  if (deps.mode === "manager" && deps.delegationPublicJwks) {
+    app.get("/internal/.well-known/jwks.json", (_request, response) => { response.json({ keys: deps.delegationPublicJwks }); });
   }
 
   if (deps.mode === "manager") {

@@ -50,6 +50,14 @@ llm_probe="${SRE_LLM_BASE_URL%/}"
 if [[ "$llm_probe" == */v1 ]]; then llm_probe="$llm_probe/models"; else llm_probe="$llm_probe/v1/models"; fi
 wait_http "$llm_probe" "real LLM"
 
+if [ ! -f "$state/toolcred-private.pem" ]; then
+  # the tool-credential key is DISTINCT from the delegation key: one file for
+  # both meant every specialist holding the tool signer also held the key that
+  # mints human identity
+  openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$state/toolcred-private.pem"
+  openssl pkey -in "$state/toolcred-private.pem" -pubout -out "$state/toolcred-public.pem"
+  chmod 600 "$state/toolcred-private.pem"
+fi
 if [ ! -f "$state/delegation-private.pem" ]; then
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$state/delegation-private.pem"
   openssl pkey -in "$state/delegation-private.pem" -pubout -out "$state/delegation-public.pem"
@@ -113,12 +121,26 @@ common_env=(
   SRE_MODEL_TOOL_CALLER="$SRE_MODEL_TOOL_CALLER" SRE_MODEL_SYNTHESIS="$SRE_MODEL_SYNTHESIS"
   SRE_TOOLHIVE_ENDPOINTS_JSON='{"keycloak":"http://127.0.0.1:8301/mcp","prometheus":"http://127.0.0.1:8302/mcp","wiki":"http://127.0.0.1:8303/mcp","kubernetes":"http://127.0.0.1:8304/mcp"}'
   SRE_TOOL_CREDENTIAL_STRATEGY=signed-jwt SRE_TOOL_CREDENTIAL_ISSUER=http://127.0.0.1:3000
-  SRE_TOOL_CREDENTIAL_PRIVATE_KEY_FILE="$state/delegation-private.pem"
-  SRE_DELEGATION_ISSUER=http://127.0.0.1:3000 SRE_DELEGATION_PRIVATE_KEY_FILE="$state/delegation-private.pem"
+  SRE_DELEGATION_ISSUER=http://127.0.0.1:3000
+  # public halves only: every role VERIFIES, and the private keys below are
+  # handed to exactly the one role that must sign with them
   SRE_DELEGATION_PUBLIC_KEY_FILE="$state/delegation-public.pem"
   SRE_WORKLOAD_TOKEN_ENDPOINT="http://127.0.0.1:${KEYCLOAK_HTTP_PORT:-8080}/realms/${KEYCLOAK_REALM:-sre-test}/protocol/openid-connect/token"
-  SRE_WORKLOAD_CLIENT_ID="${SRE_WORKLOAD_CLIENT_ID:-sre-manager-workload}" SRE_WORKLOAD_CLIENT_SECRET="$SRE_WORKLOAD_CLIENT_SECRET"
   SRE_REQUEST_DEADLINE_MS=120000 SRE_DEFAULT_ENVIRONMENT=lab SRE_OTEL_EXPORTER=console
+)
+
+# ONLY the Manager signs delegated identity and authenticates as the Manager
+# workload. A specialist holding either could mint an assertion for any human
+# and then present itself as the Manager to another specialist.
+manager_env=(
+  SRE_DELEGATION_PRIVATE_KEY_FILE="$state/delegation-private.pem"
+  SRE_TOOL_CREDENTIAL_PUBLIC_KEY_FILE="$state/toolcred-public.pem"
+  SRE_WORKLOAD_CLIENT_ID="${SRE_WORKLOAD_CLIENT_ID:-sre-manager-workload}" SRE_WORKLOAD_CLIENT_SECRET="$SRE_WORKLOAD_CLIENT_SECRET"
+)
+
+# ONLY specialists sign tool credentials, with a key that cannot mint identity.
+specialist_env=(
+  SRE_TOOL_CREDENTIAL_PRIVATE_KEY_FILE="$state/toolcred-private.pem"
 )
 if [ -n "${SRE_LLM_API_KEY:-}" ]; then common_env+=(SRE_LLM_API_KEY="$SRE_LLM_API_KEY"); fi
 
@@ -137,14 +159,14 @@ start_runtime() {
 # Manager also serves its internal JWKS over loopback HTTPS (:3443) because ToolHive's
 # JWKS-fetch client requires an https scheme. The mkcert-signed cert is trusted by the
 # system store (engineering/tools/gen-manager-cert.sh -> mkcert -install), so ToolHive verifies it.
-start_runtime manager 3000 config/agents/manager.yaml \
+start_runtime manager 3000 config/agents/manager.yaml "${manager_env[@]}" \
   SRE_INTERNAL_TLS_CERT_FILE="$state/manager-tls.crt" SRE_INTERNAL_TLS_KEY_FILE="$state/manager-tls.key" SRE_INTERNAL_TLS_PORT=3443
-start_runtime keycloak-agent 3101 config/agents/keycloak.yaml
-start_runtime observability-agent 3102 config/agents/observability.yaml
+start_runtime keycloak-agent 3101 config/agents/keycloak.yaml "${specialist_env[@]}"
+start_runtime observability-agent 3102 config/agents/observability.yaml "${specialist_env[@]}"
 # openshift reads the local cluster through the Kubernetes MCP. Its openshift and
 # splunk MCPs have no local backend; tool discovery is allSettled, so they
 # contribute no tools rather than failing the request.
-start_runtime openshift-agent 3103 config/agents/openshift.yaml
+start_runtime openshift-agent 3103 config/agents/openshift.yaml "${specialist_env[@]}"
 
 # the gateway policy is derived from the canonical Agent config, so it is
 # re-rendered here rather than trusted to be current on disk

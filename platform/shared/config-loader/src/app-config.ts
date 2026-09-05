@@ -195,6 +195,8 @@ export const appConfigSchema = z
       // "workload-client": the Agent authenticates as its own Keycloak
       // service-account client and requests one MCP audience scope per call
       strategy: z.enum(["token-exchange", "signed-jwt", "workload-client"]).default("token-exchange"),
+      /** public half of the signed-jwt key, published in the Manager's JWKS so a verifier can resolve the kid a specialist signs with */
+      publicKeyFile: z.string().optional(),
       privateKeyFile: z.string().optional(),
       /** env-only; never read from Agent YAML and never logged — TDD §36 */
       clientSecret: z.string().optional(),
@@ -314,6 +316,7 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
       tokenEndpoint: env.SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT,
       strategy: env.SRE_TOOL_CREDENTIAL_STRATEGY,
       privateKeyFile: env.SRE_TOOL_CREDENTIAL_PRIVATE_KEY_FILE,
+      publicKeyFile: env.SRE_TOOL_CREDENTIAL_PUBLIC_KEY_FILE,
       clientSecret: env.SRE_TOOL_CREDENTIAL_CLIENT_SECRET,
       jwksUri: env.SRE_TOOL_CREDENTIAL_JWKS_URI,
     },

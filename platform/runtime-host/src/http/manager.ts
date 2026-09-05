@@ -1,6 +1,7 @@
 import { subjectHash } from "@sre/auth";
 import { executeRequest, extractEntities, type AssistantResponse, type BoundedSessionContext, type RoutingTrace } from "@sre/orchestrator";
 import { MockOidcClient } from "@sre/auth";
+import { runtimeErrorCodeSchema } from "@sre/evidence";
 import { incrementMetric, observeInflight, withSpan } from "@sre/telemetry";
 import type { Express } from "express";
 import { z } from "zod";
@@ -154,7 +155,10 @@ export function registerManagerRoutes(app: Express, deps: ManagerDependencies): 
       }
     } catch (error) {
       // an unexpected internal error; not REQUEST_TIMEOUT (which is only for deadline exhaustion)
-      const errorCode = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "AGENT_EXECUTION_FAILED";
+      // a driver's ECONNREFUSED or a Postgres SQLSTATE is not a code this API
+      // speaks; anything outside the taxonomy is reported as what it is
+      const thrown = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+      const errorCode = runtimeErrorCodeSchema.safeParse(thrown).success ? thrown : "AGENT_EXECUTION_FAILED";
       response.status(500).json({ requestId, code: errorCode, message: "Request processing failed" });
     } finally {
       limiter.release();

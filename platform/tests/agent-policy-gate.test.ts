@@ -40,10 +40,9 @@ describe("agent policy gate", () => {
           throw new Error(`Agent ${name} has owner equal to name (not unique)`);
         }
       } catch (error) {
-        // Expected: agent file should not exist or should have been cleaned up
-        if (String(error).includes("ENOENT")) {
-          return; // File does not exist — gate is satisfied
-        }
+        // the file being absent is the point — but only for THIS name; a
+        // `return` here abandoned every name after the first one that was gone
+        if (String(error).includes("ENOENT")) continue;
         throw error;
       }
     }

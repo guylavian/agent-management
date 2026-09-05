@@ -132,3 +132,26 @@ async function exportPkcs8(key: CryptoKey): Promise<string> {
 // keeps the unused import honest: jwtVerify/exportJWK are used by sibling suites' helpers
 void jwtVerify;
 void exportJWK;
+
+describe("the delegated assertion outlives the run it authorizes", () => {
+  it("stays valid long enough to be re-exchanged late in a 180s investigation", async () => {
+    const { MockDelegationAuthority } = await import("../src/index.ts");
+    const authority = new MockDelegationAuthority({ issuer: "https://manager.test", secret: "x".repeat(40) });
+    const deadline = Date.now() + 180_000;
+    const context = await authority.issue(alice, "sre-agent:keycloak", deadline);
+    const claims = JSON.parse(Buffer.from(context.token.split(".")[1] as string, "base64url").toString()) as { exp: number };
+    // the credential is refreshed at the ToolProvider boundary using THIS
+    // assertion as the subject_token; an assertion that died at 60s would make
+    // every refresh after minute one fail against a real STS
+    expect(claims.exp * 1000).toBeGreaterThanOrEqual(deadline - 1_000);
+  });
+
+  it("never outlives the run's deadline", async () => {
+    const { MockDelegationAuthority } = await import("../src/index.ts");
+    const authority = new MockDelegationAuthority({ issuer: "https://manager.test", secret: "x".repeat(40) });
+    const deadline = Date.now() + 20_000;
+    const context = await authority.issue(alice, "sre-agent:keycloak", deadline);
+    const claims = JSON.parse(Buffer.from(context.token.split(".")[1] as string, "base64url").toString()) as { exp: number };
+    expect(claims.exp * 1000).toBeLessThanOrEqual(deadline + 1_000);
+  });
+});

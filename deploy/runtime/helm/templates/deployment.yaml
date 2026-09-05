@@ -103,7 +103,7 @@ spec:
             {{- end }}
             {{- if eq .Values.agent.mode "manager" }}
             # manager: file-mounted delegation key replaces inline env var (C2)
-            - { name: SRE_DELEGATION_PRIVATE_KEY_FILE, value: /etc/sre/delegation/private.pem }
+            - { name: SRE_DELEGATION_PRIVATE_KEY_FILE, value: /etc/sre/delegation-key/private.pem }
             {{- end }}
           envFrom:
             {{- if eq .Values.agent.mode "manager" }}
@@ -137,7 +137,9 @@ spec:
           volumeMounts:
             - { name: workload-identity, mountPath: {{ .Values.workloadIdentity.mountPath | quote }}, readOnly: true }
             {{- if eq .Values.agent.mode "manager" }}
-            - { name: delegation-private-key, mountPath: /etc/sre/delegation, readOnly: true }
+            # a DISTINCT directory: the public key is mounted at /etc/sre/delegation by
+            # every release, and two volumes on one path is a rejected pod
+            - { name: delegation-private-key, mountPath: /etc/sre/delegation-key, readOnly: true }
             {{- end }}
             {{- if .Values.agent.configOverride }}
             - { name: agent-config, mountPath: /config, readOnly: true }

@@ -81,7 +81,7 @@ export interface ManagerDependencies extends CommonDependencies {
   agentClient: SpecialistTransport;
   identityIssuer: DelegatedIdentityIssuer;
   sessionStore: SessionStore;
-  delegationPublicJwk?: Record<string, unknown>;
+  delegationPublicJwks?: Array<Record<string, unknown>>;
   /**
    * THE one source of Git desired state for this process. The management API
    * projects it and the router above is derived from it, so the console and the
@@ -96,6 +96,28 @@ export interface ManagerDependencies extends CommonDependencies {
   /** Argo CD and pod readiness. Absent means the console reports `unknown`, never a colour. */
   argo?: DeploymentStatusSource;
   runtimeProbe?: RuntimeProbe;
+}
+
+/**
+ * The keys a verifier needs to check what this platform signs.
+ *
+ * Two different things are signed: the delegated identity (by the Manager) and
+ * the tool credential (by each specialist). A verifier resolves by `kid`, and
+ * specialists sign tool credentials as `sre-<agentId>` — so every one of those
+ * kids has to resolve, or the first tool call is rejected before it is made.
+ */
+function publishedJwks(delegationPublicKey: string, config: AppConfig, registry: AgentCatalog): Array<Record<string, unknown>> {
+  const keys: Array<Record<string, unknown>> = [
+    { ...createPublicKey(delegationPublicKey).export({ format: "jwk" }), kid: "sre-real-poc", use: "sig", alg: "RS256" },
+  ];
+  const toolPublicKeyFile = config.toolCredential.publicKeyFile;
+  if (toolPublicKeyFile !== undefined && existsSync(toolPublicKeyFile)) {
+    const toolJwk = createPublicKey(readFileSync(toolPublicKeyFile, "utf8")).export({ format: "jwk" });
+    for (const specialist of registry.specialists) {
+      keys.push({ ...toolJwk, kid: `sre-${specialist.name}`, use: "sig", alg: "RS256" });
+    }
+  }
+  return keys;
 }
 
 export interface SpecialistDependencies extends CommonDependencies {
@@ -237,7 +259,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       synthesisModel: config.clients.llm === "mock" ? model : config.llm.baseUrl ? model : new RealOpenAiCompatibleClient(config.llm.tierLUrl as string, { modelMap: buildModelMap(config, config.llm.tierLModel ?? config.llm.model), temperatureMap: buildTemperatureMap(config), ...(config.llm.systemSuffix ? { systemSuffix: config.llm.systemSuffix } : {}) }),
       oidc: config.clients.oidc === "mock" ? new MockOidcClient(config.oidc) : new RealOidcClient(config.oidc),
       sessionStore: config.clients.postgres === "mock" ? new MockSessionStore() : config.clients.postgres === "disabled" ? new DisabledSessionStore() : new PostgresSessionStore(config.postgres.connectionString as string),
-      ...(delegationPublicKey ? { delegationPublicJwk: { ...createPublicKey(delegationPublicKey).export({ format: "jwk" }), kid: "sre-real-poc", use: "sig", alg: "RS256" } } : {}),
+      ...(delegationPublicKey ? { delegationPublicJwks: publishedJwks(delegationPublicKey, config, registry) } : {}),
     };
   }
 

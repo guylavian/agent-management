@@ -6,6 +6,26 @@ import {
 } from "@sre/agent-protocol";
 import type { RequestIdentity } from "./identity.ts";
 
+/**
+ * How long a delegated assertion lives.
+ *
+ * It must cover the WHOLE investigation, because the specialist presents this
+ * same assertion as the `subject_token` every time it re-exchanges an expired
+ * tool credential. Capping it at a flat 60s meant a 120s run could obtain a
+ * credential at t=0 and then have every refresh after minute one rejected by
+ * the identity provider.
+ *
+ * It never outlives the run: the assertion is bound to one human, one agent
+ * audience and one request id, so beyond the deadline it authorizes nothing
+ * anyone should still be doing. The ceiling bounds a caller that passes an
+ * absurd deadline.
+ */
+const MAX_DELEGATION_SECONDS = 900;
+
+function delegationExpiry(nowSeconds: number, deadline: number): number {
+  return Math.min(Math.floor(deadline / 1000), nowSeconds + MAX_DELEGATION_SECONDS);
+}
+
 export interface DelegatedIdentityIssuer {
   issue(identity: RequestIdentity, audience: string, deadline: number): Promise<DelegatedIdentityContext>;
 }
@@ -32,7 +52,7 @@ export class MockDelegationAuthority implements DelegatedIdentityIssuer, Delegat
 
   async issue(identity: RequestIdentity, audience: string, deadline: number): Promise<DelegatedIdentityContext> {
     const now = Math.floor(Date.now() / 1000);
-    const expiry = Math.min(now + 60, Math.floor(deadline / 1000));
+    const expiry = delegationExpiry(now, deadline);
     if (expiry <= now) throw Object.assign(new Error("delegation deadline expired"), { code: "AGENT_TIMEOUT" });
     const token = await new SignJWT({ groups: identity.groups, roles: identity.roles, request_id: identity.requestId })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
@@ -105,7 +125,7 @@ export class PrivateKeyDelegatedIdentityIssuer implements DelegatedIdentityIssue
 
   async issue(identity: RequestIdentity, audience: string, deadline: number): Promise<DelegatedIdentityContext> {
     const now = Math.floor(Date.now() / 1000);
-    const expiry = Math.min(now + 60, Math.floor(deadline / 1000));
+    const expiry = delegationExpiry(now, deadline);
     if (expiry <= now) throw Object.assign(new Error("delegation deadline expired"), { code: "AGENT_TIMEOUT" });
     const token = await new SignJWT({ groups: identity.groups, roles: identity.roles, request_id: identity.requestId })
       .setProtectedHeader({ alg: "RS256", typ: "JWT" })

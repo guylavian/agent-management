@@ -142,6 +142,8 @@ export interface RunStore {
   record(run: RunRecord): void;
   list(limit?: number): RunSummary[];
   get(requestId: string): RunRecord | undefined;
+  /** present only on durable stores; readiness uses it to prove the database answers */
+  ping?(): Promise<void>;
 }
 
 /** Fixed-capacity ring so a long-lived process cannot grow without bound. */
@@ -253,6 +255,9 @@ export class PostgresRunStore implements RunStore {
   list(limit = 50): RunSummary[] { return this.#recent.list(limit); }
 
   get(requestId: string): RunRecord | undefined { return this.#recent.get(requestId); }
+
+  /** a pool is created lazily, so only a real query proves the database is reachable */
+  async ping(): Promise<void> { await this.#pool.query("SELECT 1", []); }
 
   async close(): Promise<void> {
     await this.#pool.end();
