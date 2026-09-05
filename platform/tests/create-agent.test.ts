@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agentDocumentSchema } from "@sre/agent-schema";
 import { agentDeploymentOverlaySchema, buildAgentCatalog, CONFIG_PATHS, DEPLOY_ROOT, deployEnvironmentDir, loadAgentRegistry, loadDeploymentEnvironment, toRepoPath } from "@sre/config";
-import { agentDetail, generateAgentChange, proposeAgentChange, proposePromptChange, type AgentDraft } from "@sre/runtime-host";
+import { agentDetail, AgentDraftError, generateAgentChange, proposeAgentChange, proposePromptChange, type AgentDraft } from "@sre/runtime-host";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 
@@ -375,4 +375,39 @@ describe("Agent detail round-trips through a draft without losing anything", () 
       expect(unknown).toEqual([]);
     });
   }
+});
+
+/**
+ * A MALFORMED DRAFT IS NOT A GITOPS OUTAGE.
+ *
+ * /management/agents/preview caught every error and reported
+ * `GITOPS_UNAVAILABLE — The change could not be proposed`. That route performs
+ * NO network I/O: it renders YAML and diffs it against disk. GitOps cannot be
+ * the cause of a failure there, so the message sent an operator to check GitHub,
+ * their token and their network for what was actually an invalid form.
+ *
+ * Observed in the portal: an incomplete draft produced GITOPS_UNAVAILABLE while
+ * the GitHub token was valid, with `repo` scope and push permission on the
+ * target repository.
+ *
+ * Worse, the draft was never validated: an empty object reached
+ * `.map()` on an undefined field and threw a raw TypeError.
+ */
+describe("a bad draft is reported as a bad draft", () => {
+  it("rejects an empty draft with issues, not a TypeError", () => {
+    let thrown: unknown;
+    try { proposeAgentChange({ draft: {} as never, requestedBy: "tester", targetEnvironment: "local" }); }
+    catch (error) { thrown = error; }
+    expect(thrown).toBeInstanceOf(AgentDraftError);
+    // an operator has to be able to see WHICH field is wrong
+    expect((thrown as AgentDraftError).issues.length).toBeGreaterThan(0);
+  });
+
+  it("names the missing fields rather than failing on the first undefined", () => {
+    let thrown: unknown;
+    try { proposeAgentChange({ draft: { name: "probe" } as never, requestedBy: "tester", targetEnvironment: "local" }); }
+    catch (error) { thrown = error; }
+    const issues = (thrown as AgentDraftError).issues.join(" ");
+    expect(issues).toMatch(/access|displayName|description|identity/iu);
+  });
 });

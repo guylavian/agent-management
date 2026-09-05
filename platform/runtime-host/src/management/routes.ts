@@ -521,13 +521,27 @@ function diffAgainstDisk(files: readonly { path: string; contents: string; encod
   );
 }
 
+/**
+ * EVERY ROUTE THAT USES THIS IS A PREVIEW.
+ *
+ * They render YAML and diff it against disk; none of them opens a pull request,
+ * because the Manager never talks to the GitOps provider — the portal backend
+ * owns that publisher. This used to answer GITOPS_UNAVAILABLE for any error
+ * that was not an AgentDraftError, which told an operator that GitHub, their
+ * token or their network was at fault for what was an invalid form. Observed in
+ * the portal against a token that was valid, `repo`-scoped and holding push
+ * permission on the target repository.
+ *
+ * A subsystem that this process cannot reach cannot be the one it reports as
+ * unavailable. The provider's own error text is still never echoed: it can
+ * disclose policy or infrastructure internals.
+ */
 function respondDraftError(response: Response, error: unknown): void {
   if (error instanceof AgentDraftError) {
     response.status(400).json({ code: "AGENT_DRAFT_INVALID", message: "Agent draft failed validation", issues: error.issues });
     return;
   }
-  // never echo a provider error body: it can disclose policy or infrastructure internals
-  response.status(502).json({ code: "GITOPS_UNAVAILABLE", message: "The change could not be proposed" });
+  response.status(400).json({ code: "AGENT_DRAFT_INVALID", message: "The draft could not be rendered" });
 }
 
 function notFound(response: Response, kind: string): void {

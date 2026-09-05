@@ -365,7 +365,40 @@ export interface ProposeOptions {
   knownAgents?: string[];
 }
 
+/**
+ * The fields `generateAgentChange` dereferences without checking.
+ *
+ * Without this an incomplete draft reached `.map()` on an undefined field and
+ * threw a raw TypeError, which the preview route then reported as
+ * GITOPS_UNAVAILABLE — sending an operator to check GitHub for what was a form
+ * with an empty box. Naming every missing field at once matters too: failing on
+ * the first undefined makes fixing a draft an N-round trip.
+ */
+function assertDraftIsComplete(draft: AgentDraft): void {
+  const issues: string[] = [];
+  const required: Array<[keyof AgentDraft, string]> = [
+    ["name", "name is required"],
+    ["owner", "owner is required"],
+    ["modelTier", "modelTier is required"],
+    ["modelProfile", "modelProfile is required"],
+  ];
+  for (const [field, message] of required) {
+    const value = draft?.[field];
+    if (typeof value !== "string" || value.trim() === "") issues.push(message);
+  }
+  if (!Array.isArray(draft?.requiredRoles)) issues.push("requiredRoles is required, and must be a list");
+  if (!Array.isArray(draft?.access)) issues.push("access is required, and must be a list of { mcp, tools }");
+  else {
+    for (const [index, entry] of draft.access.entries()) {
+      if (typeof entry?.mcp !== "string" || entry.mcp.trim() === "") issues.push(`access[${index}].mcp is required`);
+      if (!Array.isArray(entry?.tools)) issues.push(`access[${index}].tools is required, and must be a list`);
+    }
+  }
+  if (issues.length > 0) throw new AgentDraftError(issues);
+}
+
 export function proposeAgentChange(options: ProposeOptions): { change: ProposedChange; generated: GeneratedChange } {
+  assertDraftIsComplete(options.draft);
   const generated = generateAgentChange(options.draft, options.targetEnvironment);
   const name = generated.document.metadata.name;
   const spec = generated.document.spec;
