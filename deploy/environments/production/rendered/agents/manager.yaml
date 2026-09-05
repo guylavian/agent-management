@@ -87,7 +87,7 @@ desiredState:
         name: guy1
         owner: odkcmxl ,
         description: "fklmdsc jnv kfejnv sclmcnvjsfkv nl"
-        displayName: rcvidmsk
+        displayName: guy1
       spec:
         type: specialist
         lifecycle: active
@@ -309,6 +309,8 @@ desiredState:
 
       Keep responses direct and factual. When you do have evidence, present it in the order that builds toward your conclusion. If evidence is contradictory or incomplete, say so explicitly.
     guy1.md: |-
+      # guy1
+
       # rcvidmsk
 
       You are the specialist investigator for rcvidmsk domain within the SRE platform. Your role is to investigate and diagnose issues within your area of ownership, using only the tools and data sources made available to you.
@@ -575,5 +577,5 @@ desiredState:
         prompt-assist:
           provider: vllm
           model: qwen3-8b
-  revision: 6fe5ff10e431381b78cf9a0c26b85410c2126b8894ce2fbd31d69c6c94bbdc68
+  revision: a9a6896a0eb781b8a49780b67af1b4795838305b89631ebcba7cd8bf9f7050ab
 promptSha256: 6cf082df2d2e3d1bf2446de22dbf623888105008865900643a56b286ef5f712f
