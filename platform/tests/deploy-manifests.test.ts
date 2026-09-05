@@ -109,25 +109,22 @@ describe("production ApplicationSet fails closed on missing values", () => {
     expect(helmSource?.helm?.ignoreMissingValueFiles).not.toBe(true);
   });
 
-  it("only references value files that exist in the repo or are variable references", () => {
-    const helmSource = prodAppSet.spec?.template?.spec?.sources?.[1];
-    const valueFiles = helmSource?.helm?.valueFiles ?? [];
+  it("still references the site-specific values file, which is the point", () => {
+    // removing the reference would also remove the failure — and leave
+    // production rendering against chart defaults permanently, which is the
+    // defect rather than the fix
+    const valueFiles = prodAppSet.spec?.template?.spec?.sources?.[1]?.helm?.valueFiles ?? [];
+    expect(valueFiles.some((f) => f.endsWith("production/runtime-values.yaml"))).toBe(true);
+  });
 
-    for (const file of valueFiles) {
-      if (file.startsWith("$values/")) {
-        // Variable reference: extract the path after $values/ and check it exists
-        const path = file.replace("$values/", "");
-        // Handle template variables like {{ .agent.name }}
-        if (!path.includes("{{")) {
-          // Only check static paths without templates
-          const fullPath = join(deployRoot, path);
-          expect(existsSync(fullPath)).toBe(true);
-        }
-      } else {
-        // Direct file reference must exist
-        const fullPath = join(deployRoot, file);
-        expect(existsSync(fullPath)).toBe(true);
-      }
-    }
+  it("does not ship that file, so a fresh clone cannot deploy placeholders", () => {
+    // it carries the registry, CA bundle and Route domain only the site knows;
+    // committing a specimen is how placeholders reach a cluster
+    expect(existsSync(join(deployRoot, "environments", "production", "runtime-values.yaml"))).toBe(false);
+  });
+
+  it("applies the per-agent rendered values last, so they win", () => {
+    const valueFiles = prodAppSet.spec?.template?.spec?.sources?.[1]?.helm?.valueFiles ?? [];
+    expect(valueFiles[valueFiles.length - 1]).toContain("rendered/agents/");
   });
 });

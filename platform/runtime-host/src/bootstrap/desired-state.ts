@@ -308,10 +308,16 @@ function describe(error: unknown): string {
  * document is invalid must not start), and a later failure keeps the last good
  * document and leaves the error to the caller's next read.
  */
+/** The live Agent document, plus whether the last attempt to replace it failed. */
+export interface AgentInstanceSource {
+  current: () => ManagerAgentConfig | SpecialistAgentConfig;
+  status: () => { revision: string; error?: string };
+}
+
 export function agentInstanceSource(
   options: { configFile: string; mcpServersDir: string; agentsDir: string; promptsDir: string; baseDir?: string; revalidateMs?: number },
   hooks: { now?: () => number } = {},
-): () => ManagerAgentConfig | SpecialistAgentConfig {
+): AgentInstanceSource {
   const base = options.baseDir ?? process.cwd();
   const now = hooks.now ?? (() => Date.now());
   const revalidateMs = options.revalidateMs ?? DEFAULT_REVALIDATE_MS;
@@ -321,8 +327,12 @@ export function agentInstanceSource(
   let current = load();
   let revision = fingerprint(watched);
   let checkedAtMs = now();
+  // the fingerprint that failed, kept SEPARATELY from `revision` so a failure
+  // is not mistaken for a successful load of the same bytes
+  let failedRevision: string | undefined;
+  let lastError: string | undefined;
 
-  return () => {
+  const refresh = (): ManagerAgentConfig | SpecialistAgentConfig => {
     const at = now();
     if (at - checkedAtMs < revalidateMs) return current;
     checkedAtMs = at;
@@ -333,6 +343,10 @@ export function agentInstanceSource(
       return current;
     }
     if (next === revision) return current;
+    // the same bytes that already failed: do not re-parse them every interval,
+    // but do NOT clear the error either — the pod is still serving the old
+    // document and that remains true until something on disk changes
+    if (next === failedRevision) return current;
     try {
       // the mounts must agree before anything is parsed, or the document and
       // the prompt beside it could come from two different commits
@@ -341,6 +355,8 @@ export function agentInstanceSource(
       if (fingerprint(watched) !== next) return current;
       current = loaded;
       revision = next;
+      failedRevision = undefined;
+      lastError = undefined;
     } catch (error) {
       // keep the last document that validated; a specialist that stopped
       // serving because someone merged a typo would be a worse failure than
@@ -349,10 +365,25 @@ export function agentInstanceSource(
       // But it must be VISIBLE: silently serving last week's allowlist is the
       // failure this whole source exists to prevent, and an operator cannot
       // act on something that was never reported.
-      revision = next;
+      /*
+       * `revision` is NOT advanced. It used to be, which made the next call see
+       * `next === revision` and return immediately — so the metric and the log
+       * below fired exactly once and then went silent, while the old document
+       * stayed authoritative for the life of the pod. A malformed NARROWING of
+       * a policy therefore left the broader grants in force, reported nowhere.
+       */
+      failedRevision = next;
+      lastError = error instanceof Error ? error.message : String(error);
       incrementMetric("sre_agent_policy_reload_failures_total");
       console.error(JSON.stringify({ level: "error", event: "agent.policy.reload_failed", message: "keeping the last valid Agent document", detail: error instanceof Error ? error.message : String(error) }));
     }
     return current;
+  };
+
+  return {
+    current: refresh,
+    // readiness reads this: a specialist still enforcing a document it could
+    // not replace is not ready to be trusted with the new one
+    status: () => (lastError === undefined ? { revision } : { revision, error: lastError }),
   };
 }

@@ -3,7 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writ
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CONFIG_PATHS, DEPLOY_ROOT, configFiles, loadAgentRegistry, renderedAgentValuesSchema } from "@sre/config";
-import { DesiredStateSource, fingerprint } from "@sre/runtime-host";
+import { agentInstanceSource, DesiredStateSource, fingerprint } from "@sre/runtime-host";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 
@@ -387,7 +387,7 @@ describe("a specialist re-reads its own document while running", () => {
         { now: () => clock },
       );
       const grantFor = (mcp: string) => {
-        const spec = agentOf().spec;
+        const spec = agentOf.current().spec;
         // `agentInstanceSource` returns either role; only a specialist has access
         if (spec.type !== "specialist") throw new Error("expected a specialist document");
         return spec.access.find((entry) => entry.mcp === mcp)?.tools ?? [];
@@ -415,15 +415,15 @@ describe("a specialist re-reads its own document while running", () => {
         { configFile: "config/agents/keycloak.yaml", mcpServersDir: "config/mcp-servers", agentsDir: "config/agents", promptsDir: "config/prompts", baseDir: root, revalidateMs: 1 },
         { now: () => clock },
       );
-      expect(agentOf().name).toBe("keycloak");
+      expect(agentOf.current().name).toBe("keycloak");
 
       writeFileSync(join(root, "config/agents/keycloak.yaml"), "apiVersion: sre.ai/v1alpha1\nkind: Agent\nspec: {}\n", "utf8");
       clock += 60_000;
 
       // a specialist that stopped serving because someone merged a typo would
       // be a worse failure than one still enforcing the policy it understands
-      const spec = agentOf().spec;
-      expect(agentOf().name).toBe("keycloak");
+      const spec = agentOf.current().spec;
+      expect(agentOf.current().name).toBe("keycloak");
       expect(spec.type === "specialist" && spec.access.length).toBeGreaterThan(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -469,5 +469,72 @@ describe("config paths survive a git-sync worktree swap", () => {
     const env = managerEnv([]);
     expect(env.SRE_CONFIG_BASE_DIR).toBeUndefined();
     expect(env.AGENT_CONFIG).not.toMatch(/^\//u);
+  });
+});
+
+/**
+ * A FAILED POLICY RELOAD MUST NOT GO QUIET.
+ *
+ * On failure the source assigned the FAILED fingerprint to `revision`, so the
+ * next call saw `next === revision` and returned immediately. The metric and the
+ * log therefore fired exactly once and then went silent, while the old document
+ * stayed authoritative for the life of the pod. Replace a broad policy with a
+ * malformed narrowing and the broad grants remain in force, reported nowhere.
+ *
+ * Keeping the last valid document is still right — a specialist that stopped
+ * serving because someone merged a typo is a worse failure. What was wrong is
+ * that nothing downstream could tell.
+ */
+describe("a failed reload stays visible instead of going silent", () => {
+  function agentDir(): { dir: string; write: (body: string) => void } {
+    const dir = mkdtempSync(join(tmpdir(), "reload-"));
+    mkdirSync(join(dir, "config", "agents"), { recursive: true });
+    mkdirSync(join(dir, "config", "prompts"), { recursive: true });
+    cpSync(join(DEPLOY_ROOT, "..", "platform", "config", "prompts", "openshift.md"), join(dir, "config", "prompts", "openshift.md"));
+    cpSync(join(DEPLOY_ROOT, "..", "platform", "config", "mcp-servers"), join(dir, "config", "mcp-servers"), { recursive: true });
+    const good = readFileSync(join(DEPLOY_ROOT, "..", "platform", "config", "agents", "openshift.yaml"), "utf8");
+    const file = join(dir, "config", "agents", "openshift.yaml");
+    writeFileSync(file, good);
+    return { dir, write: (body: string) => writeFileSync(file, body) };
+  }
+
+  it("reports the failure for as long as it lasts, not once", () => {
+    const { dir, write } = agentDir();
+    let clock = 0;
+    const source = agentInstanceSource(
+      { configFile: "config/agents/openshift.yaml", mcpServersDir: "config/mcp-servers", agentsDir: "config/agents", promptsDir: "config/prompts", baseDir: dir, revalidateMs: 1 },
+      { now: () => (clock += 10) },
+    );
+    expect(source.status().error).toBeUndefined();
+
+    // a malformed NARROWING: the operator meant to revoke access
+    write("apiVersion: sre.ai/v1alpha1\nkind: Agent\nthis is not a valid agent document\n");
+    source.current();
+    expect(source.status().error).toBeDefined();
+
+    // the point of the finding: the second look must still say so
+    source.current();
+    expect(source.status().error).toBeDefined();
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("recovers when a valid document returns", () => {
+    const { dir, write } = agentDir();
+    const good = readFileSync(join(dir, "config", "agents", "openshift.yaml"), "utf8");
+    let clock = 0;
+    const source = agentInstanceSource(
+      { configFile: "config/agents/openshift.yaml", mcpServersDir: "config/mcp-servers", agentsDir: "config/agents", promptsDir: "config/prompts", baseDir: dir, revalidateMs: 1 },
+      { now: () => (clock += 10) },
+    );
+    write("broken: yes\n");
+    source.current();
+    expect(source.status().error).toBeDefined();
+
+    write(good);
+    source.current();
+    expect(source.status().error).toBeUndefined();
+
+    rmSync(dir, { recursive: true, force: true });
   });
 });

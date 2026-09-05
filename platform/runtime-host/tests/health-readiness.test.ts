@@ -254,3 +254,39 @@ describe("external probes reject a dependency that answers but cannot serve", ()
     });
   });
 });
+
+/**
+ * A SPECIALIST'S READINESS MUST MEAN SOMETHING.
+ *
+ * `dependencyStatus` was `{}` for a specialist and the endpoint returned 200
+ * unconditionally — it looked at nothing. A specialist whose policy reload had
+ * failed, or whose model endpoint was gone, stayed in Service endpoints and the
+ * Manager kept routing to it. "Ready" has to mean ready to execute, because that
+ * is the only thing the kubelet uses this answer for.
+ */
+describe("specialist readiness reflects what it needs to execute", () => {
+  const specialistEnv = { ROLE: "specialist", AGENT_ID: "openshift", AGENT_CONFIG: "config/agents/openshift.yaml" };
+
+  it("reports the dependencies it actually checked, not an empty map", async () => {
+    const deps = buildDependencies(specialistEnv);
+    if (deps.mode !== "specialist") throw new Error("expected specialist mode");
+    const app = createApp(deps);
+    const body = (await app.inject({ method: "GET", url: "/health/ready" })).json() as { dependencyStatus: Record<string, string> };
+    // the policy it enforces is the one dependency every specialist has
+    expect(Object.keys(body.dependencyStatus)).toContain("policy");
+    await app.close();
+  });
+
+  it("becomes not ready when its policy could not be reloaded", async () => {
+    const deps = buildDependencies(specialistEnv);
+    if (deps.mode !== "specialist") throw new Error("expected specialist mode");
+    // the state the finding describes: still serving the last valid document,
+    // unable to adopt the new one
+    deps.policyStatus = () => ({ revision: "r1", error: "schema validation failed" });
+    const app = createApp(deps);
+    const response = await app.inject({ method: "GET", url: "/health/ready" });
+    expect(response.statusCode).toBe(503);
+    expect((response.json() as { dependencyStatus: Record<string, string> }).dependencyStatus.policy).toBe("unhealthy");
+    await app.close();
+  });
+});

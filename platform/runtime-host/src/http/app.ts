@@ -52,6 +52,18 @@ export function createApp(deps: ApiDependencies): TestableApp {
           && Date.now() - operational.refreshedAt <= OPERATIONAL_SNAPSHOT_TTL_MS;
         dependencyStatus.operational = fresh && operational.rows.size > 0 ? "healthy" : "unhealthy";
       }
+    }
+    if (deps.mode === "specialist") {
+      /*
+       * A specialist used to report an EMPTY dependency map and 200
+       * unconditionally — it looked at nothing. One whose policy reload had
+       * failed stayed in Service endpoints and the Manager kept routing to it,
+       * still enforcing the document it could not replace.
+       */
+      const policy = deps.policyStatus();
+      dependencyStatus.policy = policy.error === undefined ? "healthy" : "unhealthy";
+    }
+    {
       // probe optional external dependencies (OIDC, model endpoint) concurrently.
       // only report status for probes that are configured and wired. each probe
       // runs with its own timeout so one slow dependency cannot hang the probe endpoint.

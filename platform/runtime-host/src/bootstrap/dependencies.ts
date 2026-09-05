@@ -184,6 +184,19 @@ export interface SpecialistDependencies extends CommonDependencies {
    * granting access that Git has already narrowed.
    */
   agentOf: () => SpecialistAgentConfig;
+  /**
+   * Whether the last attempt to adopt a new Agent document succeeded. Readiness
+   * reads it: a specialist still enforcing a policy it could not replace is not
+   * ready to be trusted with the new one, and returning 200 there kept the
+   * Manager routing to it.
+   */
+  policyStatus: () => { revision: string; error?: string };
+  /**
+   * Optional probes for external dependencies. Same shape as the manager's so
+   * readiness can read one field; a specialist authenticates nothing itself and
+   * therefore never sets `oidc`.
+   */
+  probes?: { oidc?: () => Promise<void>; model?: () => Promise<void> };
   catalog: ApprovedCatalog;
   toolhive: ToolHiveClient;
   credentialExchanger: ToolCredentialExchanger;
@@ -361,6 +374,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
             clientSecret: () => config.toolCredential.clientSecret as string,
             actorToken: async () => (await readFile(config.agentTransport.workloadTokenFile as string, "utf8")).trim(),
           });
+  const specialistModelProbe = createModelProbe(model, config);
   const agentOf = agentInstanceSource({
     configFile: config.agentConfigFile,
     mcpServersDir: config.mcpServersDir,
@@ -375,7 +389,9 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     agent: specialistAgent,
     // a manager document can never reach this branch: assertDeclaredRole and
     // the type switch above both already refused it
-    agentOf: () => agentOf() as SpecialistAgentConfig,
+    agentOf: () => agentOf.current() as SpecialistAgentConfig,
+    policyStatus: agentOf.status,
+    ...(specialistModelProbe ? { probes: { model: specialistModelProbe } } : {}),
     catalog,
     model,
     toolhive: buildToolhive(config, env, toolAuthority),

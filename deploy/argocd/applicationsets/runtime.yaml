@@ -42,12 +42,25 @@ spec:
           # Manager/Specialist version skew.
           path: deploy/runtime/helm
           helm:
-            # Only the per-agent rendered values are applied. Each agent's
-            # configuration is specific to its role and environment, and is
-            # rendered by `npm run render:deploy` from the agent's canonical
-            # config plus overlays. Cluster-wide values belong in the chart
-            # defaults (deploy/runtime/helm/values.yaml).
+            # Two files, and the FIRST one is deliberately not in this
+            # repository.
+            #
+            # runtime-values.yaml carries what only the site knows: its image
+            # registry, its CA bundle, its Route domain, the uid its SCC
+            # assigns. It used to be referenced with `ignoreMissingValueFiles:
+            # true`, so a cluster without it rendered against chart defaults —
+            # `registry.internal/sre-agent-runtime:0.2.0` and placeholder Secret
+            # names — and Argo produced Applications that looked entirely valid
+            # and could never pull an image.
+            #
+            # No toleration now: Helm fails to render until the operator creates
+            # it from deploy/on-prem/runtime-values.example.yaml. A GitOps
+            # deployment that stops with "values file not found" is diagnosable;
+            # one that silently deploys placeholders is not.
+            #
+            # The per-agent rendered file comes last and wins.
             valueFiles:
+              - $values/deploy/environments/production/runtime-values.yaml
               - $values/deploy/environments/production/rendered/agents/{{ .agent.name }}.yaml
       destination:
         server: https://kubernetes.default.svc
