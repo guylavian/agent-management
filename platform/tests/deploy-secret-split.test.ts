@@ -176,3 +176,30 @@ describe("deploy: secret split by role (C2)", () => {
     });
   });
 });
+/**
+ * The manager mounts the delegation signing key unconditionally, including when
+ * its delegation client is a mock that never reads a key file. A local cluster
+ * then cannot start a manager at all — the kubelet blocks on a Secret that
+ * carries no meaning there — which pushed operators toward inventing key
+ * material to satisfy a mount. A credential a mocked client cannot use should
+ * not be demanded; a real one still must be.
+ */
+describe("the delegation key is mounted only when something reads it", () => {
+  function renderManager(delegation: string): string {
+    return execFileSync("helm", ["template", "m", "../deploy/runtime/helm",
+      "--set", "agent.mode=manager", "--set", "agent.name=manager",
+      "--set", `clients.delegation=${delegation}`,
+    ], { cwd: "/Users/guylavian/sre agent/platform", encoding: "utf8" });
+  }
+
+  it("mounts the signing key when delegation is real", () => {
+    const rendered = renderManager("real");
+    expect(rendered).toContain("delegation-private-key");
+    expect(rendered).toContain("SRE_DELEGATION_PRIVATE_KEY_FILE");
+  });
+
+  it("does not demand a key a mocked delegation client never reads", () => {
+    const rendered = renderManager("mock");
+    expect(rendered).not.toContain("delegation-private-key");
+  });
+});
