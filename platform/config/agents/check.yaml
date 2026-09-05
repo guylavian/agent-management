@@ -7,7 +7,7 @@ metadata:
   displayName: cmdk
 spec:
   type: specialist
-  lifecycle: draft
+  lifecycle: active
   model: { tier: small, profile: tool-caller }
   prompt: { systemFile: config/prompts/check.md }
   identity: { provider: keycloak, clientId: sre-agent-check }
