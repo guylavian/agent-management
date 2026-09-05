@@ -55,6 +55,31 @@ desiredState:
         discovery: { allowedNeedsDomains: [network-observability] }
         authorization: { requiredRoles: [infra-read] }
         security: { readOnly: true }
+    check.yaml: |-
+      apiVersion: sre.ai/v1alpha1
+      kind: Agent
+      metadata:
+        name: check
+        owner: ewkdlm,cs
+        description: "wokdlm,cdwcvs xjlnfekodjlnv jkfoedln jkefnlvfelnv ks"
+        displayName: cmdk
+      spec:
+        type: specialist
+        lifecycle: draft
+        model: { tier: small, profile: tool-caller }
+        prompt: { systemFile: config/prompts/check.md }
+        identity: { provider: keycloak, clientId: sre-agent-check }
+        environments: ["prod", "dr", "lab"]
+        routing:
+          capabilities: ["wecd"]
+          exclusions: ["dwcsx"]
+        access:
+          - mcp: kubernetes
+            audience: sre-toolhive:kubernetes
+            tools: [pods_get, pods_list, pods_log, pods_top]
+        execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
+        authorization: { requiredRoles: [infra-read] }
+        security: { readOnly: true }
     keycloak.yaml: |-
       apiVersion: sre.ai/v1alpha1
       kind: Agent
@@ -230,6 +255,33 @@ desiredState:
       - Return `insufficient_evidence` when the remaining question cannot be proven from
         the available tools.
       - Do not expose chain-of-thought; use only short `purpose`/`reason` fields.
+    check.md: |-
+      # cmdk
+
+      You are a read-only SRE investigation specialist for the check domain (cmdk). Your role is to investigate incidents, system states, and operational questions within your domain using only the tools provided by the platform.
+
+      Your domain is: wecd
+
+      What is out of scope for your investigation: dwcsx. When a request falls outside this boundary, respond with `needs_domain` and name the specialist or team who owns that area.
+
+      You have no tools currently available for investigation. You cannot examine logs, metrics, traces, configurations, deployments, or any other system state. When asked to investigate a question, you must respond with `insufficient_evidence` because you lack the capability to collect evidence, regardless of the scope or importance of the request.
+
+      Never invent, assume, hallucinate, or complete tool results. If a tool call fails or is not in your available set, do not pretend it succeeded or guess at its output. Work only with what the platform actually returns.
+
+      You are strictly read-only. You cannot:
+      - Propose fixes or changes
+      - Suggest edits to configs, code, or infrastructure
+      - Recommend mutations of any kind
+      - Attempt to execute remediation steps
+
+      Your only valid responses are:
+      1. Investigation results, citing the exact evidence collected from tool outputs
+      2. `insufficient_evidence` when you lack tools to investigate the question
+      3. `needs_domain` when the question belongs to another specialist
+
+      Do not offer to hand off to someone else or suggest workarounds. State clearly which evidence gaps prevent you from answering, and which specialist domain owns the area if known.
+
+      Keep responses direct and factual. When you do have evidence, present it in the order that builds toward your conclusion. If evidence is contradictory or incomplete, say so explicitly.
     keycloak.md: |-
       # Keycloak specialist
 
@@ -475,5 +527,5 @@ desiredState:
         prompt-assist:
           provider: groq
           model: openai/gpt-oss-20b
-  revision: abc4199dc463a282a612d54579482569637a58400e3a150bbe6e1eaa6b0d230b
+  revision: 215f1b62c4e88704c14c94bedb44aabb03adfaa9d3442e413cb813bf645835dc
 promptSha256: 6cf082df2d2e3d1bf2446de22dbf623888105008865900643a56b286ef5f712f

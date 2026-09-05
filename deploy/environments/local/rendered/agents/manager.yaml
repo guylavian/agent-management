@@ -55,6 +55,31 @@ desiredState:
         discovery: { allowedNeedsDomains: [network-observability] }
         authorization: { requiredRoles: [infra-read] }
         security: { readOnly: true }
+    check.yaml: |-
+      apiVersion: sre.ai/v1alpha1
+      kind: Agent
+      metadata:
+        name: check
+        owner: ewkdlm,cs
+        description: "wokdlm,cdwcvs xjlnfekodjlnv jkfoedln jkefnlvfelnv ks"
+        displayName: cmdk
+      spec:
+        type: specialist
+        lifecycle: draft
+        model: { tier: small, profile: tool-caller }
+        prompt: { systemFile: config/prompts/check.md }
+        identity: { provider: keycloak, clientId: sre-agent-check }
+        environments: ["prod", "dr", "lab"]
+        routing:
+          capabilities: ["wecd"]
+          exclusions: ["dwcsx"]
+        access:
+          - mcp: kubernetes
+            audience: sre-toolhive:kubernetes
+            tools: [pods_get, pods_list, pods_log, pods_top]
+        execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
+        authorization: { requiredRoles: [infra-read] }
+        security: { readOnly: true }
     keycloak.yaml: |-
       apiVersion: sre.ai/v1alpha1
       kind: Agent
@@ -230,6 +255,33 @@ desiredState:
       - Return `insufficient_evidence` when the remaining question cannot be proven from
         the available tools.
       - Do not expose chain-of-thought; use only short `purpose`/`reason` fields.
+    check.md: |-
+      # cmdk
+
+      You are a read-only SRE investigation specialist for the check domain (cmdk). Your role is to investigate incidents, system states, and operational questions within your domain using only the tools provided by the platform.
+
+      Your domain is: wecd
+
+      What is out of scope for your investigation: dwcsx. When a request falls outside this boundary, respond with `needs_domain` and name the specialist or team who owns that area.
+
+      You have no tools currently available for investigation. You cannot examine logs, metrics, traces, configurations, deployments, or any other system state. When asked to investigate a question, you must respond with `insufficient_evidence` because you lack the capability to collect evidence, regardless of the scope or importance of the request.
+
+      Never invent, assume, hallucinate, or complete tool results. If a tool call fails or is not in your available set, do not pretend it succeeded or guess at its output. Work only with what the platform actually returns.
+
+      You are strictly read-only. You cannot:
+      - Propose fixes or changes
+      - Suggest edits to configs, code, or infrastructure
+      - Recommend mutations of any kind
+      - Attempt to execute remediation steps
+
+      Your only valid responses are:
+      1. Investigation results, citing the exact evidence collected from tool outputs
+      2. `insufficient_evidence` when you lack tools to investigate the question
+      3. `needs_domain` when the question belongs to another specialist
+
+      Do not offer to hand off to someone else or suggest workarounds. State clearly which evidence gaps prevent you from answering, and which specialist domain owns the area if known.
+
+      Keep responses direct and factual. When you do have evidence, present it in the order that builds toward your conclusion. If evidence is contradictory or incomplete, say so explicitly.
     keycloak.md: |-
       # Keycloak specialist
 
@@ -375,6 +427,18 @@ desiredState:
         limits: { cpu: "1", memory: 1Gi }
       # escape hatch: this environment cannot follow the Service naming convention
       endpoint: http://sre-agent-active-directory:3000
+    check.yaml: |-
+      apiVersion: sre.ai/v1alpha1
+      kind: AgentDeployment
+      # Deployment overlay ONLY. Routing, capabilities, prompt, tool access and
+      # ownership are properties of the Agent and live in config/agents/check.yaml;
+      # the schema rejects them here.
+      agentId: check
+      enabled: false
+      replicas: 2
+      resources:
+        requests: { cpu: 500m, memory: 512Mi }
+        limits: { cpu: "1", memory: 1Gi }
     keycloak.yaml: |-
       apiVersion: sre.ai/v1alpha1
       kind: AgentDeployment
@@ -481,5 +545,5 @@ desiredState:
         prompt-assist:
           provider: openai-compatible
           model: claude-haiku
-  revision: de23c69ad15cc622a0923c7eca459db894c9133f2a089cf3f8e19e377958cb64
+  revision: 58c69ac2664c2f6b7b1144bb9eb87fa7a3f8ea2071b141554979c665b8ffb985
 promptSha256: 6cf082df2d2e3d1bf2446de22dbf623888105008865900643a56b286ef5f712f

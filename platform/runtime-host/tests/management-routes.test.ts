@@ -144,7 +144,10 @@ describe("GitOps change flow", () => {
     // the rendered values are what the ApplicationSet's git generator globs;
     // an agent whose render is missing is one Argo never sees at all
     expect(paths).toContain("deploy/environments/local/rendered/agents/check-point.yaml");
-    expect(paths.every((path) => !path.includes("environments/production"))).toBe(true);
+    // the AGENT's files stay in the served environment; the Manager's bundle
+    // spans every environment, because the registry it carries is global
+    expect(paths.filter((path) => !path.endsWith("rendered/agents/manager.yaml"))
+      .every((path) => !path.includes("environments/production"))).toBe(true);
   });
 
   it("rejects an invalid draft with issues instead of generating a file", async () => {
@@ -178,8 +181,12 @@ describe("GitOps change flow", () => {
     expect(body.branch).toBe("agent/add-check-point");
     expect(body.title).toContain("check-point");
     expect(body.body).toContain("Workload identity");
-    // document, prompt, overlay, and the render Argo's ApplicationSet globs
-    expect(body.files.map((file) => file.path)).toHaveLength(4);
+    // document, prompt, overlay, and the render Argo's ApplicationSet globs —
+    // plus the Manager's bundle for every environment, which carries the
+    // canonical registry and therefore changes whenever an Agent is added
+    const authored = body.files.map((file: { path: string }) => file.path).filter((path: string) => !path.endsWith("rendered/agents/manager.yaml"));
+    expect(authored).toHaveLength(4);
+    expect(body.files.map((file: { path: string }) => file.path)).toContainEqual(expect.stringContaining("rendered/agents/manager.yaml"));
     expect(body.files.map((file) => file.path)).toContainEqual(expect.stringContaining("/rendered/agents/"));
   });
 

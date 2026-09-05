@@ -144,7 +144,7 @@ describe("GitOps YAML generation", () => {
    */
   it("generates the Agent, its prompt, its overlay and its render as one change-set", () => {
     const change = generateAgentChange({ ...draft, lifecycle: "active" });
-    expect(change.files.map((file) => file.path)).toEqual([
+    expect(change.files.map((file) => file.path).filter((path) => !path.endsWith("rendered/agents/manager.yaml"))).toEqual([
       // repository-relative: the runtime's own config/ is platform/config/ in Git
       "platform/config/agents/check-point.yaml",
       "platform/config/prompts/check-point.md",
@@ -165,7 +165,11 @@ describe("GitOps YAML generation", () => {
     const change = generateAgentChange({ ...draft, lifecycle: "draft" });
     const overlay = change.files.find((file) => file.path.startsWith("deploy/"));
     expect(agentDeploymentOverlaySchema.parse(parseYaml(overlay!.contents))).toMatchObject({ agentId: "check-point", enabled: false });
-    expect(change.files.some((file) => file.path.includes("/rendered/"))).toBe(false);
+    // no render of its OWN — absence is how "do not deploy this" reaches the
+    // ApplicationSet — but the Manager's bundle still moves, because a draft is
+    // in the canonical registry the Manager carries
+    expect(change.files.some((file) => /rendered\/agents\/(?!manager\.yaml)/u.test(file.path))).toBe(false);
+    expect(change.files.some((file) => file.path.endsWith("rendered/agents/manager.yaml"))).toBe(true);
   });
 
   it("refuses to generate an Agent that references a prompt it does not create", () => {

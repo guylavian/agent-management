@@ -1,6 +1,6 @@
 import { parse as parseYaml, parseDocument, isMap, isSeq } from "yaml";
 import { agentDocumentSchema, assertNoSecretMaterial, toolHiveAudience, workloadClientId, type AgentDocument, type AgentLifecycle } from "@sre/agent-schema";
-import { agentDeploymentOverlaySchema, deployEnvironmentDir, loadModelBindings, renderAgentValues, renderedValuesToYaml, toRepoPath, type SpecialistAgentConfig } from "@sre/config";
+import { agentDeploymentOverlaySchema, deployEnvironmentDir, deploymentEnvironments, loadModelBindings, renderAgentValues, renderedValuesToYaml, renderManagerValues, toRepoPath, type SpecialistAgentConfig } from "@sre/config";
 import { avatarAssetPath, isManagedAvatarPath, validateAvatar, AvatarError, type AvatarFit } from "./avatar.ts";
 
 /**
@@ -179,6 +179,23 @@ function decodeUpload(upload: string): Buffer {
 /** Environments an Agent is enabled in on creation. Deployment is opt-in per environment. */
 export const DEFAULT_TARGET_ENVIRONMENT = "production";
 
+/**
+ * The Manager's rendered values, for every environment that deploys one.
+ *
+ * Rendering uses the SAME code as the renderer script (@sre/config), so the two
+ * cannot disagree about which Agents belong in the bundle — the drift
+ * `check:generated` exists to catch.
+ */
+function managerBundleFiles(pending: Parameters<typeof renderManagerValues>[1]): GeneratedFile[] {
+  const files: GeneratedFile[] = [];
+  for (const environment of deploymentEnvironments()) {
+    const values = renderManagerValues(environment, pending);
+    if (values === undefined) continue;
+    files.push({ path: `deploy/environments/${environment}/rendered/agents/manager.yaml`, contents: renderedValuesToYaml(values) });
+  }
+  return files;
+}
+
 export function generateAgentChange(draft: AgentDraft, targetEnvironment: string = DEFAULT_TARGET_ENVIRONMENT): GeneratedChange {
   const document = draftToDocument(draft);
   const name = document.metadata.name;
@@ -233,6 +250,19 @@ export function generateAgentChange(draft: AgentDraft, targetEnvironment: string
        * the CONTENT cannot drift either.
        */
       ...(deployed ? [{ path: `deploy/environments/${targetEnvironment}/rendered/agents/${name}.yaml`, contents: renderedYaml }] : []),
+      /*
+       * THE MANAGER'S OWN BUNDLE MOVES TOO — for every environment, not just
+       * this one.
+       *
+       * That bundle carries the CANONICAL registry: every Agent that exists,
+       * deployed here or not. Adding an Agent therefore changes it everywhere,
+       * and a change-set that left it alone merged cleanly and then failed the
+       * repository's own `check:generated` gate — while a production Manager,
+       * which reads these mounts rather than a git checkout, never learned the
+       * Agent existed at all. Observed on a real merge: the console listed the
+       * new Agent only because this cluster happens to run git-sync.
+       */
+      ...managerBundleFiles({ added: new Map([[name, { document, yaml, prompt: renderPrompt(draft, document) }]]), overlays: { [`${name}.yaml`]: overlayYaml } }),
       // an uploaded avatar rides in the SAME change-set as the document that
       // references it, so a merged pull request can never leave the console
       // pointing at a file that is not there

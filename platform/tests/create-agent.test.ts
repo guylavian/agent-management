@@ -49,14 +49,26 @@ describe("Create Agent", () => {
    */
   it("produces every file a deployable Agent needs, including the render Argo globs", () => {
     const change = generateAgentChange(draft, "production");
-    expect(change.files.map((file) => file.path)).toEqual([
+    const paths = change.files.map((file) => file.path);
+    expect(paths).toEqual(expect.arrayContaining([
       "platform/config/agents/network-security.yaml",
       "platform/config/prompts/network-security.md",
       "deploy/environments/production/agents/network-security.yaml",
       "deploy/environments/production/rendered/agents/network-security.yaml",
-    ]);
+    ]));
+    /*
+     * And the Manager's bundle for EVERY environment. That bundle carries the
+     * canonical registry — every Agent that exists, deployed here or not — so
+     * adding one changes it everywhere. A change-set that left it alone merged
+     * cleanly and then failed the repository's own check:generated gate, while
+     * a production Manager reading these mounts never learned the Agent existed.
+     */
+    expect(paths).toEqual(expect.arrayContaining([
+      "deploy/environments/production/rendered/agents/manager.yaml",
+      "deploy/environments/local/rendered/agents/manager.yaml",
+    ]));
 
-    const rendered = change.files.at(-1)?.contents ?? "";
+    const rendered = change.files.find((file) => file.path.endsWith("rendered/agents/network-security.yaml"))?.contents ?? "";
     expect(rendered).toContain("name: network-security");
     expect(rendered).toContain("deploymentEnvironment: production");
     // the digest is what makes a later prompt edit a visible, syncable diff
@@ -105,8 +117,19 @@ describe("Create Agent", () => {
     expect(Object.keys(parsed)).not.toContain("access");
   });
 
-  it("emits no secret material anywhere in the change-set", () => {
-    for (const file of generateAgentChange(draft).files) {
+  it("emits no secret material in the files it authors", () => {
+    /*
+     * Scoped to what this change WRITES. The Manager's bundle also travels in
+     * the change-set, but it is a projection of files already committed —
+     * model-bindings.yaml, environment.yaml, other Agents' documents — and
+     * scanning them here protects nothing new while failing on a comment that
+     * merely names a variable (SRE_LLM_API_KEY in poc's bindings). Those files
+     * are covered where it counts: `validate:tracked` refuses to let credential
+     * material become tracked at all, and runs in `npm run check`.
+     */
+    const authored = generateAgentChange(draft).files.filter((file) => !file.path.endsWith("rendered/agents/manager.yaml"));
+    expect(authored.length).toBeGreaterThan(0);
+    for (const file of authored) {
       expect(file.contents, file.path).not.toMatch(/client[_-]?secret|password|private[_-]?key|api[_-]?key|bearer /iu);
     }
   });
@@ -162,7 +185,9 @@ describe("Create Agent", () => {
 
   it("proposes the change as a pull request and never as a deployment", () => {
     const { change } = proposeAgentChange({ draft, requestedBy: "alice" });
-    expect(change.files.map((file) => file.path)).toHaveLength(4);
+    // four authored files, plus the Manager's bundle for each environment
+    const authored = change.files.filter((file) => !file.path.endsWith("rendered/agents/manager.yaml"));
+    expect(authored.map((file) => file.path)).toHaveLength(4);
     expect(change.branch).toBe("agent/add-network-security");
     // nothing here reaches a cluster: the portal writes Git and Argo does the rest
     expect(change.effects.some((effect) => /deploy now|apply|kubectl/iu.test(effect))).toBe(false);
@@ -213,18 +238,29 @@ describe("Create Agent", () => {
     expect(active).toContain("deploy/environments/local/rendered/agents/network-security.yaml");
 
     const asDraft = proposeAgentChange({ draft: { ...draft, lifecycle: "draft" }, requestedBy: "alice", targetEnvironment: "local" }).change.files.map((file) => file.path);
-    expect(asDraft.some((path) => path.includes("/rendered/"))).toBe(false);
+    /*
+     * A draft renders no values of its OWN — absence is how "do not deploy this"
+     * reaches the ApplicationSet. But it IS in the canonical registry, so the
+     * Manager's bundle still moves: that is precisely what a real merge got
+     * wrong, leaving `main` failing its own check:generated gate after a draft
+     * Agent was added through the console.
+     */
+    expect(asDraft.some((path) => /rendered\/agents\/(?!manager\.yaml)/u.test(path))).toBe(false);
+    expect(asDraft.some((path) => path.endsWith("rendered/agents/manager.yaml"))).toBe(true);
     // the document, the prompt and the overlay still travel: a draft is merged
     // and visible, it is only not deployed
     expect(asDraft).toContain("deploy/environments/local/agents/network-security.yaml");
-    expect(asDraft).toHaveLength(3);
+    expect(asDraft.filter((path) => !path.endsWith("rendered/agents/manager.yaml"))).toHaveLength(3);
   });
 
   it("writes the overlay and the render into the target environment, not a hardcoded one", () => {
     const paths = proposeAgentChange({ draft, requestedBy: "alice", targetEnvironment: "local" }).change.files.map((file) => file.path);
     expect(paths).toContain("deploy/environments/local/agents/network-security.yaml");
     expect(paths).toContain("deploy/environments/local/rendered/agents/network-security.yaml");
-    expect(paths.every((path) => !path.includes("environments/production"))).toBe(true);
+    // the AGENT's files stay in the target environment; the Manager's bundle
+    // spans every environment by design, because the registry it carries is global
+    const agentFiles = paths.filter((path) => !path.endsWith("rendered/agents/manager.yaml"));
+    expect(agentFiles.every((path) => !path.includes("environments/production"))).toBe(true);
   });
 
   /**
@@ -409,5 +445,55 @@ describe("a bad draft is reported as a bad draft", () => {
     catch (error) { thrown = error; }
     const issues = (thrown as AgentDraftError).issues.join(" ");
     expect(issues).toMatch(/access|displayName|description|identity/iu);
+  });
+});
+
+/**
+ * AN AGENT PROPOSED IN THE CONSOLE MUST ARRIVE IN GIT ALREADY RENDERED.
+ *
+ * Observed with a real merge: the portal opened a pull request adding the Agent
+ * document, its prompt and its deployment overlay. It merged cleanly, the
+ * console showed it merged, git-sync delivered it, and the Manager listed the
+ * Agent as a draft. No workload was ever created, because the ApplicationSet
+ * globs `deploy/environments/<env>/rendered/agents/*.yaml` and the change
+ * produced no such file. `npm run render:deploy` makes them, and nothing runs
+ * it — there is no CI in this repository — so the artifact Argo consumes was
+ * generated only on a laptop.
+ *
+ * The renderer already says this is the intent: renderAgentValues lives in
+ * @sre/config "so the management plane renders a DRAFT with the same code — an
+ * Agent proposed in the console must arrive in Git already rendered, or Argo,
+ * which globs rendered/, never sees it".
+ *
+ * The Manager's OWN rendered file must move too. It carries the whole estate's
+ * desired state as ConfigMaps, so a production Manager — which reads those
+ * mounts rather than a git checkout — would otherwise never learn the Agent
+ * exists. This cluster hid that, because gitSync lets it read the checkout.
+ */
+describe("a proposed Agent arrives deployable", () => {
+  const files = () => proposeAgentChange({ draft, requestedBy: "alice", targetEnvironment: "local" }).change.files.map((f) => f.path);
+
+  it("renders the values the ApplicationSet globs", () => {
+    expect(files()).toContain("deploy/environments/local/rendered/agents/network-security.yaml");
+  });
+
+  it("updates the Manager's bundle, or a production Manager never sees the Agent", () => {
+    expect(files()).toContain("deploy/environments/local/rendered/agents/manager.yaml");
+  });
+
+  it("carries the new Agent inside the Manager's desired state", () => {
+    const change = proposeAgentChange({ draft, requestedBy: "alice", targetEnvironment: "local" }).change;
+    const manager = change.files.find((f) => f.path.endsWith("rendered/agents/manager.yaml"));
+    expect(manager?.contents).toContain("network-security.yaml");
+  });
+
+  it("renders the AGENT into the environment the change targets, not a default", () => {
+    // the earlier defect: overlay and values written to production while the
+    // runtime served local, so the pull request merged and Argo saw nothing.
+    // The Manager's bundle is different and DOES span every environment,
+    // because the canonical registry it carries is global.
+    const files = proposeAgentChange({ draft, requestedBy: "alice", targetEnvironment: "poc" }).change.files;
+    const agentRenders = files.filter((f) => /rendered\/agents\/(?!manager\.yaml)/u.test(f.path));
+    expect(agentRenders.map((f) => f.path)).toEqual(["deploy/environments/poc/rendered/agents/network-security.yaml"]);
   });
 });
