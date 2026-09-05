@@ -44,6 +44,53 @@ import { InProcessSpecialistTransport } from "../transport/in-process.ts";
 import { DirectMcpClient, mcpEndpointsFromEnv, MockToolHiveClient, RealToolHiveClient, type ToolHiveClient } from "../adapters/index.ts";
 
 /**
+ * Creates a reachability probe for the OIDC JWKS endpoint.
+ * GET the JWKS URL with a short timeout (2s). Any HTTP response (including 401/404)
+ * is treated as reachable; only connection failure or timeout means unreachable.
+ */
+function createOidcProbe(oidc: OidcClient, config: AppConfig): (() => Promise<void>) | undefined {
+  if (oidc.mode !== "real") return undefined;
+  // RealOidcClient requires a jwksUri; it throws in constructor if missing
+  const jwksUri = config.oidc.jwksUri;
+  if (!jwksUri) return undefined;
+  return async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    try {
+      const response = await fetch(jwksUri, { signal: controller.signal });
+      // Any HTTP response (including 401/404) is treated as reachable
+      if (!response.ok) return;
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+}
+
+/**
+ * Creates a reachability probe for the model endpoint.
+ * GET the base URL with a short timeout (2s). Any HTTP response (including 401/404)
+ * is treated as reachable; only connection failure or timeout means unreachable.
+ * Comment: this probes reachability, not readiness — a 401 means the endpoint is up.
+ */
+function createModelProbe(model: ModelClient, config: AppConfig): (() => Promise<void>) | undefined {
+  if (model.mode !== "real") return undefined;
+  const baseUrl = config.llm.baseUrl ?? config.llm.tierSUrl;
+  if (!baseUrl) return undefined;
+  return async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    try {
+      const probeUrl = baseUrl.endsWith("/v1") ? `${baseUrl}/models` : `${baseUrl}/v1/models`;
+      const response = await fetch(probeUrl, { signal: controller.signal });
+      // Any HTTP response (including 401/404) is treated as reachable
+      if (!response.ok) return;
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+}
+
+/**
  * THE COMPOSITION ROOT.
  *
  * This is the only place in the repository allowed to see both agent-engine and
@@ -96,6 +143,8 @@ export interface ManagerDependencies extends CommonDependencies {
   /** Argo CD and pod readiness. Absent means the console reports `unknown`, never a colour. */
   argo?: DeploymentStatusSource;
   runtimeProbe?: RuntimeProbe;
+  /** optional probes for external dependencies (OIDC, model endpoint) */
+  probes?: { oidc?: () => Promise<void>; model?: () => Promise<void> };
 }
 
 /**
@@ -239,6 +288,9 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     if (config.clients.delegation === "real" && delegationPrivateKey === undefined) throw new Error("manager mode requires a delegation private key");
     const identityIssuer = config.clients.delegation === "mock" ? mockDelegation as MockDelegationAuthority : new PrivateKeyDelegatedIdentityIssuer({ issuer: config.delegation.issuer, privateKeyPkcs8: delegationPrivateKey as string });
     const delegationPublicKey = config.delegation.publicKeyFile ? readFileSync(config.delegation.publicKeyFile, "utf8") : undefined;
+    const oidc = config.clients.oidc === "mock" ? new MockOidcClient(config.oidc) : new RealOidcClient(config.oidc);
+    const oidcProbe = createOidcProbe(oidc, config);
+    const modelProbe = createModelProbe(model, config);
     return {
       mode: "manager",
       config,
@@ -257,9 +309,10 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       model,
       promptAssistModel: buildPromptAssistModel(config, model),
       synthesisModel: config.clients.llm === "mock" ? model : config.llm.baseUrl ? model : new RealOpenAiCompatibleClient(config.llm.tierLUrl as string, { modelMap: buildModelMap(config, config.llm.tierLModel ?? config.llm.model), temperatureMap: buildTemperatureMap(config), ...(config.llm.systemSuffix ? { systemSuffix: config.llm.systemSuffix } : {}) }),
-      oidc: config.clients.oidc === "mock" ? new MockOidcClient(config.oidc) : new RealOidcClient(config.oidc),
+      oidc,
       sessionStore: config.clients.postgres === "mock" ? new MockSessionStore() : config.clients.postgres === "disabled" ? new DisabledSessionStore() : new PostgresSessionStore(config.postgres.connectionString as string),
       ...(delegationPublicKey ? { delegationPublicJwks: publishedJwks(delegationPublicKey, config, registry) } : {}),
+      ...(oidcProbe || modelProbe ? { probes: { ...(oidcProbe ? { oidc: oidcProbe } : {}), ...(modelProbe ? { model: modelProbe } : {}) } } : {}),
     };
   }
 

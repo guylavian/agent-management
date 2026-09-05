@@ -206,10 +206,11 @@ export function managementRouter(deps: ManagementDeps): Router {
     });
   });
 
-  router.get("/agents/:id/metrics", (request: Request, response: Response) => {
+  router.get("/agents/:id/metrics", async (request: Request, response: Response) => {
     const agent = deps.state().registry.getSpecialist(request.params.id as string);
     if (agent === undefined) { notFound(response, "agent"); return; }
-    const runs = deps.runs.list(200).filter((run) => run.agents.includes(agent.name));
+    const allRuns = await deps.runs.list(200);
+    const runs = allRuns.filter((run) => run.agents.includes(agent.name));
     if (runs.length === 0) {
       response.json({ agentId: agent.name, status: "not-configured", reason: "no runs recorded in this process" });
       return;
@@ -233,13 +234,14 @@ export function managementRouter(deps: ManagementDeps): Router {
     response.json(permissionMatrix(specialists(), deps.state().registry.catalog));
   });
 
-  router.get("/runs", (request: Request, response: Response) => {
+  router.get("/runs", async (request: Request, response: Response) => {
     const limit = Number.parseInt(String(request.query.limit ?? "50"), 10);
-    response.json({ runs: deps.runs.list(Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 200) : 50) });
+    const runs = await deps.runs.list(Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 200) : 50);
+    response.json({ runs });
   });
 
-  router.get("/runs/:id", (request: Request, response: Response) => {
-    const run = deps.runs.get(request.params.id as string);
+  router.get("/runs/:id", async (request: Request, response: Response) => {
+    const run = await deps.runs.get(request.params.id as string);
     if (run === undefined) { notFound(response, "run"); return; }
     response.json(run);
   });
@@ -255,7 +257,7 @@ export function managementRouter(deps: ManagementDeps): Router {
    * run-diagnosis.ts on why that is the allowlist rather than a copy of it.
    */
   router.post("/runs/:id/diagnose", async (request: Request, response: Response) => {
-    const run = deps.runs.get(request.params.id as string);
+    const run = await deps.runs.get(request.params.id as string);
     if (run === undefined) { notFound(response, "run"); return; }
     if (deps.promptAssistModel === undefined) {
       response.status(501).json({ code: "NOT_CONFIGURED", message: "No console-assistance model profile is configured for this environment" });

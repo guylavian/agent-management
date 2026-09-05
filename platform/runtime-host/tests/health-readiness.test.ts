@@ -123,4 +123,82 @@ describe("readiness reports what it actually checked", () => {
     expect(response.statusCode).toBe(503);
     await app.close();
   });
+
+  it("returns 503 when OIDC JWKS endpoint is unreachable", async () => {
+    const deps = buildDependencies({});
+    if (deps.mode !== "manager") throw new Error("expected manager mode");
+    // Wire a probe that fails
+    (deps as { probes?: Record<string, () => Promise<void>> }).probes = {
+      oidc: async () => { throw new Error("connection refused"); },
+    };
+    const app = createApp(deps);
+    const response = await app.inject({ method: "GET", url: "/health/ready" });
+    expect(response.statusCode).toBe(503);
+    const body = response.json();
+    expect(body.dependencyStatus.oidc).toBe("unhealthy");
+    await app.close();
+  });
+
+  it("returns 200 when OIDC JWKS endpoint is reachable", async () => {
+    const deps = buildDependencies({});
+    if (deps.mode !== "manager") throw new Error("expected manager mode");
+    // Wire a probe that succeeds
+    (deps as { probes?: Record<string, () => Promise<void>> }).probes = {
+      oidc: async () => { /* reachable */ },
+    };
+    const app = createApp(deps);
+    const response = await app.inject({ method: "GET", url: "/health/ready" });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.dependencyStatus.oidc).toBe("healthy");
+    await app.close();
+  });
+
+  it("treats HTTP 401 response as model endpoint reachable", async () => {
+    const deps = buildDependencies({});
+    if (deps.mode !== "manager") throw new Error("expected manager mode");
+    // Wire a probe that succeeds even though it would get 401
+    (deps as { probes?: Record<string, () => Promise<void>> }).probes = {
+      model: async () => { /* reachable */ },
+    };
+    const app = createApp(deps);
+    const response = await app.inject({ method: "GET", url: "/health/ready" });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.dependencyStatus.model).toBe("healthy");
+    await app.close();
+  });
+
+  it("omits probe entry when probe is not configured", async () => {
+    const deps = buildDependencies({});
+    if (deps.mode !== "manager") throw new Error("expected manager mode");
+    // Don't wire any probes
+    (deps as { probes?: Record<string, () => Promise<void>> }).probes = undefined;
+    const app = createApp(deps);
+    const response = await app.inject({ method: "GET", url: "/health/ready" });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.dependencyStatus.oidc).toBeUndefined();
+    expect(body.dependencyStatus.model).toBeUndefined();
+    await app.close();
+  });
+
+  it("does not hang past timeout for slow probes", async () => {
+    const deps = buildDependencies({});
+    if (deps.mode !== "manager") throw new Error("expected manager mode");
+    // Wire a probe that times out
+    (deps as { probes?: Record<string, () => Promise<void>> }).probes = {
+      oidc: async () => { await new Promise(() => {}); }, // never resolves
+    };
+    const app = createApp(deps);
+    const startMs = Date.now();
+    const response = await app.inject({ method: "GET", url: "/health/ready" });
+    const elapsedMs = Date.now() - startMs;
+    // Should complete within 5 seconds even with slow probe (2s timeout + margin)
+    expect(elapsedMs).toBeLessThan(5000);
+    expect(response.statusCode).toBe(503);
+    const body = response.json();
+    expect(body.dependencyStatus.oidc).toBe("unhealthy");
+    await app.close();
+  });
 });

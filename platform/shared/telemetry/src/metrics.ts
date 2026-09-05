@@ -10,6 +10,7 @@ const COUNTERS = [
   "sre_tool_calls_total", "sre_tool_errors_total", "sre_evidence_total", "sre_missing_evidence_total",
   "sre_tier_l_invocations_total", "sre_tier_l_failures_total", "sre_agent_failures_total",
   "sre_authz_denials_total", "sre_invalid_model_outputs_total", "sre_invalid_tool_arguments_total",
+  "sre_dependency_probe_failures_total",
 ] as const;
 
 // interactive SRE latency buckets, in seconds

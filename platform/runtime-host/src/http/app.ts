@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import type { DispatchFunc, InjectOptions, Response as InjectResponse } from "light-my-request";
 import { MAX_AGENT_REQUEST_BYTES } from "@sre/agent-protocol";
-import { renderMetrics } from "@sre/telemetry";
+import { incrementMetric, renderMetrics } from "@sre/telemetry";
 import type { ApiDependencies } from "../bootstrap/dependencies.ts";
 import { managementRouter } from "../management/routes.ts";
 import { registerManagerRoutes } from "./manager.ts";
@@ -51,6 +51,54 @@ export function createApp(deps: ApiDependencies): TestableApp {
           && operational.error === undefined
           && Date.now() - operational.refreshedAt <= OPERATIONAL_SNAPSHOT_TTL_MS;
         dependencyStatus.operational = fresh && operational.rows.size > 0 ? "healthy" : "unhealthy";
+      }
+      // probe optional external dependencies (OIDC, model endpoint) concurrently.
+      // only report status for probes that are configured and wired. each probe
+      // runs with its own timeout so one slow dependency cannot hang the probe endpoint.
+      if (deps.probes) {
+        const probePromises: Array<Promise<{ key: string; status: "healthy" | "unhealthy" }>> = [];
+        if (deps.probes.oidc) {
+          probePromises.push(
+            Promise.race([
+              deps.probes.oidc()
+                .then(() => ({ key: "oidc", status: "healthy" as const }))
+                .catch((_error) => {
+                  incrementMetric("sre_dependency_probe_failures_total");
+                  return { key: "oidc", status: "unhealthy" as const };
+                }),
+              new Promise<{ key: string; status: "healthy" | "unhealthy" }>((resolve) =>
+                setTimeout(() => {
+                  incrementMetric("sre_dependency_probe_failures_total");
+                  resolve({ key: "oidc", status: "unhealthy" });
+                }, 2000),
+              ),
+            ]),
+          );
+        }
+        if (deps.probes.model) {
+          probePromises.push(
+            Promise.race([
+              deps.probes.model()
+                .then(() => ({ key: "model", status: "healthy" as const }))
+                .catch((_error) => {
+                  incrementMetric("sre_dependency_probe_failures_total");
+                  return { key: "model", status: "unhealthy" as const };
+                }),
+              new Promise<{ key: string; status: "healthy" | "unhealthy" }>((resolve) =>
+                setTimeout(() => {
+                  incrementMetric("sre_dependency_probe_failures_total");
+                  resolve({ key: "model", status: "unhealthy" });
+                }, 2000),
+              ),
+            ]),
+          );
+        }
+        const probeResults = await Promise.allSettled(probePromises);
+        for (const result of probeResults) {
+          if (result.status === "fulfilled") {
+            dependencyStatus[result.value.key] = result.value.status;
+          }
+        }
       }
     }
     const statusCode = Object.values(dependencyStatus).some((s) => s === "unhealthy") ? 503 : 200;

@@ -278,19 +278,23 @@ describe("run store and execution graph", () => {
     expect(record().nodes.every((node) => node.label.length <= 200)).toBe(true);
   });
 
-  it("bounds retained history", () => {
+  it("bounds retained history", async () => {
     const store = new InMemoryRunStore(3);
     for (let index = 0; index < 10; index += 1) store.record({ ...record(), requestId: `req-${index}` });
-    expect(store.list(100)).toHaveLength(3);
-    expect(store.get("req-9")).toBeDefined();
-    expect(store.get("req-0")).toBeUndefined();
+    const allRuns = await store.list(100);
+    expect(allRuns).toHaveLength(3);
+    const req9 = await store.get("req-9");
+    expect(req9).toBeDefined();
+    const req0 = await store.get("req-0");
+    expect(req0).toBeUndefined();
   });
 
-  it("lists most recent first", () => {
+  it("lists most recent first", async () => {
     const store = new InMemoryRunStore();
     store.record({ ...record(), requestId: "older" });
     store.record({ ...record(), requestId: "newer" });
-    expect(store.list()[0]?.requestId).toBe("newer");
+    const list = await store.list();
+    expect(list[0]?.requestId).toBe("newer");
   });
 });
 

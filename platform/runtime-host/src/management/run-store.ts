@@ -121,6 +121,15 @@ export const runRecordSchema = z
     evidenceCount: z.number().int().min(0),
     modelProfiles: z.array(z.string().min(1)),
     nodes: z.array(runNodeSchema),
+    /**
+     * Whether the execution trace above is the real one.
+     *
+     * The durable event table stores scalars, so a run read back from it has
+     * no node tree. Absent (or true) means these nodes are the run's own;
+     * false means the trace was not retained and an empty list must not be
+     * read as "nothing happened".
+     */
+    traceRetained: z.boolean().optional(),
   })
   .strict();
 
@@ -140,8 +149,8 @@ export interface RunSummary {
 
 export interface RunStore {
   record(run: RunRecord): void;
-  list(limit?: number): RunSummary[];
-  get(requestId: string): RunRecord | undefined;
+  list(limit?: number): Promise<RunSummary[]>;
+  get(requestId: string): Promise<RunRecord | undefined>;
   /** present only on durable stores; readiness uses it to prove the database answers */
   ping?(): Promise<void>;
 }
@@ -168,7 +177,7 @@ export class InMemoryRunStore implements RunStore {
     }
   }
 
-  list(limit = 50): RunSummary[] {
+  async list(limit = 50): Promise<RunSummary[]> {
     return [...this.#runs.values()]
       .reverse()
       .slice(0, limit)
@@ -185,7 +194,7 @@ export class InMemoryRunStore implements RunStore {
       }));
   }
 
-  get(requestId: string): RunRecord | undefined {
+  async get(requestId: string): Promise<RunRecord | undefined> {
     return this.#runs.get(requestId);
   }
 }
@@ -240,6 +249,13 @@ export class PostgresRunStore implements RunStore {
           status: parsed.status,
           durationMs: parsed.durationMs,
           evidenceCount: parsed.evidenceCount,
+          userSubjectHash: parsed.userSubjectHash,
+          environment: parsed.environment,
+          workloads: parsed.workloads,
+          toolCalls: parsed.toolCalls,
+          deniedToolCalls: parsed.deniedToolCalls,
+          modelProfiles: parsed.modelProfiles,
+          ...(parsed.question === undefined ? {} : { question: parsed.question }),
         }),
       ],
     ).catch((error: unknown) => {
@@ -251,10 +267,94 @@ export class PostgresRunStore implements RunStore {
     });
   }
 
-  /** Recent runs THIS pod served; the durable record of all of them is the event table. */
-  list(limit = 50): RunSummary[] { return this.#recent.list(limit); }
+  /** Read from local ring first (fast), fall through to database if not found. */
+  async list(limit = 50): Promise<RunSummary[]> {
+    const recent = await this.#recent.list(limit);
+    /*
+     * The DATABASE is the authority for listing, not this pod's ring.
+     * Short-circuiting on a non-empty ring returned only the runs this replica
+     * happened to serve — which is the very thing durable history exists to
+     * fix. The ring is merged in afterwards because a run recorded moments ago
+     * may not have been flushed yet.
+     */
+    try {
+      const result = await this.#pool.query(
+        "SELECT stream_id, occurred_at, metadata FROM sre_execution_event WHERE stream_kind = $1 ORDER BY occurred_at DESC LIMIT $2",
+        ["run", limit],
+      ) as { rows?: Array<{ stream_id: string; occurred_at: string; metadata: Record<string, unknown> }> };
+      const stored = (result.rows ?? []).map((row) => ({
+        requestId: row.stream_id,
+        startedAt: row.occurred_at,
+        durationMs: (row.metadata.durationMs as number) ?? 0,
+        status: (row.metadata.status as "complete" | "partial" | "failed") ?? "failed",
+        ...(row.metadata.question !== undefined ? { question: String(row.metadata.question) } : {}),
+        userSubjectHash: String(row.metadata.userSubjectHash ?? ""),
+        agents: (row.metadata.agents as string[]) ?? [],
+        toolCalls: (row.metadata.toolCalls as number) ?? 0,
+        evidenceCount: (row.metadata.evidenceCount as number) ?? 0,
+      }));
+      const seen = new Set(stored.map((run) => run.requestId));
+      const merged = [...stored, ...recent.filter((run) => !seen.has(run.requestId))];
+      merged.sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt));
+      return merged.slice(0, limit);
+    } catch (error) {
+      // a database that cannot be read renders as "no runs", which is
+      // indistinguishable from a quiet estate — say so instead
+      this.#readFailed("list", error);
+      return recent;
+    }
+  }
 
-  get(requestId: string): RunRecord | undefined { return this.#recent.get(requestId); }
+  /** A failed read degrades to this pod's own history, but never silently. */
+  #readFailed(operation: string, error: unknown): void {
+    incrementMetric("sre_run_read_failures_total");
+    console.error(JSON.stringify({ level: "error", event: "run.read_failed", operation, detail: error instanceof Error ? error.message : String(error) }));
+  }
+
+  async get(requestId: string): Promise<RunRecord | undefined> {
+    // Fast path: check local ring first
+    const recent = await this.#recent.get(requestId);
+    if (recent !== undefined) {
+      return recent;
+    }
+    // Fall back to database
+    try {
+      const result = await this.#pool.query(
+        "SELECT stream_id, occurred_at, metadata FROM sre_execution_event WHERE event_id = $1 AND stream_kind = $2",
+        [`run:${requestId}`, "run"],
+      ) as { rows?: Array<{ stream_id: string; occurred_at: string; metadata: Record<string, unknown> }> };
+      const row = result.rows?.[0];
+      if (row === undefined) {
+        return undefined;
+      }
+      return {
+        requestId: row.stream_id,
+        startedAt: row.occurred_at,
+        durationMs: (row.metadata.durationMs as number) ?? 0,
+        status: (row.metadata.status as "complete" | "partial" | "failed") ?? "failed",
+        ...(row.metadata.question !== undefined ? { question: String(row.metadata.question) } : {}),
+        userSubjectHash: String(row.metadata.userSubjectHash ?? ""),
+        environment: String(row.metadata.environment ?? ""),
+        agents: (row.metadata.agents as string[]) ?? [],
+        workloads: (row.metadata.workloads as string[]) ?? [],
+        toolCalls: (row.metadata.toolCalls as number) ?? 0,
+        deniedToolCalls: (row.metadata.deniedToolCalls as number) ?? 0,
+        evidenceCount: (row.metadata.evidenceCount as number) ?? 0,
+        modelProfiles: (row.metadata.modelProfiles as string[]) ?? [],
+        /*
+         * The execution trace is NOT retained: the event table takes scalars,
+         * and a run tree is not one. A run read back from the database
+         * therefore has no nodes — which is why `traceRetained` says so rather
+         * than letting an empty array read as "nothing happened".
+         */
+        nodes: [],
+        traceRetained: false,
+      };
+    } catch (error) {
+      this.#readFailed("get", error);
+      return undefined;
+    }
+  }
 
   /** a pool is created lazily, so only a real query proves the database is reachable */
   async ping(): Promise<void> { await this.#pool.query("SELECT 1", []); }
