@@ -1,6 +1,6 @@
 import { parse as parseYaml, parseDocument, isMap, isSeq } from "yaml";
 import { agentDocumentSchema, assertNoSecretMaterial, toolHiveAudience, workloadClientId, type AgentDocument, type AgentLifecycle } from "@sre/agent-schema";
-import { agentDeploymentOverlaySchema, deployEnvironmentDir, deploymentEnvironments, loadModelBindings, renderAgentValues, renderedValuesToYaml, renderManagerValues, toRepoPath, type SpecialistAgentConfig } from "@sre/config";
+import { agentDeploymentOverlaySchema, configBaseDir, deployEnvironmentDir, deploymentEnvironments, loadModelBindings, renderAgentValues, renderedValuesToYaml, renderManagerValues, toRepoPath, type SpecialistAgentConfig } from "@sre/config";
 import { avatarAssetPath, isManagedAvatarPath, validateAvatar, AvatarError, type AvatarFit } from "./avatar.ts";
 
 /**
@@ -208,7 +208,9 @@ export function generateAgentChange(draft: AgentDraft, targetEnvironment: string
   const renderedYaml = renderedValuesToYaml(renderAgentValues(
     document,
     agentDeploymentOverlaySchema.parse(parseYaml(overlayYaml)),
-    loadModelBindings(deployEnvironmentDir(targetEnvironment)),
+    // resolved from the configured base, not the CWD: behind git-sync the
+    // working directory is a worktree that has already been deleted
+    loadModelBindings(deployEnvironmentDir(targetEnvironment), configBaseDir()),
     targetEnvironment,
     renderPrompt(draft, document),
     // the SAME bytes this change-set commits to config/agents, so the mounted

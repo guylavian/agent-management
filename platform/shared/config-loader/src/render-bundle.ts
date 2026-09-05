@@ -1,8 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { agentDocumentSchema, type AgentDocument } from "@sre/agent-schema";
-import { CONFIG_PATHS, configFiles, DEPLOY_ROOT, deployEnvironmentDir } from "./app-config.ts";
+import { CONFIG_PATHS, configBaseDir, configFiles, DEPLOY_ROOT, deployEnvironmentDir } from "./app-config.ts";
 import { loadDeploymentEnvironment, loadModelBindings, type RenderedAgentValues } from "./agent-catalog.ts";
 import { renderAgentValues, type ManagerDesiredState } from "./render-values.ts";
 
@@ -20,8 +20,8 @@ import { renderAgentValues, type ManagerDesiredState } from "./render-values.ts"
 /** Every canonical Agent, with pending additions folded in and removals taken out. */
 export function canonicalAgents(pending?: { added?: Map<string, { document: AgentDocument; yaml: string; prompt: string }>; removed?: string[] }): Map<string, AgentDocument> {
   const documents = new Map<string, AgentDocument>();
-  for (const file of configFiles(CONFIG_PATHS.agentsDir)) {
-    const doc = agentDocumentSchema.parse(parseYaml(readFileSync(join(CONFIG_PATHS.agentsDir, file), "utf8")));
+  for (const file of configFiles(resolve(configBaseDir(), CONFIG_PATHS.agentsDir))) {
+    const doc = agentDocumentSchema.parse(parseYaml(readFileSync(resolve(configBaseDir(), CONFIG_PATHS.agentsDir, file), "utf8")));
     documents.set(doc.metadata.name, doc);
   }
   for (const name of pending?.removed ?? []) documents.delete(name);
@@ -52,11 +52,11 @@ export function managerDesiredState(
   const prompts: Record<string, string> = {};
   for (const [name, doc] of [...documents.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     const added = pending?.added?.get(name);
-    agents[`${name}.yaml`] = added?.yaml ?? readFileSync(join(CONFIG_PATHS.agentsDir, `${name}.yaml`), "utf8");
+    agents[`${name}.yaml`] = added?.yaml ?? readFileSync(resolve(configBaseDir(), CONFIG_PATHS.agentsDir, `${name}.yaml`), "utf8");
     // keyed by the prompt's own FILE NAME, because the mount replaces the
     // prompts directory and `spec.prompt.systemFile` resolves into it
     const promptFile = doc.spec.prompt.systemFile.split("/").pop() as string;
-    prompts[promptFile] = added?.prompt ?? readFileSync(doc.spec.prompt.systemFile, "utf8");
+    prompts[promptFile] = added?.prompt ?? readFileSync(resolve(configBaseDir(), doc.spec.prompt.systemFile), "utf8");
   }
 
   const overlays: Record<string, string> = {};
@@ -82,11 +82,11 @@ function agentSources(doc: AgentDocument, pending?: Map<string, { document: Agen
   const promptPath = doc.spec.prompt.systemFile;
   let prompt: string;
   try {
-    prompt = readFileSync(promptPath, "utf8");
+    prompt = readFileSync(resolve(configBaseDir(), promptPath), "utf8");
   } catch {
     throw new Error(`agent "${doc.metadata.name}" references prompt ${promptPath}, which does not exist`);
   }
-  return { prompt, yaml: readFileSync(join(CONFIG_PATHS.agentsDir, `${doc.metadata.name}.yaml`), "utf8") };
+  return { prompt, yaml: readFileSync(resolve(configBaseDir(), CONFIG_PATHS.agentsDir, `${doc.metadata.name}.yaml`), "utf8") };
 }
 
 export function renderOneAgent(
@@ -109,8 +109,8 @@ export function renderManagerValues(
   environment: string,
   pending?: { added?: Map<string, { document: AgentDocument; yaml: string; prompt: string }>; removed?: string[]; overlays?: Record<string, string> },
 ): RenderedAgentValues | undefined {
-  const directory = deployEnvironmentDir(environment);
-  const state = loadDeploymentEnvironment(directory);
+  const directory = resolve(configBaseDir(), deployEnvironmentDir(environment));
+  const state = loadDeploymentEnvironment(directory, configBaseDir());
   if (!state.manager?.enabled) return undefined;
   const documents = canonicalAgents(pending);
   const manager = documents.get("manager");
@@ -118,7 +118,7 @@ export function renderManagerValues(
   return renderOneAgent(
     manager,
     state.manager,
-    loadModelBindings(directory),
+    loadModelBindings(directory, configBaseDir()),
     environment,
     managerDesiredState(documents, directory, pending),
     pending?.added,
@@ -133,7 +133,7 @@ export function renderManagerValues(
  * leaving one environment's Manager bundle stale.
  */
 export function deploymentEnvironments(): string[] {
-  return readdirSync(join(DEPLOY_ROOT, "environments"), { withFileTypes: true })
+  return readdirSync(resolve(configBaseDir(), DEPLOY_ROOT, "environments"), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();

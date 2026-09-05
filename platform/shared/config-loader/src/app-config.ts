@@ -40,6 +40,22 @@ export function fromRepoPath(path: string): string {
   return path;
 }
 
+/**
+ * Where this process reads configuration from on disk.
+ *
+ * The constants above describe the REPOSITORY's layout and stay relative,
+ * because change-sets are committed with repository-relative paths. Reads are a
+ * different question: behind a git-sync checkout the working directory is a
+ * worktree the kernel pinned at exec, and git-sync deletes it the moment it
+ * advances — so resolving a read against the CWD lands in a directory that no
+ * longer exists. SRE_CONFIG_BASE_DIR points through the symlink instead, and
+ * every read that is not already given a base should go through here.
+ */
+export function configBaseDir(): string {
+  const configured = process.env.SRE_CONFIG_BASE_DIR;
+  return configured === undefined || configured === "" ? process.cwd() : configured;
+}
+
 export function deployEnvironmentDir(environment: string): string {
   return `${DEPLOY_ROOT}/environments/${environment}`;
 }

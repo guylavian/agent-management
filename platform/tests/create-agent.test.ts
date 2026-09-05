@@ -497,3 +497,40 @@ describe("a proposed Agent arrives deployable", () => {
     expect(agentRenders.map((f) => f.path)).toEqual(["deploy/environments/poc/rendered/agents/network-security.yaml"]);
   });
 });
+
+/**
+ * RENDERING A DRAFT MUST NOT DEPEND ON THE PROCESS'S WORKING DIRECTORY.
+ *
+ * Behind a git-sync checkout the CWD is a worktree the kernel pinned at exec,
+ * and git-sync deletes that worktree the moment it advances. The runtime's own
+ * config loading was moved onto SRE_CONFIG_BASE_DIR for exactly this reason —
+ * but the management plane's render path was not, so it went on resolving
+ * `deploy/environments/<env>/model-bindings.yaml` relative to a directory that
+ * no longer existed.
+ *
+ * The symptom, reported from the console and reproduced here: every push broke
+ * "create agent" until the pod happened to restart, which is why it looked
+ * intermittent and kept appearing to fix itself.
+ *
+ *   ENOENT: /repo/.worktrees/<old sha>/deploy/environments/local/model-bindings.yaml
+ *     at loadModelBindings → generateAgentChange
+ */
+describe("a draft renders from the configured base, not the working directory", () => {
+  it("renders when the working directory is not the config root", () => {
+    const elsewhere = mkdtempSync(join(tmpdir(), "cwd-"));
+    const previous = process.cwd();
+    const previousBase = process.env.SRE_CONFIG_BASE_DIR;
+    try {
+      // the pod's condition: config lives HERE, the process is standing THERE
+      process.env.SRE_CONFIG_BASE_DIR = previous;
+      process.chdir(elsewhere);
+      const change = proposeAgentChange({ draft, requestedBy: "alice", targetEnvironment: "local" }).change;
+      expect(change.files.some((file) => file.path.endsWith("rendered/agents/network-security.yaml"))).toBe(true);
+    } finally {
+      process.chdir(previous);
+      if (previousBase === undefined) delete process.env.SRE_CONFIG_BASE_DIR;
+      else process.env.SRE_CONFIG_BASE_DIR = previousBase;
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+});
