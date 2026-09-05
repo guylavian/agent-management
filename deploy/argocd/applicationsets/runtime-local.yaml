@@ -84,16 +84,13 @@ spec:
               - { name: "networkPolicy.extraEgress[0].ports[0].protocol", value: TCP }
               - { name: "networkPolicy.extraEgress[0].ports[0].port", value: "11434" }
               - { name: "networkPolicy.extraEgress[0].to[0].ipBlock.cidr", value: "0.0.0.0/0" }
-              # PostgreSQL, also on the host rather than in the cluster. Only the
-              # manager reaches it: it owns the session store and the run
-              # history, and a specialist has no business holding a database
-              # credential — so the rule is not rendered for specialists at all.
-              - name: "networkPolicy.extraEgress[1].ports[0].port"
-                value: '{{ if eq .agent.mode "manager" }}55433{{ else }}0{{ end }}'
-              - name: "networkPolicy.extraEgress[1].ports[0].protocol"
-                value: TCP
-              - name: "networkPolicy.extraEgress[1].to[0].ipBlock.cidr"
-                value: '{{ if eq .agent.mode "manager" }}0.0.0.0/0{{ else }}127.0.0.1/32{{ end }}'
+              # PostgreSQL, also on the host rather than in the cluster. The
+              # CHART decides who gets this rule, from clients.postgres below —
+              # conditioning it on the agent mode here emitted `port: 0` for
+              # specialists, which Kubernetes rejects outright, and no
+              # specialist could sync at all.
+              - { name: "networkPolicy.postgresEgressCIDRs[0]", value: "0.0.0.0/0" }
+              - { name: "networkPolicy.postgresEgressPort", value: "55433" }
               # Durable run history and sessions. Specialists stay on the mock:
               # they record nothing and must not hold the credential.
               - name: clients.postgres

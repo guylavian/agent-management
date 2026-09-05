@@ -110,6 +110,21 @@ spec:
         {{- end }}
     {{- end }}
     {{- /*
+      The database, when it lives outside the cluster. Gated on the postgres
+      CLIENT, not on the agent mode: the chart already knows whether this
+      workload speaks to a database, and expressing it as a mode in the
+      ApplicationSet produced `port: 0` for the modes that do not — which
+      Kubernetes rejects, so no specialist could sync at all.
+    */}}
+    {{- if and (eq .Values.clients.postgres "real") .Values.networkPolicy.postgresEgressCIDRs }}
+    - to:
+        {{- range .Values.networkPolicy.postgresEgressCIDRs }}
+        - ipBlock: { cidr: {{ . | quote }} }
+        {{- end }}
+      ports:
+        - { protocol: TCP, port: {{ .Values.networkPolicy.postgresEgressPort }} }
+    {{- end }}
+    {{- /*
       Egress the selectors above cannot express — a model endpoint outside the
       cluster, a collector reached by IP. Empty by default: the closed posture
       holds unless an operator writes a rule down.

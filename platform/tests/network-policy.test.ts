@@ -110,3 +110,37 @@ describe("manager egress cannot reach ToolHive", () => {
     }
   });
 });
+
+/**
+ * A workload that talks to a database outside the cluster needs egress to it,
+ * and a workload that does not must not be given it.
+ *
+ * The first attempt expressed this in the ApplicationSet, conditioning the port
+ * on the agent mode — which cannot omit a list entry, so specialists rendered
+ * `port: 0`. Kubernetes rejects that (must be between 1 and 65535) and Argo
+ * could not sync any specialist at all. The condition belongs where the fact
+ * lives: the chart already knows whether this workload uses PostgreSQL.
+ */
+describe("database egress follows the database client", () => {
+  function egressPorts(args: string[]): number[] {
+    const out = execFileSync("helm", ["template", "np", chart, "--set", "agent.name=probe", "--set", "networkPolicy.enabled=true", ...args], { encoding: "utf8" });
+    const policy = out.split(/^---$/mu).map((doc) => parse(doc) as Record<string, unknown>).find((doc) => doc?.kind === "NetworkPolicy") as { spec: { egress: Rule[] } };
+    return policy.spec.egress.flatMap((rule) => (rule.ports ?? []).map((port) => port.port));
+  }
+
+  it("gives a manager on a real database the route to it", () => {
+    const ports = egressPorts(["--set", "agent.mode=manager", "--set", "clients.postgres=real", "--set", "networkPolicy.postgresEgressCIDRs={10.0.0.0/8}", "--set", "networkPolicy.postgresEgressPort=55433"]);
+    expect(ports).toContain(55433);
+  });
+
+  it("gives a specialist none, because it holds no database credential", () => {
+    const ports = egressPorts(["--set", "agent.mode=specialist", "--set", "clients.postgres=mock", "--set", "networkPolicy.postgresEgressCIDRs={10.0.0.0/8}", "--set", "networkPolicy.postgresEgressPort=55433"]);
+    expect(ports).not.toContain(55433);
+  });
+
+  it("never emits port 0, which Kubernetes rejects outright", () => {
+    for (const mode of ["manager", "specialist", "reconciler"]) {
+      expect(egressPorts(["--set", `agent.mode=${mode}`])).not.toContain(0);
+    }
+  });
+});
