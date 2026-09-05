@@ -1,0 +1,24 @@
+apiVersion: sre.ai/v1alpha1
+kind: Agent
+metadata:
+  name: check
+  owner: ewkdlm,cs
+  description: "wokdlm,cdwcvs xjlnfekodjlnv jkfoedln jkefnlvfelnv ks"
+  displayName: cmdk
+spec:
+  type: specialist
+  lifecycle: draft
+  model: { tier: small, profile: tool-caller }
+  prompt: { systemFile: config/prompts/check.md }
+  identity: { provider: keycloak, clientId: sre-agent-check }
+  environments: ["prod", "dr", "lab"]
+  routing:
+    capabilities: ["wecd"]
+    exclusions: ["dwcsx"]
+  access:
+    - mcp: kubernetes
+      audience: sre-toolhive:kubernetes
+      tools: [pods_get, pods_list, pods_log, pods_top]
+  execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
+  authorization: { requiredRoles: [infra-read] }
+  security: { readOnly: true }
