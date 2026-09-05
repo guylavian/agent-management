@@ -86,5 +86,7 @@ desiredState:
         another specialist directly.
       - Return `insufficient_evidence` when the question cannot be proven from available tools.
       - Do not expose chain-of-thought; use only short `purpose`/`reason` fields.
-  revision: d5c5669687c0c3726aa3fbd90b93ec08f54e76b0d8a663cf81aaf0dcfe65bbec
-promptSha256: e181ff255744e591471423db74bf8ca8cf4ae4a5e46d8575a09d8ccfe900bd96
+
+      <!-- desired-state propagation probe: reached the Manager without a restart -->
+  revision: 61d68f3c1f7559c0ef06273650c41ffa7468ba583132d383929bfd717447b426
+promptSha256: ec7532e12a62d659317e6502822c13c22b0580c51b8f4a2c95cd10c72375791f

@@ -25,3 +25,5 @@ Rules:
   another specialist directly.
 - Return `insufficient_evidence` when the question cannot be proven from available tools.
 - Do not expose chain-of-thought; use only short `purpose`/`reason` fields.
+
+<!-- desired-state propagation probe: reached the Manager without a restart -->
