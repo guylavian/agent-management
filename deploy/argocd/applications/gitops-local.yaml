@@ -23,7 +23,18 @@ spec:
   source:
     repoURL: https://github.com/guylavian/agent-management.git
     targetRevision: main
-    path: deploy/argocd/local
+    path: deploy/argocd
+    # A directory source with an explicit include, NOT kustomize: a
+    # kustomization under deploy/argocd/local would have to reach up into
+    # ../projects and ../applications, and kustomize refuses to load files above
+    # its own root.
+    #
+    # The list is exhaustive on purpose. `recurse` over this directory would also
+    # sweep in applicationsets/runtime.yaml — the PRODUCTION ApplicationSet —
+    # and aim a laptop cluster at production desired state.
+    directory:
+      recurse: true
+      include: "{projects/sre-agent-platform.yaml,applicationsets/runtime-local.yaml,applications/gitops-local.yaml}"
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

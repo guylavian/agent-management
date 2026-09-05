@@ -12,6 +12,13 @@ spec:
       labels: {{- include "sre-agent.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "sre-agent.serviceAccountName" . }}
+      # The runtime never calls the Kubernetes API — the chart owns the Service
+      # naming convention precisely so nothing has to discover Services through
+      # it. A mounted API token would buy nothing and sit one `cat` away from
+      # anything that achieves execution in the pod. The projected
+      # workload-identity token below is a different token with its own
+      # audience, and it is how a specialist proves who it is.
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 35
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}

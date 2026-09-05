@@ -203,3 +203,31 @@ describe("the delegation key is mounted only when something reads it", () => {
     expect(rendered).not.toContain("delegation-private-key");
   });
 });
+
+/**
+ * The runtime never calls the Kubernetes API — nothing discovers Services
+ * through it, which is why the chart owns the naming convention instead. A
+ * mounted API token is therefore pure attack surface: it buys nothing and it is
+ * one `cat` away for anything that achieves execution in the pod.
+ *
+ * The workload identity token is a DIFFERENT, projected token with its own
+ * audience, and it must survive: it is how a specialist proves who it is.
+ */
+describe("no workload mounts a Kubernetes API token it never uses", () => {
+  function renderPodSpec(mode: string): { automountServiceAccountToken?: boolean; volumes: Array<{ name: string }> } {
+    const out = execFileSync("helm", ["template", "m", "../deploy/runtime/helm",
+      "--set", `agent.mode=${mode}`, "--set", "agent.name=probe",
+    ], { cwd: "/Users/guylavian/sre agent/platform", encoding: "utf8" });
+    const deployment = out.split(/^---$/mu).map((doc) => parse(doc) as Record<string, unknown>)
+      .find((doc) => doc?.kind === "Deployment") as { spec: { template: { spec: { automountServiceAccountToken?: boolean; volumes: Array<{ name: string }> } } } };
+    return deployment.spec.template.spec;
+  }
+
+  it.each(["manager", "specialist", "reconciler"])("%s does not automount the API token", (mode) => {
+    expect(renderPodSpec(mode).automountServiceAccountToken).toBe(false);
+  });
+
+  it("still projects the workload identity token, which is how a specialist proves who it is", () => {
+    expect(renderPodSpec("specialist").volumes.some((v) => v.name === "workload-identity")).toBe(true);
+  });
+});
