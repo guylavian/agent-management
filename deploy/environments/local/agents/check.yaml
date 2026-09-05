@@ -4,7 +4,7 @@ kind: AgentDeployment
 # ownership are properties of the Agent and live in config/agents/check.yaml;
 # the schema rejects them here.
 agentId: check
-enabled: false
+enabled: true
 replicas: 2
 resources:
   requests: { cpu: 500m, memory: 512Mi }
