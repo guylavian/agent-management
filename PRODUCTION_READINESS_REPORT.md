@@ -5,8 +5,11 @@
 **No known defect remains open.** All eight HIGH findings are closed, a re-review
 found nothing new that survived verification, and `npm run check` is green.
 
-The verdict is negative for one reason: **the identity and tool-authorization
-chain has never been executed.** Production runs real Keycloak, real workload
+The verdict is negative because **the security control plane is not closed end
+to end.** Two further defects were found by reviewing the shipped source (not
+the report) and are fixed below; what remains is that **the identity and
+tool-authorization chain has never been executed**, and that **revocation is not
+automated**. Production runs real Keycloak, real workload
 identity, RFC 8693 exchange, ToolHive and Cedar. This cluster runs mocks for all
 of them. Deploying to production means running a configuration that has not once
 been exercised end to end — and that chain *is* the security boundary. That is an
@@ -21,7 +24,7 @@ untested path is the one that decides who may invoke which tool.
 | Target | Kubernetes (docker-desktop), context `docker-desktop`, node `desktop-control-plane` |
 | Kubernetes / runtime | v1.35.1, containerd 2.2.1 |
 | Namespaces | `sre-assistant`, `argocd` |
-| Git revision | `65bfdac` on `origin/main` (github.com/guylavian/agent-management) |
+| Git revision | `516dc35` on `origin/main` (github.com/guylavian/agent-management) |
 | Runtime image | `sre-agent-runtime:local`, containerd `f1ea76ab1ed99`, 246 MB, `imagePullPolicy: Never` |
 | Portal image | `sre-agent-portal:cert`, 786 MB, `node:24-trixie-slim`, uid 1000, no baked secret |
 | Argo CD | v3.5.2 · Keycloak available 26.6 (host) · PostgreSQL 16 (host) |
@@ -118,6 +121,75 @@ Total ≈ **4–5 hours**. It fits in 3.83 GiB only with resource discipline —
 specialist replicas at 1, memory limits trimmed. Nothing here is a red line.
 
 Gate 7's real OIDC login is blocked on exactly the same work.
+
+---
+
+## Found by source review after the report was written (2 HIGH, fixed)
+
+Both sit exactly on the security invariants, and both were invisible in the
+report because the report described intent rather than the execute path.
+
+### S-1 — policy reload was fail-closed at readiness, not at the application
+
+`desired-state.ts` deliberately keeps the last valid document when a reload
+fails, and `app.ts` turns readiness 503. Neither stops work.
+`/internal/v1/execute` never consulted `policyStatus()`, so it went on running
+against `agentOf()` — the **broader** document Git was trying to replace:
+
+```
+Git narrows permissions → reload fails → old broader grants remain in memory
+→ readiness 503 → but requests still execute until the kubelet removes the
+   endpoint, and indefinitely for anything calling the pod directly
+```
+
+Fixed: the handler refuses with **503 `AGENT_UNAVAILABLE` above request
+parsing**, so nothing about the request can widen or shorten the window. The
+specialist's own comment already required this — enforcement reads the live
+document "so a boot-time copy would keep granting access Git has already
+narrowed", and a stale document after a failed reload is exactly that copy.
+
+### S-2 — `tool_access` was attested on a basis that excluded revocation
+
+`GatewayToolAccessVerifier` verifies real things — every grant is in the
+approved catalog and read-only verified, every gateway refuses an anonymous
+call — and then returned `ready: true` while its own detail admitted the loaded
+per-Agent policy is not introspectable.
+
+`ready` drives routing, and the operational plane exists so that
+**disable = routing off + identity revoked + access revoked**. This verifier
+cannot observe the third, and after an Agent was disabled it would have gone on
+attesting tool access exactly as before.
+
+Fixed: **default closed**. An operator who accepts the weaker basis sets
+`acceptUnintrospectablePolicy`, and that acceptance is recorded in the
+attestation's detail rather than inferred from its absence. The pre-existing
+test that asserted `ready: true` encoded the overclaim and was corrected.
+
+---
+
+## Revocation is not automated — the remaining control-plane gap
+
+Disabling an Agent today is proven for two of the three properties the design
+claims:
+
+| Property | Status |
+|---|---|
+| routing off | **proven** — `routedAgents: []`, catalog reports not routable |
+| Deployment pruned | **proven** — Argo removed the Application and the workload |
+| Keycloak client disabled | **not automated, not proven** |
+| live ToolHive/Cedar grants revoked | **not automated, not proven** |
+
+`npm run reconcile:keycloak -- --apply` is a manual script. Its only reference
+anywhere in the tree is an error message in `verify-keycloak-identities.ts`
+telling an operator to run it — it is wired to no Argo hook, no CI job and no
+reconciler loop, while `management/yaml.ts` tells the reviewer of a pull request
+that Keycloak *will* be reconciled.
+
+**This needs a decision before it is built**, which is why it is not fixed here:
+the reconciler currently *attests* and never *mutates*, so making it disable
+Keycloak clients changes what that component is. The alternative — a CI job on
+merge — keeps the reconciler read-only but puts identity mutation outside the
+GitOps convergence loop. Either is defensible; picking one silently is not.
 
 ---
 
