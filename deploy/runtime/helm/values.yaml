@@ -40,6 +40,42 @@ caBundle:
 # Must be the full document (apiVersion, kind, environment, namespace, endpointTemplate).
 environmentOverride: ""
 
+# AGENT DESIRED STATE, mounted from Git rather than baked into the image.
+#
+# Populated by `npm run render:deploy` — never by hand. Each map is
+# `<file name>: <contents>` and becomes one ConfigMap mounted as a whole
+# DIRECTORY over the image's copy, so a merged Agent reaches a running pod
+# without an image rebuild and without a restart.
+#
+#   agents           manager only: every canonical Agent document
+#   prompts          the prompt bodies this workload resolves
+#   overlays         manager only: this environment's deployment overlays
+#   environmentFiles manager only: environment.yaml, manager.yaml, model-bindings.yaml
+#
+# A specialist gets only its own prompt: it loads one Agent document, and
+# shipping it the whole estate would hand every pod a list of every other Agent.
+desiredState:
+  agents: {}
+  prompts: {}
+  overlays: {}
+  environmentFiles: {}
+
+# LOCAL CLUSTERS ONLY: sync the repository into the pod and read configuration
+# from a live checkout of the branch, so a merged pull request reaches the
+# runtime without an image rebuild — the same way it reaches Argo. Production
+# leaves this off: there the image IS the reviewed artifact. When enabled the
+# runtime container's working directory moves to <root>/current/platform; the
+# code still runs from the image.
+gitSync:
+  enabled: false
+  repoURL: ""
+  branch: main
+  image: registry.k8s.io/git-sync/git-sync:v4.4.0
+  periodSeconds: 30
+  # name of a Secret with `username` and `password` (a token) for a private
+  # repository; empty for a public one
+  credentialsSecret: ""
+
 replicaCount: 2
 
 service:
@@ -65,14 +101,20 @@ deploymentEnvironment: production
 # deploy/environments/<env>/model-bindings.yaml. Never holds an endpoint or key.
 modelEnv: {}
 
-# Secret carrying the per-mode integration endpoints and keys:
-# manager: SRE_OIDC_*, SRE_LLM_TIER_S_URL, SRE_LLM_TIER_L_URL, SRE_POSTGRES_URL,
-#          SRE_DELEGATION_ISSUER, SRE_DELEGATION_PRIVATE_KEY_PKCS8,
-#          SRE_TOOLHIVE_URL (unused by the manager process; NetworkPolicy denies the path)
-# specialist: SRE_TOOLHIVE_URL, SRE_LLM_TIER_S_URL, SRE_LLM_TIER_L_URL,
-#          SRE_DELEGATION_ISSUER, SRE_DELEGATION_JWKS_URI, SRE_INTERNAL_OIDC_*,
-#          SRE_OIDC_*, SRE_POSTGRES_URL
-integrationsSecret: sre-agent-integrations
+# Secrets by role (envFrom mounts all keys as env vars).
+#
+# manager gets:
+#   - managerSecret: SRE_POSTGRES_URL (session store), SRE_ARGOCD_TOKEN (Argo status)
+#   - delegationPrivateKeySecret with file mount: SRE_DELEGATION_PRIVATE_KEY_FILE=/etc/sre/delegation/private.pem
+#
+# specialist gets:
+#   - specialistSecret: SRE_TOOL_CREDENTIAL_CLIENT_SECRET (RFC 8693 token exchange)
+#
+# Both receive ConfigMap sre-agent-endpoints via extraEnvFrom: SRE_OIDC_*, SRE_LLM_TIER_*,
+# SRE_TOOLHIVE_*, etc. (all non-credential config).
+managerSecret: sre-agent-manager-secrets
+specialistSecret: sre-agent-specialist-secrets
+delegationPrivateKeySecret: sre-agent-delegation-private-key
 
 # Client wiring. Production is fail-closed and these defaults ARE that posture;
 # loadAppConfig independently rejects any mock when SRE_ENV is production/real-poc,
@@ -149,6 +191,10 @@ networkPolicy:
   # namespaces labelled <key>: "true" host shared platform services (vLLM,
   # ToolHive, OTel collector, IdP, PostgreSQL)
   platformNamespaceLabel: sre.ai/platform-service
+  # the ToolHive namespace carries this label as well; the manager's egress
+  # selector excludes it, because ToolHive shares port 443 with the IdP and a
+  # port list cannot separate them
+  toolhiveNamespaceLabel: sre.ai/toolhive
   # namespaces labelled <key>: "true" may call the manager (API gateway / route)
   apiClientNamespaceLabel: sre.ai/api-client
   # cluster DNS ports the egress rule admits. OpenShift's CoreDNS pods listen

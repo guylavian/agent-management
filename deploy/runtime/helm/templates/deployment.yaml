@@ -12,13 +12,46 @@ spec:
       labels: {{- include "sre-agent.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "sre-agent.serviceAccountName" . }}
+      terminationGracePeriodSeconds: 35
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.gitSync.enabled }}
+      initContainers:
+        # the first clone happens BEFORE the runtime starts: startup fails
+        # closed on configuration, so the checkout must exist when it loads
+        - name: git-sync-init
+          image: {{ .Values.gitSync.image | quote }}
+          args: ["--one-time", "--repo={{ .Values.gitSync.repoURL }}", "--ref={{ .Values.gitSync.branch }}", "--root=/repo", "--link=current", "--depth=1"]
+          {{- if .Values.gitSync.credentialsSecret }}
+          env:
+            - { name: GITSYNC_USERNAME, valueFrom: { secretKeyRef: { name: {{ .Values.gitSync.credentialsSecret | quote }}, key: username } } }
+            - { name: GITSYNC_PASSWORD, valueFrom: { secretKeyRef: { name: {{ .Values.gitSync.credentialsSecret | quote }}, key: password } } }
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65533
+            seccompProfile: { type: RuntimeDefault }
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: git-repo, mountPath: /repo }
+            # git-sync writes its gitconfig under /tmp; the root filesystem is
+            # read-only, so give it a scratch dir rather than widening the root
+            - { name: git-tmp, mountPath: /tmp }
       {{- end }}
       containers:
         - name: runtime
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.gitSync.enabled }}
+          # code runs from the image; every relative configuration read
+          # (agents, prompts, deploy/environments, change previews) resolves
+          # into the synced checkout instead of the image's baked copy
+          workingDir: /repo/current/platform
+          command: ["node", "/app/platform/runtime-host/src/main.ts"]
+          {{- end }}
           ports:
             - { name: http, containerPort: 3000 }
           env:
@@ -68,8 +101,16 @@ spec:
             {{- range $name, $value := .Values.modelEnv }}
             - { name: {{ $name }}, value: {{ $value | quote }} }
             {{- end }}
+            {{- if eq .Values.agent.mode "manager" }}
+            # manager: file-mounted delegation key replaces inline env var (C2)
+            - { name: SRE_DELEGATION_PRIVATE_KEY_FILE, value: /etc/sre/delegation/private.pem }
+            {{- end }}
           envFrom:
-            - secretRef: { name: {{ .Values.integrationsSecret | quote }} }
+            {{- if eq .Values.agent.mode "manager" }}
+            - secretRef: { name: {{ .Values.managerSecret | quote }} }
+            {{- else }}
+            - secretRef: { name: {{ .Values.specialistSecret | quote }} }
+            {{- end }}
             {{- with .Values.extraEnvFrom }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -95,20 +136,88 @@ spec:
             capabilities: { drop: [ALL] }
           volumeMounts:
             - { name: workload-identity, mountPath: {{ .Values.workloadIdentity.mountPath | quote }}, readOnly: true }
+            {{- if eq .Values.agent.mode "manager" }}
+            - { name: delegation-private-key, mountPath: /etc/sre/delegation, readOnly: true }
+            {{- end }}
             {{- if .Values.agent.configOverride }}
             - { name: agent-config, mountPath: /config, readOnly: true }
             {{- end }}
             {{- if .Values.environmentOverride }}
             # WORKDIR is /app/platform; SRE_DEPLOYMENT_ENVIRONMENT_DIR is ../deploy/environments/<env>
+            #
+            # DEPRECATED in favour of desiredState.environmentFiles below. A
+            # subPath mount is resolved once at container start and never sees a
+            # ConfigMap update, so this can only ever deliver the value the pod
+            # started with — fine for a fixed namespace, useless for anything
+            # that has to follow Git.
             - { name: environment-config, mountPath: {{ printf "/app/deploy/environments/%s/environment.yaml" .Values.deploymentEnvironment | quote }}, subPath: environment.yaml, readOnly: true }
+            {{- end }}
+            {{- /*
+              Whole-directory mounts, deliberately. They shadow the image's
+              baked copies, which is what lets one generic image serve an Agent
+              that did not exist when it was built. Ordering does not matter to
+              the kubelet: it sorts mounts by path, so the nested `agents`
+              mount lands inside the environment mount.
+            */}}
+            {{- if .Values.desiredState.agents }}
+            - { name: desired-agents, mountPath: "/app/platform/config/agents", readOnly: true }
+            {{- end }}
+            {{- if .Values.desiredState.prompts }}
+            - { name: desired-prompts, mountPath: "/app/platform/config/prompts", readOnly: true }
+            {{- end }}
+            {{- if .Values.desiredState.environmentFiles }}
+            # NOTE: this shadows `rendered/` inside the environment directory.
+            # The runtime reads it only to diff a change preview against disk,
+            # and that path already treats an unreadable file as "not there",
+            # so a preview renders as an addition rather than failing.
+            - { name: desired-environment, mountPath: {{ printf "/app/deploy/environments/%s" .Values.deploymentEnvironment | quote }}, readOnly: true }
+            {{- end }}
+            {{- if .Values.desiredState.overlays }}
+            - { name: desired-overlays, mountPath: {{ printf "/app/deploy/environments/%s/agents" .Values.deploymentEnvironment | quote }}, readOnly: true }
             {{- end }}
             {{- if .Values.caBundle.enabled }}
             - { name: trusted-ca, mountPath: {{ .Values.caBundle.mountPath | quote }}, readOnly: true }
             {{- end }}
+            {{- if .Values.gitSync.enabled }}
+            - { name: git-repo, mountPath: /repo, readOnly: true }
+            {{- end }}
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+        {{- if .Values.gitSync.enabled }}
+        # keeps the checkout following the branch; the runtime revalidates its
+        # desired state every few seconds and picks the new revision up itself
+        - name: git-sync
+          image: {{ .Values.gitSync.image | quote }}
+          args: ["--repo={{ .Values.gitSync.repoURL }}", "--ref={{ .Values.gitSync.branch }}", "--root=/repo", "--link=current", "--depth=1", "--period={{ .Values.gitSync.periodSeconds }}s"]
+          {{- if .Values.gitSync.credentialsSecret }}
+          env:
+            - { name: GITSYNC_USERNAME, valueFrom: { secretKeyRef: { name: {{ .Values.gitSync.credentialsSecret | quote }}, key: username } } }
+            - { name: GITSYNC_PASSWORD, valueFrom: { secretKeyRef: { name: {{ .Values.gitSync.credentialsSecret | quote }}, key: password } } }
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65533
+            seccompProfile: { type: RuntimeDefault }
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: git-repo, mountPath: /repo }
+            # git-sync writes its gitconfig under /tmp; the root filesystem is
+            # read-only, so give it a scratch dir rather than widening the root
+            - { name: git-tmp, mountPath: /tmp }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 100m, memory: 128Mi }
+        {{- end }}
       volumes:
+        {{- if .Values.gitSync.enabled }}
+        - name: git-repo
+          emptyDir: {}
+        - name: git-tmp
+          emptyDir: {}
+        {{- end }}
         - name: workload-identity
           projected:
             sources:
@@ -116,6 +225,16 @@ spec:
                   path: token
                   audience: {{ .Values.workloadIdentity.audience | quote }}
                   expirationSeconds: {{ .Values.workloadIdentity.expirationSeconds }}
+        {{- if eq .Values.agent.mode "manager" }}
+        # manager: delegation private key (file-mounted for security, C2)
+        - name: delegation-private-key
+          secret:
+            secretName: {{ .Values.delegationPrivateKeySecret | quote }}
+            items:
+              - key: private.pem
+                path: private.pem
+            defaultMode: 0400
+        {{- end }}
         {{- if .Values.agent.configOverride }}
         - name: agent-config
           configMap: { name: {{ include "sre-agent.fullname" . }}-config }
@@ -123,6 +242,22 @@ spec:
         {{- if .Values.environmentOverride }}
         - name: environment-config
           configMap: { name: {{ include "sre-agent.fullname" . }}-environment }
+        {{- end }}
+        {{- if .Values.desiredState.agents }}
+        - name: desired-agents
+          configMap: { name: {{ include "sre-agent.fullname" . }}-agents }
+        {{- end }}
+        {{- if .Values.desiredState.prompts }}
+        - name: desired-prompts
+          configMap: { name: {{ include "sre-agent.fullname" . }}-prompts }
+        {{- end }}
+        {{- if .Values.desiredState.environmentFiles }}
+        - name: desired-environment
+          configMap: { name: {{ include "sre-agent.fullname" . }}-environment-files }
+        {{- end }}
+        {{- if .Values.desiredState.overlays }}
+        - name: desired-overlays
+          configMap: { name: {{ include "sre-agent.fullname" . }}-overlays }
         {{- end }}
         {{- if .Values.caBundle.enabled }}
         - name: trusted-ca

@@ -48,11 +48,15 @@ spec:
               sre.ai/mode: specialist
       ports:
         - { protocol: TCP, port: 3000 }
-    # manager → IdP / vLLM / OTel / PostgreSQL. Deliberately NOT ToolHive:
-    # the manager never accumulates the specialists' data-plane access.
+    # manager → IdP / vLLM / OTel / PostgreSQL. NOT ToolHive: the manager never
+    # accumulates the specialists' data-plane access. That exclusion is made by
+    # the SELECTOR, because ToolHive answers on the same port as the IdP and a
+    # port list therefore cannot express it.
     - to:
         - namespaceSelector:
-            matchLabels: { {{ .Values.networkPolicy.platformNamespaceLabel }}: "true" }
+            matchExpressions:
+              - { key: {{ .Values.networkPolicy.platformNamespaceLabel }}, operator: In, values: ["true"] }
+              - { key: {{ .Values.networkPolicy.toolhiveNamespaceLabel }}, operator: DoesNotExist }
       ports:
         {{- range .Values.networkPolicy.managerPlatformPorts }}
         - { protocol: TCP, port: {{ . }} }

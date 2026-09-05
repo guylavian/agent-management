@@ -1,0 +1,87 @@
+{{/*
+  AGENT DESIRED STATE, DELIVERED BY ARGO INSTEAD OF BY THE IMAGE.
+
+  The runtime image bakes `platform/config` and `deploy/environments` so that a
+  working tree and a container resolve the same relative paths. That is right
+  for code and for defaults, and wrong for Agent desired state: a merged pull
+  request changed Git, Argo reconciled, and the running Manager went on reading
+  the registry from the image it was built with — so discovering a new Agent
+  needed an image rebuild.
+
+  These ConfigMaps are rendered from Git by `npm run render:deploy` and mounted
+  OVER the baked copies. One generic image, and never one image per Agent.
+
+  MOUNTED AS WHOLE DIRECTORIES, NEVER `subPath`. A subPath mount is resolved
+  once at container start and NEVER receives ConfigMap updates — it would have
+  reintroduced exactly the staleness this replaces, silently. A directory mount
+  gets the kubelet's atomic `..data` symlink swap, which is what makes an update
+  visible to a running process.
+*/}}
+{{- $fullname := include "sre-agent.fullname" . -}}
+{{- $labels := include "sre-agent.labels" . -}}
+{{- $revision := .Values.desiredState.revision | default "" -}}
+{{- with .Values.desiredState }}
+{{- if .agents }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-agents
+  labels: {{- $labels | nindent 4 }}
+data:
+  # every mount carries the SAME digest of the whole bundle, so a pod can
+  # tell that its ConfigMaps have not all reached the same commit yet
+  .revision: {{ $revision | quote }}
+{{- range $name, $contents := .agents }}
+  {{ $name }}: |
+{{ $contents | indent 4 }}
+{{- end }}
+---
+{{- end }}
+{{- if .prompts }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-prompts
+  labels: {{- $labels | nindent 4 }}
+data:
+  # every mount carries the SAME digest of the whole bundle, so a pod can
+  # tell that its ConfigMaps have not all reached the same commit yet
+  .revision: {{ $revision | quote }}
+{{- range $name, $contents := .prompts }}
+  {{ $name }}: |
+{{ $contents | indent 4 }}
+{{- end }}
+---
+{{- end }}
+{{- if .overlays }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-overlays
+  labels: {{- $labels | nindent 4 }}
+data:
+  # every mount carries the SAME digest of the whole bundle, so a pod can
+  # tell that its ConfigMaps have not all reached the same commit yet
+  .revision: {{ $revision | quote }}
+{{- range $name, $contents := .overlays }}
+  {{ $name }}: |
+{{ $contents | indent 4 }}
+{{- end }}
+---
+{{- end }}
+{{- if .environmentFiles }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-environment-files
+  labels: {{- $labels | nindent 4 }}
+data:
+  # every mount carries the SAME digest of the whole bundle, so a pod can
+  # tell that its ConfigMaps have not all reached the same commit yet
+  .revision: {{ $revision | quote }}
+{{- range $name, $contents := .environmentFiles }}
+  {{ $name }}: |
+{{ $contents | indent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}
