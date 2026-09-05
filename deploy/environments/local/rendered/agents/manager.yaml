@@ -360,10 +360,6 @@ desiredState:
         another specialist directly.
       - Return `insufficient_evidence` when the question cannot be proven from available tools.
       - Do not expose chain-of-thought; use only short `purpose`/`reason` fields.
-
-      <!-- desired-state propagation probe: reached the Manager without a restart -->
-
-      <!-- swap probe 2 -->
   overlays:
     active-directory.yaml: |-
       apiVersion: sre.ai/v1alpha1
@@ -485,5 +481,5 @@ desiredState:
         prompt-assist:
           provider: openai-compatible
           model: claude-haiku
-  revision: b227841316862f494bca7490bb7b46a118811c9d3657cbc14be96bf8df67cb3e
+  revision: de23c69ad15cc622a0923c7eca459db894c9133f2a089cf3f8e19e377958cb64
 promptSha256: 6cf082df2d2e3d1bf2446de22dbf623888105008865900643a56b286ef5f712f

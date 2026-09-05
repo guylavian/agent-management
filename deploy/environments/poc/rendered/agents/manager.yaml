@@ -360,10 +360,6 @@ desiredState:
         another specialist directly.
       - Return `insufficient_evidence` when the question cannot be proven from available tools.
       - Do not expose chain-of-thought; use only short `purpose`/`reason` fields.
-
-      <!-- desired-state propagation probe: reached the Manager without a restart -->
-
-      <!-- swap probe 2 -->
   overlays:
     active-directory.yaml: |-
       apiVersion: sre.ai/v1alpha1
@@ -479,5 +475,5 @@ desiredState:
         prompt-assist:
           provider: groq
           model: openai/gpt-oss-20b
-  revision: 3bdbe516811d3bb572cf2e68877c5bc601256094b27cd4b3216fa1aa8963cec1
+  revision: abc4199dc463a282a612d54579482569637a58400e3a150bbe6e1eaa6b0d230b
 promptSha256: 6cf082df2d2e3d1bf2446de22dbf623888105008865900643a56b286ef5f712f

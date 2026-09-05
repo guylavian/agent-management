@@ -360,10 +360,6 @@ desiredState:
         another specialist directly.
       - Return `insufficient_evidence` when the question cannot be proven from available tools.
       - Do not expose chain-of-thought; use only short `purpose`/`reason` fields.
-
-      <!-- desired-state propagation probe: reached the Manager without a restart -->
-
-      <!-- swap probe 2 -->
   overlays:
     active-directory.yaml: |-
       apiVersion: sre.ai/v1alpha1
@@ -469,5 +465,5 @@ desiredState:
         prompt-assist:
           provider: vllm
           model: qwen3-8b
-  revision: 91adbb12c828b53d5dbbd9c0700db37750d29367cb5f9d43b5b3319c5dfc26bc
+  revision: 4c869b1a885c572f130c5b2905f1cb39a1ffbf01d99228876034daa99f5856a6
 promptSha256: 6cf082df2d2e3d1bf2446de22dbf623888105008865900643a56b286ef5f712f
