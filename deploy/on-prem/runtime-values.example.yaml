@@ -37,7 +37,11 @@ environmentOverride: |
 # lists the keys). Credentials are split per ROLE and mounted conditionally on
 # agent.mode, so a specialist release never references the manager's Secret.
 managerSecret: sre-agent-manager-secrets
-specialistSecret: sre-agent-specialist-secrets
+# Empty means "sre-agent-<agent>-secrets": each specialist authenticates as its
+# OWN Keycloak client with its OWN Secret. A shared credential would collapse
+# the per-specialist boundary: one stolen key would speak for all agents, and
+# a compromise of any specialist becomes a compromise of every specialist.
+specialistSecret: ""
 delegationPrivateKeySecret: sre-agent-delegation-private-key
 extraEnvFrom:
   - configMapRef: { name: sre-agent-endpoints }

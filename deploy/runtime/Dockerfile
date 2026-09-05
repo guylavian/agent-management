@@ -67,6 +67,11 @@ COPY platform/config ./platform/config
 COPY deploy/environments ./deploy/environments
 
 WORKDIR /app/platform
+# Marks this as the shipped artifact rather than a working tree. loadAppConfig
+# refuses to start without SRE_ENV when it is set: the environment default is
+# `local`, whose clients are all mocks, and an image that guesses that on its
+# own would serve production traffic with a mock IdP and a mock ToolHive.
+ENV SRE_PACKAGED_IMAGE=1
 USER node
 EXPOSE 3000
 CMD ["node", "runtime-host/src/main.ts"]

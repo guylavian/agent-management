@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseAllDocuments } from "yaml";
@@ -75,5 +75,59 @@ describe("the GitOps objects are themselves under GitOps", () => {
     expect(root.spec.project).not.toBe("sre-agent-platform");
     // selfHeal is what reverts a hand-edited AppProject
     expect(root.spec.syncPolicy?.automated?.selfHeal).toBe(true);
+  });
+});
+
+/**
+ * PRODUCTION APPLICATIONSET MUST FAIL CLOSED ON MISSING VALUES.
+ *
+ * If the production ApplicationSet references a missing values file with
+ * ignoreMissingValueFiles: true, Helm falls back to chart defaults. These
+ * defaults have placeholder image registries and generic secret names that
+ * cannot work in production. The ApplicationSet must error instead, forcing
+ * the values file to be created or the reference removed.
+ */
+describe("production ApplicationSet fails closed on missing values", () => {
+  const prodAppSet = parseAllDocuments(readFileSync(join(deployRoot, "argocd", "applicationsets", "runtime.yaml"), "utf8"))[0]
+    ?.toJS() as {
+    spec?: {
+      template?: {
+        spec?: {
+          sources?: Array<{
+            helm?: {
+              ignoreMissingValueFiles?: boolean;
+              valueFiles?: string[];
+            };
+          }>;
+        };
+      };
+    };
+  };
+
+  it("does not tolerate missing value files", () => {
+    const helmSource = prodAppSet.spec?.template?.spec?.sources?.[1];
+    expect(helmSource?.helm?.ignoreMissingValueFiles).not.toBe(true);
+  });
+
+  it("only references value files that exist in the repo or are variable references", () => {
+    const helmSource = prodAppSet.spec?.template?.spec?.sources?.[1];
+    const valueFiles = helmSource?.helm?.valueFiles ?? [];
+
+    for (const file of valueFiles) {
+      if (file.startsWith("$values/")) {
+        // Variable reference: extract the path after $values/ and check it exists
+        const path = file.replace("$values/", "");
+        // Handle template variables like {{ .agent.name }}
+        if (!path.includes("{{")) {
+          // Only check static paths without templates
+          const fullPath = join(deployRoot, path);
+          expect(existsSync(fullPath)).toBe(true);
+        }
+      } else {
+        // Direct file reference must exist
+        const fullPath = join(deployRoot, file);
+        expect(existsSync(fullPath)).toBe(true);
+      }
+    }
   });
 });

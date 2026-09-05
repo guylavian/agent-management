@@ -109,6 +109,25 @@ export function registerManagerRoutes(app: Express, deps: ManagerDependencies): 
     if (!bodyResult.success) { response.status(400).json({ requestId, code: "TOOL_INVALID_CALL", message: "Invalid request body" }); limiter.release(); return; }
     const authenticated = request.identity;
     if (authenticated === undefined) { response.status(401).json({ requestId, code: "AUTHN_FAILED", message: "Authentication failed" }); limiter.release(); return; }
+    /*
+     * THE CALLER DOES NOT CHOOSE THE TRUST ENVIRONMENT.
+     *
+     * This value used to win over the deployment's own configuration, reach
+     * catalog and tool authorization, and travel to ToolHive as
+     * `x-sre-environment`. Agents and tools declare prod/dr/lab, so one read
+     * role plus a different JSON string was a tenant switch.
+     *
+     * A deployment serves exactly one environment — deploy/environments/<env>
+     * is chosen when the pod is built. A request naming another is REFUSED
+     * rather than coerced: silently answering for prod when the caller asked
+     * about dr answers a question nobody asked. The message names no other
+     * environment, which would hand over the map.
+     */
+    if (bodyResult.data.environment !== undefined && bodyResult.data.environment !== deps.config.defaultEnvironment) {
+      response.status(422).json({ requestId, code: "ROUTE_INVALID", message: "This deployment does not serve the requested environment" });
+      limiter.release();
+      return;
+    }
     const subjectToken = /^Bearer (.+)$/u.exec(request.headers.authorization ?? "")?.[1];
     observeInflight(1);
     const endTimer = startTimer("sre_request_duration_seconds");
@@ -121,14 +140,15 @@ export function registerManagerRoutes(app: Express, deps: ManagerDependencies): 
       const session = bodyResult.data.sessionId === undefined ? undefined : await deps.sessionStore.get(authenticated.subject, bodyResult.data.sessionId);
       const resolvedEntities = session === undefined || session.entities.length === 0 ? undefined : Object.fromEntries(session.entities.map((entity) => [entity.alias, entity.canonical]));
       const conversation = resolvedEntities === undefined ? undefined : { resolvedEntities, ...(session?.previousRequestId ? { previousRequestId: session.previousRequestId } : {}) };
-      const environment = bodyResult.data.environment ?? deps.config.defaultEnvironment;
+      // trusted context only: the request either agreed with it or was refused
+      const environment = deps.config.defaultEnvironment;
       const startedAt = new Date();
       let specialistResults: SpecialistResultLike[] = [];
       let routing: RoutingTrace | undefined;
       const result = await withSpan("sre.query", { "request.id": requestId, "user.subject_hash": subjectHash(identity.subject), environment }, () => executeRequest(
         {
           question: bodyResult.data.question,
-          environment: bodyResult.data.environment,
+          environment,
           identity,
           // forwarded ONLY as RFC 8693 exchange material: an identity provider
           // will not exchange an assertion it did not issue, and the exchange

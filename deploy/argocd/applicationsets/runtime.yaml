@@ -42,13 +42,12 @@ spec:
           # Manager/Specialist version skew.
           path: deploy/runtime/helm
           helm:
-            # cluster-wide, hand-written values (image, registry, CA, Route,
-            # OpenShift uid, DNS ports) apply to every agent; the rendered file
-            # per agent comes last and wins. Absent runtime-values.yaml = chart
-            # defaults, which is how a fresh checkout still renders.
-            ignoreMissingValueFiles: true
+            # Only the per-agent rendered values are applied. Each agent's
+            # configuration is specific to its role and environment, and is
+            # rendered by `npm run render:deploy` from the agent's canonical
+            # config plus overlays. Cluster-wide values belong in the chart
+            # defaults (deploy/runtime/helm/values.yaml).
             valueFiles:
-              - $values/deploy/environments/production/runtime-values.yaml
               - $values/deploy/environments/production/rendered/agents/{{ .agent.name }}.yaml
       destination:
         server: https://kubernetes.default.svc

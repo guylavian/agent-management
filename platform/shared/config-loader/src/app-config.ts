@@ -269,6 +269,24 @@ export class ConfigValidationError extends Error {
 
 /** Build AppConfig from process env. Throws ConfigValidationError — startup must fail closed. */
 export function loadAppConfig(env: Record<string, string | undefined>): AppConfig {
+  /*
+   * A PACKAGED IMAGE MUST BE TOLD WHERE IT IS RUNNING.
+   *
+   * `env` below defaults to `local`, and every client defaults to `mock`, and
+   * the "production forbids mocks" rule can only run after that default has
+   * been applied. So an image started without SRE_ENV comes up with a mock IdP,
+   * a mock ToolHive and a mock delegation authority, and nothing objects — a
+   * Job, an alternate chart or an emergency manifest is enough to do it.
+   *
+   * The default itself is right for a working tree, so removing it would break
+   * every local invocation to defend against a case that only exists in the
+   * shipped artifact. The Dockerfile therefore sets SRE_PACKAGED_IMAGE, and
+   * that marker is what turns the default off. `local` remains a legitimate
+   * answer here — the point is that something stated it.
+   */
+  if (env.SRE_PACKAGED_IMAGE !== undefined && (env.SRE_ENV === undefined || env.SRE_ENV === "")) {
+    throw new ConfigValidationError("unsafe configuration:\n- SRE_ENV is required in a packaged image: without it the runtime would default to the local environment and its mock clients");
+  }
   const raw = {
     env: env.SRE_ENV,
     port: env.SRE_PORT,
