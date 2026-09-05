@@ -13,8 +13,12 @@ import { agentDocumentSchema, DEPLOY_ROOT, loadDeploymentEnvironment } from "@sr
 
 export function isPlausibleCapability(s: string): boolean {
   if (s.length < 4) return false;
-  // must contain at least one vowel (a, e, i, o, u)
+  // a vowel rules out the consonant runs a placeholder produces ("jhknm")
   if (!/[aeiou]/iu.test(s)) return false;
+  // ...but "aaaa" has vowels. A real capability has more than one distinct
+  // letter and reads as words, not as a held-down key.
+  if (new Set(s.replace(/[^a-z]/giu, "").toLowerCase()).size < 3) return false;
+  if (/(.)\1{2,}/u.test(s)) return false;
   return true;
 }
 
@@ -45,6 +49,9 @@ describe("agent policy gate", () => {
         if (String(error).includes("ENOENT")) continue;
         throw error;
       }
+      // reached only when the file EXISTS: its existence is the violation,
+      // however plausible its contents were made to look
+      throw new Error(`forbidden placeholder agent "${name}" is present in canonical config`);
     }
   });
 
@@ -71,10 +78,11 @@ describe("agent policy gate", () => {
         // Routing: if specialist, at least one plausible capability
         if (agent.spec.type === "specialist") {
           const capabilities = agent.spec.routing.capabilities ?? [];
-          if (capabilities.length > 0) {
-            for (const cap of capabilities) {
-              expect(isPlausibleCapability(cap), `${agentId}: capability "${cap}" is not plausible`).toBe(true);
-            }
+          // an enabled specialist the Manager can never select is not a
+          // reviewed agent, it is dead desired state
+          expect(capabilities.length, `${agentId}: enabled specialist has no routing capabilities`).toBeGreaterThan(0);
+          for (const cap of capabilities) {
+            expect(isPlausibleCapability(cap), `${agentId}: capability "${cap}" is not plausible`).toBe(true);
           }
         }
       }

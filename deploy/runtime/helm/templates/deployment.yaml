@@ -109,7 +109,7 @@ spec:
             {{- if eq .Values.agent.mode "manager" }}
             - secretRef: { name: {{ .Values.managerSecret | quote }} }
             {{- else }}
-            - secretRef: { name: {{ .Values.specialistSecret | quote }} }
+            - secretRef: { name: {{ .Values.specialistSecret | default (printf "sre-agent-%s-secrets" .Values.agent.name) | quote }} }
             {{- end }}
             {{- with .Values.extraEnvFrom }}
             {{- toYaml . | nindent 12 }}

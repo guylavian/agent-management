@@ -27,7 +27,11 @@ export function createApp(deps: ApiDependencies): TestableApp {
   app.get("/health/live", (_request, response) => { response.json({ status: "ok", mode: deps.mode, agentId: deps.agent.name }); });
   app.get("/health/ready", async (_request, response) => {
     const snapshot = deps.mode === "manager" ? deps.desiredState.current() : undefined;
-    const dependencyStatus: Record<string, string> = { desiredState: snapshot?.error ? "unhealthy" : "healthy" };
+    // only the manager loads desired state; labelling it healthy on a specialist
+    // would report a dependency that was never looked at
+    const dependencyStatus: Record<string, string> = deps.mode === "manager"
+      ? { desiredState: snapshot?.error ? "unhealthy" : "healthy" }
+      : {};
     if (deps.mode === "manager") {
       if (deps.config.clients.postgres === "real") {
         // a pg Pool connects lazily, so its existence proves nothing; ask it

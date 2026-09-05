@@ -124,7 +124,7 @@ describe("the workload-client strategy cannot leak one human's token to another"
   });
 });
 
-async function exportPkcs8(key: CryptoKey): Promise<string> {
+async function exportPkcs8(key: Parameters<typeof import("jose").exportPKCS8>[0]): Promise<string> {
   const { exportPKCS8 } = await import("jose");
   return exportPKCS8(key);
 }

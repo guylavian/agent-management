@@ -113,8 +113,8 @@ function publishedJwks(delegationPublicKey: string, config: AppConfig, registry:
   const toolPublicKeyFile = config.toolCredential.publicKeyFile;
   if (toolPublicKeyFile !== undefined && existsSync(toolPublicKeyFile)) {
     const toolJwk = createPublicKey(readFileSync(toolPublicKeyFile, "utf8")).export({ format: "jwk" });
-    for (const specialist of registry.specialists) {
-      keys.push({ ...toolJwk, kid: `sre-${specialist.name}`, use: "sig", alg: "RS256" });
+    for (const entry of registry.listEnabled()) {
+      keys.push({ ...toolJwk, kid: `sre-${entry.agentId}`, use: "sig", alg: "RS256" });
     }
   }
   return keys;

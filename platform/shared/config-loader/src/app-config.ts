@@ -378,7 +378,7 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
   // assertion. The others authorize the agent alone or rest on a single
   // platform key, so production refuses them rather than running weaker than
   // its own design claims.
-  if (config.env === "production" && config.clients.toolhive !== "disabled" && config.toolCredential.strategy !== "token-exchange") {
+  if (config.env === "production" && config.toolCredential.strategy !== "token-exchange") {
     problems.push(`tool-credential strategy "${config.toolCredential.strategy}" is not permitted in production (use token-exchange, which delegates the human)`);
   }
   if (config.clients.toolhive === "real" && config.toolCredential.strategy === "token-exchange" && !config.toolCredential.clientSecret) {

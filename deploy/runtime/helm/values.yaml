@@ -114,7 +114,10 @@ modelEnv: {}
 # Both receive ConfigMap sre-agent-endpoints via extraEnvFrom: SRE_OIDC_*, SRE_LLM_TIER_*,
 # SRE_TOOLHIVE_*, etc. (all non-credential config).
 managerSecret: sre-agent-manager-secrets
-specialistSecret: sre-agent-specialist-secrets
+# empty means "sre-agent-<agent>-secrets": each specialist authenticates as its
+# OWN Keycloak client, so one shared secret would either not work or make every
+# specialist share a credential boundary
+specialistSecret: ""
 delegationPrivateKeySecret: sre-agent-delegation-private-key
 
 # Client wiring. Production is fail-closed and these defaults ARE that posture;

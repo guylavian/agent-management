@@ -188,7 +188,10 @@ describe("GitOps YAML generation", () => {
 
   it("round-trips the checked-in agents unchanged in meaning", () => {
     for (const agent of specialists) {
-      const rendered = renderAgentYaml({ apiVersion: "sre.ai/v1alpha1", kind: "Agent", metadata: { name: agent.name, owner: agent.owner, description: agent.description, ...(agent.displayName ? { displayName: agent.displayName } : {}) }, spec: agent.spec });
+      // the schema requires one, so a checked-in agent without a description is
+      // itself the failure — assert it rather than papering over it
+      expect(agent.description, `${agent.name} has no description`).toBeTruthy();
+      const rendered = renderAgentYaml({ apiVersion: "sre.ai/v1alpha1", kind: "Agent", metadata: { name: agent.name, owner: agent.owner, description: agent.description as string, ...(agent.displayName ? { displayName: agent.displayName } : {}) }, spec: agent.spec });
       const reparsed = agentDocumentSchema.parse(parseYaml(rendered));
       expect(reparsed.spec).toEqual(agent.spec);
     }
