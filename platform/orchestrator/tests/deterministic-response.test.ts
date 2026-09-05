@@ -37,4 +37,32 @@ describe("deterministic degraded responses", () => {
     expect(response.citations).toHaveLength(1);
     expect(response.evidenceGaps).toEqual(expect.arrayContaining([{ source: "keycloak", reason: "MODEL_UNAVAILABLE" }]));
   });
+
+  it("marks complete-but-ungrounded result as degraded with evidence gap", () => {
+    const result: SpecialistResult = {
+      agentId: "observability", status: "complete",
+      summary: "This is the answer.",
+      evidence: [
+        { id: "e1", kind: "telemetry", source: "prom", system: "app", environment: "prod", payload: { value: 42 }, citation: "prom://query", status: "ok", requestId: "req-1", agentId: "observability" },
+        { id: "e2", kind: "telemetry", source: "prom", system: "app", environment: "prod", payload: { value: 50 }, citation: "prom://query2", status: "ok", requestId: "req-1", agentId: "observability" },
+      ],
+      grounding: { grounded: false, citedUsable: 0, usableEvidence: 2 },
+    };
+    const response = deterministicResponseBuilder(ctx, result);
+    expect(response.degraded).toBe(true);
+    expect(response.evidenceGaps).toEqual(expect.arrayContaining([{ source: "synthesis", reason: "UNGROUNDED_ANSWER" }]));
+  });
+
+  it("when grounding is absent, treats complete result as not degraded", () => {
+    const result: SpecialistResult = {
+      agentId: "observability", status: "complete",
+      summary: "This is the answer.",
+      evidence: [
+        { id: "e1", kind: "telemetry", source: "prom", system: "app", environment: "prod", payload: { value: 42 }, citation: "prom://query", status: "ok", requestId: "req-1", agentId: "observability" },
+      ],
+      // no grounding field
+    };
+    const response = deterministicResponseBuilder(ctx, result);
+    expect(response.degraded).toBe(false);
+  });
 });

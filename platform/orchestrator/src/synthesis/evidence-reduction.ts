@@ -36,8 +36,8 @@ export function reduceEvidence(results: SpecialistResult[]): ReducedEvidence {
 
 function extractState(value: unknown): string | undefined {
   if (typeof value === "string") {
-    if (/\bunhealthy|failed|down\b/iu.test(value)) return "unhealthy";
-    if (/\bhealthy|running|up\b/iu.test(value)) return "healthy";
+    if (/\b(unhealthy|failed|down)\b/iu.test(value)) return "unhealthy";
+    if (/\b(healthy|running|up)\b/iu.test(value)) return "healthy";
   }
   if (value !== null && typeof value === "object" && "state" in value && typeof value.state === "string") return value.state.toLowerCase();
   return undefined;

@@ -13,6 +13,9 @@ export async function synthesizeResponse(ctx: ExecutionContext, reduced: Reduced
   ] }));
   const citations = renderCitations(reduced.evidence);
   const gaps = evidenceGaps(reduced.evidence);
+  const groundingGaps = results.filter((r) => r.status === "complete" && r.grounding?.grounded === false).map((r) => ({ source: r.agentId, reason: "UNGROUNDED_ANSWER" }));
+  const allGaps = [...gaps, ...groundingGaps.filter((gap) => !gaps.some((existing) => existing.source === gap.source && existing.reason === gap.reason))];
   const answer = response.content?.trim() || "Synthesis was unavailable; review the cited evidence directly.";
-  return { requestId: ctx.requestId, answer: `${answer}\n\nSources:\n${citations.map((citation) => `- [${citation.evidenceId}] ${citation.label}`).join("\n")}${gaps.length ? `\n\nEvidence gaps:\n${gaps.map((gap) => `- ${gap.source}: ${gap.reason}`).join("\n")}` : ""}`, citations, evidenceGaps: gaps, degraded: gaps.length > 0, metadata: { routedAgents: results.map((result) => result.agentId), tierLUsed: true } };
+  const isDegraded = allGaps.length > 0;
+  return { requestId: ctx.requestId, answer: `${answer}\n\nSources:\n${citations.map((citation) => `- [${citation.evidenceId}] ${citation.label}`).join("\n")}${allGaps.length ? `\n\nEvidence gaps:\n${allGaps.map((gap) => `- ${gap.source}: ${gap.reason}`).join("\n")}` : ""}`, citations, evidenceGaps: allGaps, degraded: isDegraded, metadata: { routedAgents: results.map((result) => result.agentId), tierLUsed: true } };
 }

@@ -97,4 +97,16 @@ describe("T3 routing execution edge cases", () => {
     // every selected specialist also received the original question
     expect(calls.every((call) => call.request.question.length > 0)).toBe(true);
   });
+
+  it("includes both specialists' summaries and evidence in the final response", async () => {
+    const model = new MockModelClient();
+    model.enqueue({ content: JSON.stringify({ routes: [{ agent: "active-directory", task: "Check AD auth." }, { agent: "network-observability", task: "Check network." }], confidence: 0.9, abstain: false }), usage: { promptTokens: 1, completionTokens: 1 } });
+    const deps = runtime(model);
+    const response = await executeRequest({ question: "Why is auth failing from Site B?", identity: { subject: "admin", groups: [], roles: ["infra-read", "network-read"], requestId: "req-both" } }, deps);
+    // both specialists' summaries should appear in the answer
+    expect(response.answer).toContain("active-directory");
+    expect(response.answer).toContain("network-observability");
+    // both should have contributed citations (each returns 2 evidence items by default)
+    expect(response.citations.length).toBeGreaterThanOrEqual(2);
+  });
 });

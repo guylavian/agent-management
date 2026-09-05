@@ -158,8 +158,11 @@ async function route(req: UserRequest, deps: RuntimeDependencies, deadline: numb
     budgetUsed: false,
     maxAgentsPerRequest: deps.manager.spec.execution.maxAgentsPerRequest,
   }));
+  // rejections are carried alongside the results, never pushed into one of
+  // them: attributing them to whichever specialist happened to be first
+  // misreports who was refused, and inventing a synthetic agent to hold them
+  // would surface in routedAgents as an agent that never ran
   const rejectionEvidence = followupRejectionEvidence(followup.rejections, ctx);
-  if (rejectionEvidence.length > 0 && results[0] !== undefined) results[0].evidence.push(...rejectionEvidence);
   if (followup.request !== undefined) {
     incrementMetric("sre_round2_total");
     const request = followup.request;
@@ -189,8 +192,17 @@ async function route(req: UserRequest, deps: RuntimeDependencies, deadline: numb
     }
   }
   const first = results[0];
-  if (first === undefined) return noEvidence(ctx.requestId, authorizedAgents);
-  const response = await withSpan("response.build", { "request.id": ctx.requestId, "evidence.count": first.evidence.length }, async () => deterministicResponseBuilder(ctx, first));
+  if (first === undefined) {
+    // a refusal is still a finding: it must not vanish because no specialist ran
+    if (rejectionEvidence.length > 0) return deterministicMultiSpecialistResponse(ctx, [], undefined, rejectionEvidence);
+    return noEvidence(ctx.requestId, authorizedAgents);
+  }
+  // every specialist that contributed is represented; the first result is no
+  // longer the only one that reaches the answer
+  if (results.length > 1) {
+    return withSpan("response.build", { "request.id": ctx.requestId, "specialist.count": results.length }, async () => deterministicMultiSpecialistResponse(ctx, results, undefined, rejectionEvidence));
+  }
+  const response = await withSpan("response.build", { "request.id": ctx.requestId, "evidence.count": first.evidence.length }, async () => deterministicResponseBuilder(ctx, first, rejectionEvidence));
   return { ...response, metadata: { ...response.metadata, routedAgents: results.map((result) => result.agentId) } };
 }
 
