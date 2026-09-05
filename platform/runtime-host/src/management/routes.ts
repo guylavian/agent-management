@@ -541,6 +541,20 @@ function respondDraftError(response: Response, error: unknown): void {
     response.status(400).json({ code: "AGENT_DRAFT_INVALID", message: "Agent draft failed validation", issues: error.issues });
     return;
   }
+  /*
+   * The CLIENT still learns nothing about the failure — a render error can name
+   * paths and configuration this API deliberately does not expose. But the
+   * OPERATOR must, and until now nothing was written anywhere: the first
+   * version of this handler blamed GitOps, and the second said only "could not
+   * be rendered", so a real failure in the console left no trace on the server
+   * either. An error nobody can see is the one that stays.
+   */
+  console.error(JSON.stringify({
+    level: "error",
+    event: "management.draft.render_failed",
+    detail: error instanceof Error ? error.message : String(error),
+    ...(error instanceof Error && error.stack ? { stack: error.stack.split("\n").slice(0, 4).join(" | ") } : {}),
+  }));
   response.status(400).json({ code: "AGENT_DRAFT_INVALID", message: "The draft could not be rendered" });
 }
 
