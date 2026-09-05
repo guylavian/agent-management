@@ -80,6 +80,8 @@ export function desiredClientFor(agent: SpecialistAgentConfig): DesiredClient {
       "sre.agent.lifecycle": agent.spec.lifecycle,
       // short-lived tokens (TDD §9); seconds, matches the runtime credential TTL
       "access.token.lifespan": "60",
+      // RFC 8693 token exchange: required for the actor to exchange a subject token (TDD §31)
+      "standard.token.exchange.enabled": "true",
     },
   };
 }

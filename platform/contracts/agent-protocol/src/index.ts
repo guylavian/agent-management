@@ -23,6 +23,20 @@ export const agentExecutionRequestSchema = z.object({
   task: z.string().min(1).max(2_000).optional(),
   environment: z.string().min(1).max(128),
   identityContext: delegatedIdentityContextSchema,
+  /**
+   * The delegated human's own IdP access token, carried ONLY so the specialist
+   * can present it as the RFC 8693 `subject_token`.
+   *
+   * It is not what proves who the human is — `identityContext` does that, and
+   * is bound to one agent and one request. This exists because an identity
+   * provider will not exchange an assertion it did not issue, and because the
+   * exchange is what puts the human's `sub` on the tool credential.
+   *
+   * Its blast radius is bounded by the IdP, not by us: a specialist can only
+   * exchange a token whose audience already names it, so which agents may act
+   * for a user is the IdP's decision.
+   */
+  subjectToken: z.string().min(16).max(8_192).optional(),
   conversationContext: z.object({
     resolvedEntities: z.record(z.string(), z.string().max(512)).optional(),
   }).strict().optional(),

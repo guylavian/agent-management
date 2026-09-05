@@ -213,6 +213,7 @@ async function executeAgent(agentId: string, ctx: ExecutionContext, deps: Runtim
     question: ctx.request.question,
     environment: ctx.environment,
     identityContext,
+    ...(ctx.request.subjectToken ? { subjectToken: ctx.request.subjectToken } : {}),
     ...(task ? { task } : {}),
     ...(ctx.request.conversation?.resolvedEntities ? { conversationContext: { resolvedEntities: ctx.request.conversation.resolvedEntities } } : {}),
     ...(handoff ? { handoff } : {}),

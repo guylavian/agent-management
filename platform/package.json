@@ -46,6 +46,7 @@
     "render:toolhive": "node --import tsx tools/render-toolhive-authz.ts",
     "reconcile:keycloak": "node --import tsx tools/reconcile-keycloak.ts",
     "verify:keycloak": "node --import tsx tools/verify-keycloak-identities.ts",
+    "verify:token-exchange": "node --import tsx tools/verify-token-exchange.ts",
     "verify:toolhive-policy": "./tools/verify-toolhive-policy.sh",
     "check:engine": "npm --prefix ../agent-engine run check",
     "install:engine": "npm --prefix ../agent-engine install",

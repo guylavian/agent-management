@@ -109,6 +109,7 @@ export function registerManagerRoutes(app: Express, deps: ManagerDependencies): 
     if (!bodyResult.success) { response.status(400).json({ requestId, code: "TOOL_INVALID_CALL", message: "Invalid request body" }); limiter.release(); return; }
     const authenticated = request.identity;
     if (authenticated === undefined) { response.status(401).json({ requestId, code: "AUTHN_FAILED", message: "Authentication failed" }); limiter.release(); return; }
+    const subjectToken = /^Bearer (.+)$/u.exec(request.headers.authorization ?? "")?.[1];
     observeInflight(1);
     const endTimer = startTimer("sre_request_duration_seconds");
     const abort = new AbortController();
@@ -125,7 +126,16 @@ export function registerManagerRoutes(app: Express, deps: ManagerDependencies): 
       let specialistResults: SpecialistResultLike[] = [];
       let routing: RoutingTrace | undefined;
       const result = await withSpan("sre.query", { "request.id": requestId, "user.subject_hash": subjectHash(identity.subject), environment }, () => executeRequest(
-        { question: bodyResult.data.question, environment: bodyResult.data.environment, identity, ...(conversation ? { conversation } : {}) },
+        {
+          question: bodyResult.data.question,
+          environment: bodyResult.data.environment,
+          identity,
+          // forwarded ONLY as RFC 8693 exchange material: an identity provider
+          // will not exchange an assertion it did not issue, and the exchange
+          // is what carries the human's `sub` onto the tool credential
+          ...(subjectToken ? { subjectToken } : {}),
+          ...(conversation ? { conversation } : {}),
+        },
         {
           // the LIVE Manager document, not the copy loaded at boot. `deps.agent`
           // is what this process started as; the console edits and displays the

@@ -120,6 +120,11 @@ describe("desired Keycloak state", () => {
     expect(client.attributes["access.token.lifespan"]).toBe("60");
   });
 
+  it("enables RFC 8693 token exchange on the client", () => {
+    const client = desiredClientFor(keycloakAgent());
+    expect(client.attributes["standard.token.exchange.enabled"]).toBe("true");
+  });
+
   it("never carries secret material", () => {
     expect(JSON.stringify(desiredClientFor(keycloakAgent()))).not.toMatch(/secret|password|private[_-]?key/iu);
   });
@@ -189,6 +194,21 @@ describe("reconciliation", () => {
     const result = await reconcileClient(admin, desired);
     expect(result.changes).toEqual(expect.arrayContaining(["enable service account", "disable standard flow", "make client confidential"]));
     expect((await admin.getClient("sre-agent-keycloak"))?.publicClient).toBe(false);
+  });
+
+  it("adds token exchange attribute to an existing client that lacks it", async () => {
+    const admin = new InMemoryKeycloak();
+    const desired = desiredClientFor(keycloakAgent());
+    // Create a client without the token exchange attribute (simulating an old client)
+    const oldDesired = { ...desired, attributes: { ...desired.attributes } };
+    delete oldDesired.attributes["standard.token.exchange.enabled"];
+    await reconcileClient(admin, oldDesired);
+    const client = await admin.getClient("sre-agent-keycloak");
+    expect(client?.attributes["standard.token.exchange.enabled"]).toBeUndefined();
+    // Now reconcile with the desired state that includes the attribute
+    const result = await reconcileClient(admin, desired);
+    expect(result.changes).toContain("set attribute standard.token.exchange.enabled=true");
+    expect((await admin.getClient("sre-agent-keycloak"))?.attributes["standard.token.exchange.enabled"]).toBe("true");
   });
 
   it("dry run reports the plan without writing", async () => {

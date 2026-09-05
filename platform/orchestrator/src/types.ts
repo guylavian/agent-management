@@ -8,6 +8,8 @@ export interface UserRequest {
   question: string;
   environment?: string;
   identity: RequestIdentity;
+  /** the caller's own IdP access token, forwarded only as RFC 8693 exchange material */
+  subjectToken?: string;
   conversation?: { resolvedEntities?: Record<string, string>; previousRequestId?: string };
 }
 

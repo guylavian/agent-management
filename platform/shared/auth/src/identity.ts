@@ -7,12 +7,15 @@ export const requestIdentitySchema = z.object({
   requestId: z.string().min(1),
   sessionId: z.string().min(1).optional(),
   /**
-   * The manager-signed delegation JWT this identity was verified from, carried
-   * so a token exchange can present the HUMAN as a verifiable assertion rather
-   * than as a bare subject string. Attached per request by
-   * `withDelegationAssertion`; never stored on a long-lived exchanger.
+   * The delegated human's own IdP access token, presented to the STS as the
+   * RFC 8693 `subject_token`.
+   *
+   * It is the IdP's token rather than the platform's assertion because an
+   * identity provider will not exchange something it did not issue — verified
+   * against Keycloak 26.6. Attached per request by `withSubjectToken`; never
+   * stored on a long-lived exchanger.
    */
-  assertion: z.string().min(1).optional(),
+  subjectToken: z.string().min(1).optional(),
 }).strict();
 
 export type RequestIdentity = z.infer<typeof requestIdentitySchema>;

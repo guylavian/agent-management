@@ -32,17 +32,17 @@ export const toolCredentialSchema = z
 export type ToolCredential = z.infer<typeof toolCredentialSchema>;
 
 /**
- * Bind one request's delegation assertion to an exchanger.
+ * Bind one request's exchange subject to an exchanger.
  *
- * The assertion is per REQUEST and the exchanger is per PROCESS, so the
- * assertion travels with the identity rather than being held anywhere it could
- * outlive the request or be attached to the wrong human.
+ * The token is per REQUEST and the exchanger is per PROCESS, so it travels
+ * with the identity rather than being held anywhere it could outlive the
+ * request or be attached to the wrong human.
  */
-export function withDelegationAssertion(inner: ToolCredentialExchanger, assertion: string): ToolCredentialExchanger {
+export function withSubjectToken(inner: ToolCredentialExchanger, subjectToken: string): ToolCredentialExchanger {
   return {
     mode: inner.mode,
     exchange: (workload, identity, audience, deadline, signal) =>
-      inner.exchange(workload, { ...identity, assertion }, audience, deadline, signal),
+      inner.exchange(workload, { ...identity, subjectToken }, audience, deadline, signal),
   };
 }
 
@@ -180,8 +180,8 @@ export class RealTokenExchangeCredentialExchanger implements ToolCredentialExcha
     if (this.#settings.tokenEndpoint === undefined) {
       throw Object.assign(new Error("token-exchange endpoint (RFC 8693) is not configured"), { code: "TOOL_DENIED" });
     }
-    if (identity.assertion === undefined) {
-      throw Object.assign(new Error("no delegated assertion to exchange"), { code: "TOOL_DENIED" });
+    if (identity.subjectToken === undefined) {
+      throw Object.assign(new Error("no delegated subject token to exchange"), { code: "TOOL_DENIED" });
     }
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) throw Object.assign(new Error("tool credential deadline expired"), { code: "REQUEST_TIMEOUT" });
@@ -189,9 +189,12 @@ export class RealTokenExchangeCredentialExchanger implements ToolCredentialExcha
       grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
       requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
       audience,
-      // the human, as a verifiable manager-signed assertion
-      subject_token: identity.assertion,
-      subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
+      // the human, as the token their own identity provider issued. Verified
+      // against Keycloak 26.6: the IdP refuses to exchange an assertion it did
+      // not issue, and it will only exchange for a client the token's audience
+      // already names — so which agents may act for a user is the IdP's call.
+      subject_token: identity.subjectToken,
+      subject_token_type: "urn:ietf:params:oauth:token-type:access_token",
       // the agent, as the actor of the delegation chain
       actor_token: await this.#settings.actorToken(),
       actor_token_type: "urn:ietf:params:oauth:token-type:jwt",

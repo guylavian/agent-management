@@ -6,7 +6,7 @@ import {
   agentExecutionRequestSchema,
   assertSerializedLimit,
 } from "@sre/agent-protocol";
-import { MOCK_WORKLOAD_TOKEN, withDelegationAssertion } from "@sre/auth";
+import { MOCK_WORKLOAD_TOKEN, withSubjectToken } from "@sre/auth";
 import { redactText } from "@sre/redaction";
 import { withExtractedContext } from "@sre/telemetry";
 import type { Express } from "express";
@@ -58,7 +58,13 @@ export function registerSpecialistRoutes(app: Express, deps: SpecialistDependenc
           // the manager-signed assertion travels with THIS request, so the tool
           // credential can name the human it was issued for rather than only
           // the agent executing on their behalf
-          ...(deps.credentialExchanger ? { credentialExchanger: withDelegationAssertion(deps.credentialExchanger, parsed.data.identityContext.token) } : {}),
+          // the SUBJECT of the exchange is the human's own IdP token: proven
+          // against a real Keycloak, an assertion the IdP did not issue cannot
+          // be exchanged. `identityContext` still proves WHICH human, bound to
+          // this agent and this request, and is verified above.
+          ...(deps.credentialExchanger && parsed.data.subjectToken !== undefined
+            ? { credentialExchanger: withSubjectToken(deps.credentialExchanger, parsed.data.subjectToken) }
+            : deps.credentialExchanger ? { credentialExchanger: deps.credentialExchanger } : {}),
         }, parsed.data.handoff);
         assertSerializedLimit(result, MAX_AGENT_RESPONSE_BYTES, "agent response");
         response.status(200).json(result);

@@ -4,7 +4,7 @@ import {
   KeycloakWorkloadCredentialExchanger,
   PrivateKeyToolCredentialExchanger,
   RealTokenExchangeCredentialExchanger,
-  withDelegationAssertion,
+  withSubjectToken,
 } from "../src/index.ts";
 import type { RequestIdentity, WorkloadIdentity } from "../src/index.ts";
 
@@ -35,7 +35,7 @@ async function delegationAssertion(subject: string): Promise<string> {
 }
 
 describe("RFC 8693 exchange carries the delegated human", () => {
-  it("sends the manager-signed assertion as subject_token and the workload token as actor_token", async () => {
+  it("sends the human's IdP token as subject_token and the workload token as actor_token", async () => {
     const assertion = await delegationAssertion("alice");
     let sent: URLSearchParams | undefined;
     const exchanger = new RealTokenExchangeCredentialExchanger(
@@ -52,12 +52,13 @@ describe("RFC 8693 exchange carries the delegated human", () => {
       }) as unknown as typeof fetch,
     );
 
-    const credential = await exchanger.exchange(workload, { ...alice, assertion }, "sre-toolhive:keycloak", Date.now() + 30_000);
+    const credential = await exchanger.exchange(workload, { ...alice, subjectToken: assertion }, "sre-toolhive:keycloak", Date.now() + 30_000);
 
     expect(sent?.get("grant_type")).toBe("urn:ietf:params:oauth:grant-type:token-exchange");
-    // the HUMAN, as a verifiable assertion — not a bare subject string
+    // the HUMAN, as the token their own IdP issued — proven against Keycloak
+    // 26.6, which refuses to exchange an assertion it did not issue
     expect(sent?.get("subject_token")).toBe(assertion);
-    expect(sent?.get("subject_token_type")).toBe("urn:ietf:params:oauth:token-type:jwt");
+    expect(sent?.get("subject_token_type")).toBe("urn:ietf:params:oauth:token-type:access_token");
     // the AGENT, as the actor of the delegation chain
     expect(sent?.get("actor_token")).toBe("specialist-projected-sa-token");
     expect(sent?.get("actor_token_type")).toBe("urn:ietf:params:oauth:token-type:jwt");
@@ -69,7 +70,7 @@ describe("RFC 8693 exchange carries the delegated human", () => {
     expect(credential.expiresAt).toBeTypeOf("number");
   });
 
-  it("refuses to exchange without a delegated assertion rather than falling back to an agent-only token", async () => {
+  it("refuses to exchange without a subject token rather than falling back to an agent-only token", async () => {
     const exchanger = new RealTokenExchangeCredentialExchanger(
       { tokenEndpoint: "https://idp.test/token", issuer: "https://idp.test", audiencePrefix: "sre-toolhive:", clientSecret: () => "s", actorToken: async () => "a" },
       (async () => new Response(JSON.stringify({ access_token: "x".repeat(40) }), { status: 200 })) as unknown as typeof fetch,
@@ -77,12 +78,12 @@ describe("RFC 8693 exchange carries the delegated human", () => {
     await expect(exchanger.exchange(workload, alice, "sre-toolhive:keycloak", Date.now() + 30_000)).rejects.toMatchObject({ code: "TOOL_DENIED" });
   });
 
-  it("threads the assertion per request without the exchanger holding it", async () => {
+  it("threads the subject token per request without the exchanger holding it", async () => {
     const seen: Array<string | undefined> = [];
-    const inner = { mode: "real" as const, exchange: async (_w: WorkloadIdentity, identity: RequestIdentity) => { seen.push(identity.assertion); return { token: "t".repeat(20), tokenType: "urn:ietf:params:oauth:token-type:access_token" as const, issuer: "i", audience: "a", subjectHash: "0".repeat(64), workloadClientId: "c" }; } };
-    await withDelegationAssertion(inner, "assertion-for-alice").exchange(workload, alice, "aud", Date.now() + 1000);
-    await withDelegationAssertion(inner, "assertion-for-bob").exchange(workload, bob, "aud", Date.now() + 1000);
-    expect(seen).toEqual(["assertion-for-alice", "assertion-for-bob"]);
+    const inner = { mode: "real" as const, exchange: async (_w: WorkloadIdentity, identity: RequestIdentity) => { seen.push(identity.subjectToken); return { token: "t".repeat(20), tokenType: "urn:ietf:params:oauth:token-type:access_token" as const, issuer: "i", audience: "a", subjectHash: "0".repeat(64), workloadClientId: "c" }; } };
+    await withSubjectToken(inner, "token-for-alice").exchange(workload, alice, "aud", Date.now() + 1000);
+    await withSubjectToken(inner, "token-for-bob").exchange(workload, bob, "aud", Date.now() + 1000);
+    expect(seen).toEqual(["token-for-alice", "token-for-bob"]);
   });
 });
 
