@@ -1,4 +1,13 @@
 {{- if .Values.networkPolicy.enabled }}
+{{- /*
+  A gitSync sidecar shares this pod's NetworkPolicy. Rendering one with no route
+  to its remote yields a pod that starts, passes its liveness probe on the
+  runtime container, and never reads desired state — a failure that surfaces only
+  as a connection timeout in a sidecar nobody is watching. Refuse it here.
+*/}}
+{{- if and .Values.gitSync.enabled (not .Values.gitSync.egressCIDRs) }}
+{{- fail "gitSync is enabled behind an enabled networkPolicy, but gitSync.egressCIDRs is empty: the sidecar would have no route to its git remote. Name the remote's CIDR, or host it in a platform-service namespace and drop gitSync." }}
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -35,6 +44,16 @@ spec:
         - { protocol: TCP, port: 3000 }
     {{- end }}
   egress:
+    {{- if .Values.gitSync.enabled }}
+    # the desired-state sidecar's git remote, named by CIDR because a
+    # NetworkPolicy has no way to select an external host
+    - to:
+        {{- range .Values.gitSync.egressCIDRs }}
+        - ipBlock: { cidr: {{ . | quote }} }
+        {{- end }}
+      ports:
+        - { protocol: TCP, port: {{ .Values.gitSync.egressPort }} }
+    {{- end }}
     # cluster DNS
     - ports:
         {{- range .Values.networkPolicy.dnsPorts }}

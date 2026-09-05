@@ -75,6 +75,15 @@ gitSync:
   # name of a Secret with `username` and `password` (a token) for a private
   # repository; empty for a public one
   credentialsSecret: ""
+  # A NetworkPolicy cannot select an external host by name, so the route to the
+  # git remote has to be named by CIDR. The sidecar shares the pod's policy: with
+  # the policy on and this empty, git-sync can never reach its remote and the pod
+  # crashloops with nothing but a connection timeout to explain it. The chart
+  # therefore REFUSES to render that combination rather than shipping it.
+  # An in-cluster git host is better expressed by labelling its namespace and
+  # adding 443 to the platform ports; use this for a remote outside the cluster.
+  egressCIDRs: []
+  egressPort: 443
 
 # default replicas for manager and specialist; reconciler should override to 1
 # (concurrent rounds would draw competing generations of the same Agent from Git,

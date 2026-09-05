@@ -83,6 +83,13 @@ spec:
               - { name: gitSync.enabled, value: "true" }
               - { name: gitSync.repoURL, value: https://github.com/guylavian/agent-management.git }
               - { name: gitSync.credentialsSecret, value: sre-git-sync }
+              # the sidecar shares the pod's NetworkPolicy, which can only name
+              # an external remote by CIDR. This local cluster syncs from a
+              # PUBLIC host whose address set is not fixed, so the route is the
+              # open one — acceptable here because the policy still confines it
+              # to 443 and this environment holds no production data. A real
+              # deployment names its git host's own range instead.
+              - { name: gitSync.egressCIDRs[0], value: 0.0.0.0/0 }
       destination:
         server: https://kubernetes.default.svc
         # must equal deploy/environments/local/environment.yaml `namespace` —
