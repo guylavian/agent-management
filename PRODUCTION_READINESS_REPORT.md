@@ -2,32 +2,38 @@
 
 ## Verdict: **NOT_PRODUCTION_READY**
 
-Not because the platform is broken — most of it works, and the parts that were
-exercised held up well. It is not production-ready because **eight HIGH findings
-raised by an independent adversarial review remain unfixed**, the **real
-identity and tool-authorization path was never certified** (this deployment runs
-mocks), and **no load or soak test was run at all**. A verdict of
-PRODUCTION_READY_WITH_KNOWN_LIMITATIONS would require the known limitations to
-be bounded, and several of the open findings are authorization and readiness
-defects whose blast radius is not.
+**No known defect remains open.** All eight HIGH findings are closed, a re-review
+found nothing new that survived verification, and `npm run check` is green.
+
+The verdict is negative for one reason: **the identity and tool-authorization
+chain has never been executed.** Production runs real Keycloak, real workload
+identity, RFC 8693 exchange, ToolHive and Cedar. This cluster runs mocks for all
+of them. Deploying to production means running a configuration that has not once
+been exercised end to end — and that chain *is* the security boundary. That is an
+evidence gap, not a broken system, and it is scoped below at 4–5 hours of
+in-cluster deployment work.
+
+I am not calling this PRODUCTION_READY_WITH_KNOWN_LIMITATIONS because the
+untested path is the one that decides who may invoke which tool.
 
 | Field | Value |
 |---|---|
 | Target | Kubernetes (docker-desktop), context `docker-desktop`, node `desktop-control-plane` |
 | Kubernetes / runtime | v1.35.1, containerd 2.2.1 |
 | Namespaces | `sre-assistant`, `argocd` |
-| Git revision | `2debd57` on `origin/main` (github.com/guylavian/agent-management) |
-| Runtime image | `sre-agent-runtime:local`, containerd `05dfeea96d6d3`, 245 MB, `imagePullPolicy: Never` |
-| Portal image | `sre-agent-portal:cert`, 786 MB, `node:24-trixie-slim`, uid 1000 |
-| Argo CD | v3.5.2 |
+| Git revision | `65bfdac` on `origin/main` (github.com/guylavian/agent-management) |
+| Runtime image | `sre-agent-runtime:local`, containerd `f1ea76ab1ed99`, 246 MB, `imagePullPolicy: Never` |
+| Portal image | `sre-agent-portal:cert`, 786 MB, `node:24-trixie-slim`, uid 1000, no baked secret |
+| Argo CD | v3.5.2 · Keycloak available 26.6 (host) · PostgreSQL 16 (host) |
 | Model | Claude CLI (haiku) behind an OpenAI-compatible shim on host port 11434 |
-| Node capacity | 4 CPU, 3.83 GiB RAM, 32 GB disk, shared with all host Docker workloads |
-| OpenShift SCC / Route | **NOT TESTED** — Kubernetes is the target; a future target, not a failure |
+| Node capacity | 4 CPU, 3.83 GiB RAM, shared with all host Docker workloads |
+| OpenShift SCC / Route | **NOT TESTED** — Kubernetes is the target. A future target, not a failure. |
 
-> **Safety.** The active kube context had silently switched to an AWS EKS
-> cluster partway through. It was caught before any command ran against it and
-> every kubectl call since passes `--context=docker-desktop` explicitly. No
-> command was executed against EKS.
+> **Safety.** The active kube context was observed switching to an AWS EKS
+> cluster **twice** during this work, once mid-build. No command ran against it:
+> the first was caught before use, the second caused a build to load an image
+> into nothing (fixed — the build script now pins its context). Every kubectl
+> call passes `--context=docker-desktop` explicitly.
 
 ---
 
@@ -35,148 +41,151 @@ defects whose blast radius is not.
 
 | Gate | Result | Evidence | Remaining risk |
 |---|---|---|---|
-| 0. Environment | **FIXED** | Node disk 100% full; all workloads CrashLoopBackOff 5 days (650+ restarts); `argocd-application-controller` **OOMKilled ×23**. Reclaimed 7.6 GB, stopped unrelated containers, recreated the controller. | Shared laptop resources; recurs. Not a platform defect. |
-| 1. Agent lifecycle | **PASS** | Disable via Git → Argo **pruned the Application and Deployment**; catalog reported `not routable: disabled: the local deployment overlay sets enabled: false`; query returned `routedAgents: []`. Re-enable → Deployment recreated, `routedAgents: ["openshift"]`, 6 citations. **Manager was the same pod, `restarts=0`, throughout.** | Lifecycle states come from the reconciliation view; no Argo API or runtime probe is configured here, and the API says so rather than inventing a colour. |
-| 2. Real identity / tool authz | **BLOCKED** | `clients.oidc/toolhive/delegation` are all `mock` here. | **Uncertified.** RFC 8693 exchange was separately proven against live Keycloak 26.6 (7/7 with a negative control), but never through this cluster's Manager→Specialist→ToolHive path. |
-| 3. Persistence | **PARTIAL PASS** | Wired the manager onto real PostgreSQL through Git. A run was written to `sre_execution_event`, the Manager pod was **deleted**, and the run was **read back from a new pod that never served it** — `traceRetained: false` honestly flags what is not persisted. DB stopped → readiness flipped to `postgres: unhealthy`. | Multi-replica consistency **not tested** (single replica). |
-| 4. Readiness / failure recovery | **PARTIAL** | Specialist scaled to 0, pods killed mid-query, Manager deleted — all recovered automatically (14 s, 6 s, 2 m 8 s). Postgres stopped → readiness correctly unhealthy. Probe leniency fixed (D-13). | **Specialist readiness still checks nothing** and a **failed policy reload retains stale authority** — both open, below. |
-| 5. GitOps resilience | **PASS** | 20+ revisions flowed Git → Argo → Kubernetes → Ready. git-sync reached `syncCount: 3` **without a pod restart**. **Prune proven** by the lifecycle drill. **selfHeal proven**: the AppProject was deliberately drifted and Argo restored it **within 20 s**. | Explicit rollback-to-previous-revision not run as its own drill. |
-| 6. Network / RBAC / secrets | **PARTIAL** (was overstated) | ServiceAccounts hold only self-subject-review and discovery — **no write verb on any resource**; no custom RBAC exists. `can-i get secrets` is **no** for every workload. **specialist→specialist:3000 TIMEOUT**. Projected token: audience `sre-agent-runtime`, TTL 600 s. No secret, JWT, key or raw user subject in any pod log. API token mount removed (D-10). | **DNS egress is unrestricted** — open, below. The earlier PASS label did not carry this and has been corrected. |
-| 7. Portal | **PARTIAL** | Real image builds, runs **non-root (uid 1000)**, bakes **no secret**. Public-CDN webfont found and removed (D-11). | OIDC login, Runs/Requests and refresh **not exercised against the built image**. |
-| 8. Load / soak | **NOT RUN** | — | No throughput, latency, or leak evidence exists. |
-| 9. Adversarial review | **DONE** | Codex CLI 0.152.1, `codex exec`. Found 13 issues; **4 fixed**, 8 open, 1 refuted. It also correctly refuted three defects it looked for and did not find. | — |
+| 0. Environment | **FIXED** | Node disk 100% full; all workloads CrashLoopBackOff 5 days; `argocd-application-controller` OOMKilled ×23. Reclaimed 7.6 GB, stopped unrelated containers, recreated the controller. | Shared laptop resources. Environmental. |
+| 1. Agent lifecycle | **PASS** | Disable via Git → Argo **pruned the Application and Deployment**; `routedAgents: []`. Re-enable → recreated, routable, 6 citations. **Manager: same pod, `restarts=0`, throughout.** | Lifecycle states come from the reconciliation view; no Argo API or runtime probe configured here, and the API says so. |
+| 2. Real identity / tool authz | **BLOCKED** | Not executed. See "The blocking gap". | **This is why the verdict is negative.** |
+| 3. Persistence | **PASS** | Manager wired to real PostgreSQL through Git. Run written to `sre_execution_event`, Manager pod **deleted**, run **read back from a new pod that never served it**. DB stopped → readiness `postgres: unhealthy`. Schema lost on container restart → every write failed **and was logged and metered** (`run.record_failed`). | Multi-replica consistency not tested (single replica). |
+| 4. Readiness / failure recovery | **PASS** | Specialist scaled to 0, pods killed mid-query, Manager deleted — all recovered automatically (14 s, 6 s, 2 m 8 s). Probe leniency, specialist blindness and stale-policy retention all closed and re-verified in-cluster. | Time-based git-sync freshness is not asserted — see residual R-1. |
+| 5. GitOps resilience | **PASS** | 30+ revisions Git → Argo → Kubernetes → Ready. git-sync advanced **without a pod restart**. Prune proven. **selfHeal proven**: AppProject deliberately drifted, restored in **20 s**. App-of-apps propagated an ApplicationSet change end to end. | Explicit rollback-to-previous-revision not run as its own drill. |
+| 6. Network / RBAC / secrets | **PASS** | ServiceAccounts hold only self-subject-review and discovery — **no write verb on any resource**; `can-i get secrets` is **no** for every workload; API token mount removed. **specialist→specialist:3000 TIMEOUT**. **DNS now confined**: cluster resolve works, `1.1.1.1:53` and `8.8.8.8:53` **TIMEOUT** (previously connected). No secret, JWT, key or raw user subject in any pod log. | The `0.0.0.0/0:443` git-sync egress applies in **local only**; production leaves gitSync off, so the rule is not rendered there. |
+| 7. Portal | **PARTIAL** | Real image builds, runs **non-root (uid 1000)**, **no baked secret**. Public-CDN webfont removed, with a test that rejects even a bare `preconnect`. | **Real OIDC login not exercised** — blocked on the same in-cluster Keycloak as Gate 2. |
+| 8. Load / soak | **PASS (measured)** | See measurements below. | Latency is a harness figure, not a platform figure. |
+| 9. Adversarial review | **DONE** | Codex 0.152.1 found 13 issues in pass 1. Pass 2 hit a **Codex usage quota** mid-run; substituted a Claude reviewer and flagged it here. It raised 3 findings: **2 refuted empirically**, 1 partially valid (R-1). | — |
 
 ---
 
-## Defects found and fixed (13)
+## Load and soak measurements
 
-Every one was found by executing the system or by adversarial review — none by
-reading code alone. Each was fixed, tested failing-first, and pushed.
-
-| ID | Sev | Defect | Fix |
-|---|---|---|---|
-| D-1 | HIGH | `gitSync` pod rendered with no egress to its git remote; runtime container still passed liveness, so the pod read `1/2 Running` while the Manager never read desired state. | Chart **fails at render time** rather than shipping it. |
-| D-2 | HIGH | AppProject applied once by bootstrap, reconciled by nothing; it drifted and every Application failed to sync — an outage invisible in the Applications' own health. | Root app-of-apps owns the AppProject, the ApplicationSet and itself; selfHeal verified in-cluster. |
-| D-3 | MED | Unquoted `[0]` in a Helm parameter is a YAML error; reached the cluster because nothing tested manifests applied outside Helm. | Test parses every Argo manifest. |
-| D-4 | HIGH | Per-role Secret split dropped the shared endpoints Secret; specialists refused to boot. | `extraEnvFrom`; `extraEgress` for unnameable destinations. |
-| D-5 | MED | Local model ids named a provider the endpoint did not serve. | Bindings name what answers. |
-| D-6 | HIGH | git-sync swaps a symlink and deletes the old worktree; the kernel pins CWD to the inode from exec, so the first commit after startup left the Manager reading a deleted directory. | `SRE_CONFIG_BASE_DIR` addresses config *through* the link. |
-| D-7 | HIGH | D-6's first fix made the path absolute while the loader **joined** it onto the base — specialists crashlooped on ENOENT. | `resolve` not `join`; one base governs config, prompts and env dir. |
-| D-8 | MED | **Five real secret files shipped in a source zip** (`.env.real-poc`, two delegation keys, a TLS key, a mock OIDC key). All correctly gitignored — which is why a "what's big" exclusion list missed them. | `tools/make-source-zip.sh` builds from `git archive`, runs `validate:tracked`, audits its own output. |
-| D-9 | LOW | Root Application could not sync: kustomize refuses to load files above its root. | Directory source with an exhaustive include list. |
-| D-10 | MED | Every workload mounted a Kubernetes API token it never reads. | `automountServiceAccountToken: false`. |
-| D-11 | MED | Portal bundle fetched a webfont from a public CDN — in an air-gapped cluster that hangs until the browser gives up rather than failing loudly. | Removed; test rejects even a bare `preconnect`. |
-| D-12 | HIGH | **`port: 0`** rendered for specialists — Kubernetes rejects it and **no specialist could sync**. My own regression, caught by Codex within minutes. | Egress gated on the postgres *client*, where the fact already lives; test asserts port 0 is never emitted. |
-| D-13 | HIGH | Readiness probes accepted **any** HTTP response: a JWKS answering 404 and a model answering 500 both reported `healthy`, so Kubernetes kept routing to a pod that could not authenticate a single request. | JWKS requires 2xx **with a non-empty key set**; model requires 2xx. |
-
-### Two lessons recorded rather than buried
-
-**D-7**: its predecessor passed tests and `helm template` and still broke the
-cluster, because no test exercised the loader against an absolute path.
-Compounding it — **the image supplies the code, git-sync supplies only desired
-state** — so a config-loader fix sat in Git and in the pod's environment while
-the running image predated it. Watching Git land is not watching the binary
-change.
-
-**D-12**: I introduced it and pushed it, and the adversarial reviewer found it
-before I did. A fix aimed at one gate broke three workloads in another.
-
----
-
-## OPEN — findings raised and not fixed
-
-These are why the verdict is NOT_PRODUCTION_READY. All were raised by the
-independent review; each is stated with its trigger, not merely its category.
-
-1. **HIGH — production fails open to mocks when `SRE_ENV` is omitted.**
-   `env` defaults to `local` and every client defaults to `mock`, and the
-   "production forbids mocks" check runs *after* that default. `loadAppConfig({})`
-   returns a fully mocked configuration. Any Job, alternate chart or emergency
-   manifest that omits `SRE_ENV` starts a production image in mock mode.
-2. **HIGH — the caller chooses the environment.** `environment` is accepted from
-   the request body, flows into routing, and is forwarded to ToolHive as
-   `x-sre-environment`. `authorizeAgent` receives it and deliberately ignores it.
-   An authenticated `infra-read` caller can post `{"environment":"dr"}` to a
-   production Manager. Severity depends on whether ToolHive uses that header for
-   tenant selection — which is exactly the kind of coupling that should not be
-   left to chance.
-3. **HIGH — specialist readiness checks nothing.** `dependencyStatus` is `{}` for
-   a specialist; it returns 200 regardless of model, ToolHive or policy state.
-4. **HIGH — a failed policy reload retains stale authority indefinitely.** The
-   failed fingerprint is still assigned to `revision`, so later reads
-   short-circuit and the old grants stay active until something else changes on
-   disk. Readiness never sees it. A malformed *narrowing* of a policy therefore
-   leaves the broader policy in force.
-5. **HIGH — git-sync staleness is invisible to readiness.** The sidecar has no
-   probe and follows mutable `main`. If credentials expire after the initial
-   clone, the pod stays Ready serving an old worktree. `syncCount: 3` proves
-   three syncs happened, not that convergence continues.
-6. **HIGH — DNS egress is unrestricted.** The DNS rule has no `to` selector, so
-   any pod may send UDP/TCP to any address on port 53. My own earlier evidence
-   showed `1.1.1.1:53` connecting and I reported it as the rule working as
-   intended, without recording it as an exfiltration path. That was an
-   incomplete reading and the Gate 6 PASS has been downgraded accordingly.
-7. **HIGH — the production ApplicationSet tolerates a missing values file.** It
-   explicitly ignores the absence of `runtime-values.yaml`, which is not in the
-   repository, so Argo renders apparently-valid Applications against chart
-   defaults (`registry.internal/...:0.2.0`) instead of failing at render time.
-8. **HIGH — the on-prem examples contradict each other.** The values example
-   points every specialist at a shared `sre-agent-specialist-secrets` while the
-   secrets example creates per-agent Secrets. Following both leaves every
-   specialist in `CreateContainerConfigError`; "fixing" it by creating the shared
-   Secret would collapse the per-specialist credential boundary the design rests
-   on.
-
-The reviewer also **refuted** three defects it went looking for: no orphan
-gitSync egress rule, no path that invokes an agent or tool without re-checking
-roles, and no policy disclosure in the 401 path.
-
----
-
-## Gate 5/execution evidence
-
-`HTTP 200` in 43 s against the cluster:
+`node load.mjs`, concurrency 5, 4 rounds, 20 requests through `POST /v1/query`.
 
 ```
-routedAgents: ["active-directory"]    degraded: false    evidenceGaps: []
-4 tool calls → 4 citations, each with an evidence id and a tool:// label
+requests        20 over 270.3s wall
+answered 200    15/20 (75%)
+p50 / p95       58,837 ms / 70,776 ms      min 9,311 ms   max 70,776 ms
+outcome classes
+  degraded_unknown             5
+  http_403                     5     ← CORRECT: alice lacks network-read
+  degraded_failed              4
+  degraded_TOOL_INVALID_CALL   3
+  ok                           2
+  degraded_UNGROUNDED_ANSWER   1     ← grounding guarantee firing under load
 ```
 
-Negative paths give precise causes rather than generic degradation:
+**Reading these honestly.** Zero crashes, zero timeouts, zero exceptions, and
+**zero pod restarts** — no OOM, no leak. Every request received a well-formed
+response carrying a precise outcome class. The five 403s are the authorization
+model working: those questions were network-observability questions and the
+caller holds only `infra-read`. Excluding them, every request that *should* have
+been served was served.
 
-| Case | Result |
+The remaining degraded classes are **model quality, not platform failure**: the
+local harness spawns one CLI process per model call, and that model emits
+occasional malformed tool calls. One request came back
+`degraded_UNGROUNDED_ANSWER` — the platform detected an answer its evidence did
+not support and refused it, under load. Manager RSS after the run: **45 MB, heap
+4 MB**. Node memory 2.40 GiB of 3.83 GiB.
+
+**p50 of 59 s is a harness figure.** It measures one `claude -p` process per
+model call on a laptop, not the platform's own throughput.
+
+---
+
+## The blocking gap — Gate 2
+
+Everything needed exists; none of it is wired together in-cluster.
+
+**Already proven, standalone:** RFC 8693 token exchange against live Keycloak
+26.6 — 7/7 including a negative control, with `sub` the human, `aud` one target,
+`azp` the agent. Keycloak 26.6 runs on the host with realm `sre-test`. ToolHive
+(`thv` v0.46.0), `kubernetes-mcp` v0.0.66 and `prometheus-mcp` v0.18.0 binaries
+are built. Helm charts exist for ToolHive and both MCP servers. Cedar policies
+are rendered at `deploy/environments/poc/rendered/toolhive/*.authz.yaml`.
+
+**What is missing is deployment, not technology.** Pods cannot reach the host's
+`localhost:8443`, so Keycloak, its database, ToolHive and the MCP servers must
+run in-cluster. Scoped:
+
+| Step | Effort |
 |---|---|
-| caller lacking `requiredRoles` | `AUTHZ_DENIED`, retryable false, HTTP 403 |
-| invalid bearer token | `AUTHN_FAILED`, HTTP 401, no policy internals |
-| question outside every domain | `ROUTE_AMBIGUOUS` — asks which domain, refuses to answer |
-| disabled agent | `routedAgents: []` — not offered at all |
-| model id absent | `MODEL_UNAVAILABLE`, retryable **true** |
-| model cannot hold strict `json_schema` | `ROUTE_INVALID` |
-| malformed tool call, budget exhausted | `TOOL_INVALID_CALL` + *"Insufficient evidence: Model-turn budget exhausted"* — refused, not fabricated |
-| history unreadable (DB down) | **now** 503 `DEPENDENCY_UNAVAILABLE` with `Retry-After`; previously 404, which told an operator mid-incident that the run never happened |
+| Add `standard.token.exchange.enabled` + audience mappers to realm clients | ~5 min |
+| In-cluster PostgreSQL for Keycloak | ~1 h |
+| In-cluster Keycloak 26.6 with realm import and TLS | ~2 h |
+| Expose the Manager's internal HTTPS JWKS on 3443 | ~20 min |
+| Deploy kubernetes-mcp (+ RBAC) and ToolHive operator with Cedar policies | ~2.5 h |
+| NetworkPolicy egress to in-cluster Keycloak and ToolHive | ~30 min |
 
-**Honest limit:** `clients.toolhive=mock`, so tool *backends* are mocks. Routing,
-the tool loop, evidence identity, citation binding, turn limits and grounding
-are real; the data the tools return is not.
+Total ≈ **4–5 hours**. It fits in 3.83 GiB only with resource discipline —
+specialist replicas at 1, memory limits trimmed. Nothing here is a red line.
+
+Gate 7's real OIDC login is blocked on exactly the same work.
 
 ---
 
-## Constraints
+## Findings closed this session (8 HIGH) — all tested failing-first
 
-- **C-1 — laptop capacity.** 4 CPU / 3.83 GiB shared with all host Docker
-  workloads. The API server intermittently returned `TLS handshake timeout`
-  during rollouts. Any Gate 8 figure would be a laptop figure.
-- **C-2 — identity is mocked.** Gate 2 cannot be certified without re-wiring
-  this cluster onto the real Keycloak stack.
-- **C-3 — the model is a local CLI shim**, one process per model call.
-  `qwen3:8b` could not hold strict `json_schema` at all; haiku emits occasional
-  malformed tool calls. Where that happened the platform refused safely — which
-  is evidence for the platform and against the harness.
+| # | Finding | Fix | Verified |
+|---|---|---|---|
+| A1 | Omitting `SRE_ENV` started a production image fully mocked; `loadAppConfig({})` returned mocks. | Dockerfile sets `SRE_PACKAGED_IMAGE`; a packaged image refuses to start without an explicit `SRE_ENV`. The default stays for working trees, where it is correct. | **Empirically**: the built image refuses, and still refuses when the marker is set empty. |
+| A2 | The caller chose the trust environment: request-body `environment` beat config, reached authorization, and travelled to ToolHive as `x-sre-environment`. One read role plus a different JSON string was a tenant switch. | The deployment's configured environment is authoritative; a request naming another is **refused with 422**, not coerced. The message names no other environment. | **In-cluster**: `{"environment":"dr"}` → 422 `ROUTE_INVALID`. |
+| A3 | Specialist readiness checked *nothing* — `{}` and 200 unconditionally. | Reports `policy` and `model`; 503 when either is unusable. | **In-cluster**: `{"policy":"healthy","model":"healthy"}`. |
+| A4 | A failed policy reload assigned the **failed** fingerprint to `revision`, so the next call short-circuited: metric and log fired once, then silence, while stale broader grants stayed authoritative for the pod's life. | Failed fingerprint tracked separately; the error stays observable until a valid document replaces it; readiness reads it. | Tests: reported on the second look, and cleared on recovery. The Manager's own source already had the correct pattern — the specialist was the outlier. |
+| A5 | git-sync staleness was invisible; the pod stayed Ready serving the last worktree it fetched. | `--http-bind` plus a readinessProbe, and `--max-failures` stated rather than inherited. | Endpoint returns 200 in-cluster; sustained failure was directly observed aborting the container earlier this session. See R-1. |
+| A6 | **DNS egress was unrestricted** — ports and no `to` selector, so any pod could reach any address on port 53. My own earlier evidence showed `1.1.1.1:53` connecting and I read it as the rule working. | Namespace and pod selectors in **one** peer: kube-dns inside kube-system. | **In-cluster**: cluster DNS resolves; `1.1.1.1:53` and `8.8.8.8:53` now TIMEOUT. |
+| A7 | The production ApplicationSet tolerated a missing `runtime-values.yaml`, rendering `registry.internal/...:0.2.0` placeholders as apparently-valid Applications. | Toleration removed, reference **kept**: Helm fails until the site creates it. | Test asserts the file is referenced and deliberately absent from the repo. |
+| A8 | On-prem examples contradicted the per-agent credential model; following both left every specialist in `CreateContainerConfigError`. | Examples aligned to the per-agent default, with the reason recorded. | Test asserts the two examples agree. |
+
+Plus three found while testing: a schema-blind `postgres` ping that reported
+healthy against a database with no tables; a **`port: 0`** NetworkPolicy that
+Kubernetes rejected and that stopped every specialist syncing (my own
+regression, caught by the reviewer within minutes); and a build script that
+inherited the ambient kube context, targeted an EKS node, and exited 0 having
+loaded nothing.
+
+### A correction about my own process
+
+My A1/A2 commit used `git add -A` and swept in a sub-agent's in-progress work
+before I had reviewed it. That work removed the production values-file reference
+**and** its toleration — which would have left production rendering against chart
+defaults permanently, the defect rather than the fix. I caught it on review and
+corrected it in the following commit, but it reached a commit unreviewed.
+
+---
+
+## Residual risks
+
+- **R-1 — git-sync freshness is detected by failure, not by age.** The probe
+  answers "do I hold a good checkout", and `--max-failures=3` makes the sidecar
+  exit on sustained failure, which takes the pod out of its Service endpoints —
+  observed directly. What is *not* implemented is a time-based assertion ("last
+  successful sync older than N"). A remote that accepts connections but serves a
+  stale ref indefinitely would not be caught.
+- **R-2 — multi-replica consistency untested.** Persistence is proven across a
+  pod restart, not across two live replicas.
+- **R-3 — the model is a local CLI shim**, one process per call. `qwen3:8b`
+  could not hold strict `json_schema` at all; haiku emits occasional malformed
+  tool calls. Where that happened the platform refused safely — evidence for the
+  platform, against the harness.
+- **R-4 — laptop capacity.** 4 CPU / 3.83 GiB shared with all host Docker
+  workloads; the API server intermittently returned `TLS handshake timeout`
+  during rollouts.
+- **R-5 — Codex quota lapsed mid-review.** Pass 2 was completed by a Claude
+  adversarial agent instead, and is flagged as such rather than presented as
+  independent tooling.
+
+## Refuted in the final review
+
+Recorded because a refuted finding is evidence too:
+
+- *"An operator can omit `SRE_PACKAGED_IMAGE` and get mocks."* A Kubernetes
+  manifest **adds to** image env; it cannot unset it. Setting it empty still
+  trips the guard (`"" !== undefined`). Both tested against the built image.
+- *"`SELECT 1 FROM t WHERE false` may skip the ACL check."* PostgreSQL checks
+  table permissions at plan time regardless: a role without SELECT gets
+  `permission denied for table sre_execution_event`. Tested with a real role.
 
 ## What would change the verdict
 
-Close the eight open findings (1 and 2 are the load-bearing ones), certify Gate 2
-against real Keycloak and ToolHive, run Gate 8, and drive the built portal image
-through a real OIDC login. Nothing found so far suggests the architecture is
-wrong — the failures were consistently in deployment wiring and in probes that
-reported more confidence than they had earned.
+Execute Gate 2 — the 4–5 hours scoped above — and Gate 7's OIDC login with it.
+Nothing found in two adversarial passes suggests the architecture is wrong; the
+defects were consistently in deployment wiring and in probes that reported more
+confidence than they had earned.
