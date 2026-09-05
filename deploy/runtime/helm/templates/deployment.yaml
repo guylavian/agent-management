@@ -51,6 +51,9 @@ spec:
           # into the synced checkout instead of the image's baked copy
           workingDir: /repo/current/platform
           command: ["node", "/app/platform/runtime-host/src/main.ts"]
+          {{- else if eq .Values.agent.mode "reconciler" }}
+          # reconciler always sets its own entrypoint
+          command: ["node", "/app/platform/runtime-host/src/reconciler-main.ts"]
           {{- end }}
           ports:
             - { name: http, containerPort: 3000 }
@@ -73,7 +76,8 @@ spec:
             # SRE_ENV=production/real-poc, so the values file cannot widen what the
             # runtime accepts — it can only narrow what a local cluster wires up.
             # The manager process constructs only oidc/llm/agent/delegation/postgres;
-            # its ToolHive path additionally stays blocked by NetworkPolicy.
+            # its ToolHive path additionally stays blocked by NetworkPolicy. Reconciler
+            # uses only postgres/oidc (Keycloak admin client, not token exchange).
             - { name: SRE_CLIENT_OIDC, value: {{ .Values.clients.oidc | quote }} }
             - { name: SRE_CLIENT_LLM, value: {{ .Values.clients.llm | quote }} }
             - { name: SRE_CLIENT_TOOLHIVE, value: {{ .Values.clients.toolhive | quote }} }
@@ -86,9 +90,10 @@ spec:
             {{- if .Values.caBundle.enabled }}
             - { name: NODE_EXTRA_CA_CERTS, value: {{ printf "%s/%s" .Values.caBundle.mountPath .Values.caBundle.key | quote }} }
             {{- end }}
-            {{- if eq .Values.agent.mode "manager" }}
+            {{- if or (eq .Values.agent.mode "manager") (eq .Values.agent.mode "reconciler") }}
             # the Manager derives its effective catalog from config/agents intersected
-            # with this environment's deployment state; there is no registry file
+            # with this environment's deployment state; the Reconciler reads the same
+            # desired state to project it into the operational plane
             - { name: SRE_DEPLOYMENT_ENVIRONMENT_DIR, value: {{ printf "../deploy/environments/%s" .Values.deploymentEnvironment | quote }} }
             {{- end }}
             # Both modes: loadAppConfig requires a workload credential whenever the
@@ -101,6 +106,11 @@ spec:
             {{- range $name, $value := .Values.modelEnv }}
             - { name: {{ $name }}, value: {{ $value | quote }} }
             {{- end }}
+            {{- if eq .Values.agent.mode "reconciler" }}
+            # reconcile interval in milliseconds: how often the reconciler projects Git
+            # desired state into sre_agent_operational_state rows
+            - { name: SRE_RECONCILE_INTERVAL_MS, value: "15000" }
+            {{- end }}
             {{- if eq .Values.agent.mode "manager" }}
             # manager: file-mounted delegation key replaces inline env var (C2)
             - { name: SRE_DELEGATION_PRIVATE_KEY_FILE, value: /etc/sre/delegation-key/private.pem }
@@ -108,6 +118,8 @@ spec:
           envFrom:
             {{- if eq .Values.agent.mode "manager" }}
             - secretRef: { name: {{ .Values.managerSecret | quote }} }
+            {{- else if eq .Values.agent.mode "reconciler" }}
+            - secretRef: { name: {{ .Values.reconcilerSecret | quote }} }
             {{- else }}
             - secretRef: { name: {{ .Values.specialistSecret | default (printf "sre-agent-%s-secrets" .Values.agent.name) | quote }} }
             {{- end }}
@@ -161,20 +173,20 @@ spec:
               the kubelet: it sorts mounts by path, so the nested `agents`
               mount lands inside the environment mount.
             */}}
-            {{- if .Values.desiredState.agents }}
+            {{- if and .Values.desiredState.agents (or (eq .Values.agent.mode "manager") (eq .Values.agent.mode "reconciler")) }}
             - { name: desired-agents, mountPath: "/app/platform/config/agents", readOnly: true }
             {{- end }}
             {{- if .Values.desiredState.prompts }}
             - { name: desired-prompts, mountPath: "/app/platform/config/prompts", readOnly: true }
             {{- end }}
-            {{- if .Values.desiredState.environmentFiles }}
+            {{- if and .Values.desiredState.environmentFiles (or (eq .Values.agent.mode "manager") (eq .Values.agent.mode "reconciler")) }}
             # NOTE: this shadows `rendered/` inside the environment directory.
             # The runtime reads it only to diff a change preview against disk,
             # and that path already treats an unreadable file as "not there",
             # so a preview renders as an addition rather than failing.
             - { name: desired-environment, mountPath: {{ printf "/app/deploy/environments/%s" .Values.deploymentEnvironment | quote }}, readOnly: true }
             {{- end }}
-            {{- if .Values.desiredState.overlays }}
+            {{- if and .Values.desiredState.overlays (or (eq .Values.agent.mode "manager") (eq .Values.agent.mode "reconciler")) }}
             - { name: desired-overlays, mountPath: {{ printf "/app/deploy/environments/%s/agents" .Values.deploymentEnvironment | quote }}, readOnly: true }
             {{- end }}
             {{- if .Values.caBundle.enabled }}
@@ -245,7 +257,7 @@ spec:
         - name: environment-config
           configMap: { name: {{ include "sre-agent.fullname" . }}-environment }
         {{- end }}
-        {{- if .Values.desiredState.agents }}
+        {{- if and .Values.desiredState.agents (or (eq .Values.agent.mode "manager") (eq .Values.agent.mode "reconciler")) }}
         - name: desired-agents
           configMap: { name: {{ include "sre-agent.fullname" . }}-agents }
         {{- end }}
@@ -253,11 +265,11 @@ spec:
         - name: desired-prompts
           configMap: { name: {{ include "sre-agent.fullname" . }}-prompts }
         {{- end }}
-        {{- if .Values.desiredState.environmentFiles }}
+        {{- if and .Values.desiredState.environmentFiles (or (eq .Values.agent.mode "manager") (eq .Values.agent.mode "reconciler")) }}
         - name: desired-environment
           configMap: { name: {{ include "sre-agent.fullname" . }}-environment-files }
         {{- end }}
-        {{- if .Values.desiredState.overlays }}
+        {{- if and .Values.desiredState.overlays (or (eq .Values.agent.mode "manager") (eq .Values.agent.mode "reconciler")) }}
         - name: desired-overlays
           configMap: { name: {{ include "sre-agent.fullname" . }}-overlays }
         {{- end }}

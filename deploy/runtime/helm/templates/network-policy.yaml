@@ -21,6 +21,8 @@ spec:
         {{- end }}
       ports:
         - { protocol: TCP, port: 3000 }
+    {{- else if eq .Values.agent.mode "reconciler" }}
+    # reconciler serves only a health endpoint for probes; no external traffic
     {{- else }}
     # only manager pods in this namespace may reach a specialist —
     # the internal Agent API is not exposed to anything else
@@ -59,6 +61,23 @@ spec:
               - { key: {{ .Values.networkPolicy.toolhiveNamespaceLabel }}, operator: DoesNotExist }
       ports:
         {{- range .Values.networkPolicy.managerPlatformPorts }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+    {{- else if eq .Values.agent.mode "reconciler" }}
+    # reconciler → specialist services: runtime probing (readiness check)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sre-agent-runtime
+              sre.ai/mode: specialist
+      ports:
+        - { protocol: TCP, port: 3000 }
+    # reconciler → IdP (Keycloak admin) / OTel / PostgreSQL (attestation store)
+    - to:
+        - namespaceSelector:
+            matchLabels: { {{ .Values.networkPolicy.platformNamespaceLabel }}: "true" }
+      ports:
+        {{- range .Values.networkPolicy.reconcilerPlatformPorts }}
         - { protocol: TCP, port: {{ . }} }
         {{- end }}
     {{- else }}

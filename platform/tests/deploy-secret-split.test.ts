@@ -148,4 +148,31 @@ describe("deploy: secret split by role (C2)", () => {
       expect(new Set(paths).size, `duplicate mountPath in container ${String(container.name)}`).toBe(paths.length);
     }
   });
+
+  describe("reconciler role", () => {
+    // the runtime only READS the operational plane; the credentials that can
+    // activate an Agent or write an attestation belong to one workload only
+    const render = (mode: string) => execFileSync("helm", ["template", "t", "../deploy/runtime/helm", "--set", `agent.mode=${mode}`, "--set", "agent.name=probe"], { encoding: "utf8" });
+
+    it("gives the attester and activation credentials to the reconciler alone", () => {
+      expect(render("reconciler")).toMatch(/SRE_ATTEST_|sre-agent-reconciler-secrets/u);
+      for (const mode of ["manager", "specialist"]) {
+        const rendered = render(mode);
+        expect(rendered, `${mode} must not receive operational-plane write credentials`).not.toMatch(/SRE_ATTEST_|SRE_ACTIVATION_|sre-agent-reconciler-secrets/u);
+      }
+    });
+
+    it("runs the reconciler entrypoint and exposes no Service", () => {
+      const rendered = render("reconciler");
+      expect(rendered).toContain("reconciler-main.ts");
+      // nothing calls it, so it gets no Service to be called on
+      expect(rendered).not.toMatch(/^kind: Service$/mu);
+    });
+
+    it("keeps the runtime roles on the runtime entrypoint", () => {
+      for (const mode of ["manager", "specialist"]) {
+        expect(render(mode)).not.toContain("reconciler-main.ts");
+      }
+    });
+  });
 });

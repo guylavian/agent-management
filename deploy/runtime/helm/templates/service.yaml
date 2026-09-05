@@ -1,3 +1,6 @@
+{{- if ne .Values.agent.mode "reconciler" }}
+# reconciler has no external contract; the manager/specialist only need their Services
+# for internal Agent-to-Agent routing discovered through the environment template
 apiVersion: v1
 kind: Service
 metadata:
@@ -10,6 +13,7 @@ spec:
   selector: {{- include "sre-agent.selectorLabels" . | nindent 4 }}
   ports:
     - { name: http, port: {{ .Values.service.port }}, targetPort: http }
+{{- end }}
 ---
 {{- if not .Values.serviceAccount.name }}
 apiVersion: v1

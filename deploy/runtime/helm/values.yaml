@@ -5,7 +5,7 @@
 agent:
   # logical agent id (manager | active-directory | openshift | network-observability | ...)
   name: manager
-  # manager | specialist — selects env wiring, workload identity and network policy shape
+  # manager | specialist | reconciler — selects env wiring, workload identity and network policy shape
   mode: manager
   # agent YAML baked into the runtime image; AGENT_CONFIG points here
   configFile: config/agents/manager.yaml
@@ -76,6 +76,9 @@ gitSync:
   # repository; empty for a public one
   credentialsSecret: ""
 
+# default replicas for manager and specialist; reconciler should override to 1
+# (concurrent rounds would draw competing generations of the same Agent from Git,
+# defeating the monotonic ordering that makes attestations idempotent)
 replicaCount: 2
 
 service:
@@ -118,6 +121,10 @@ managerSecret: sre-agent-manager-secrets
 # OWN Keycloak client, so one shared secret would either not work or make every
 # specialist share a credential boundary
 specialistSecret: ""
+# reconciler: database and Keycloak admin credentials for operational plane writes.
+# Four distinct PostgreSQL roles (sre_activation, sre_attest_*) enforce that one
+# stolen credential cannot both activate an Agent and attest to it.
+reconcilerSecret: sre-agent-reconciler-secrets
 delegationPrivateKeySecret: sre-agent-delegation-private-key
 
 # Client wiring. Production is fail-closed and these defaults ARE that posture;
@@ -211,3 +218,5 @@ networkPolicy:
   managerPlatformPorts: [443, 4318, 5432, 8000]
   # specialist: ToolHive/HTTPS 443, OTLP 4318, vLLM 8000
   specialistPlatformPorts: [443, 4318, 8000]
+  # reconciler: IdP/HTTPS 443 (Keycloak admin), OTLP 4318, PostgreSQL 5432 (attestation store)
+  reconcilerPlatformPorts: [443, 4318, 5432]
