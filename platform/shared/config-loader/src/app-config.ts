@@ -107,6 +107,13 @@ export const appConfigSchema = z
         mockKeyFile: z.string().optional(),
       })
       .strict(),
+    /** read-only IdP admin access, used ONLY by the reconciler's identity attestation */
+    keycloakAdmin: z.object({
+      url: z.string().optional(),
+      realm: z.string().default("sre-agents"),
+      clientId: z.string().optional(),
+      clientSecret: z.string().optional(),
+    }).strict(),
     internalOidc: z.object({
       issuer: z.string().min(1).default("https://mock-workload-idp.sre.local"),
       audience: z.string().min(1).default("sre-agent-runtime"),
@@ -179,6 +186,19 @@ export const appConfigSchema = z
        * be named explicitly rather than assumed — see the guard below.
        */
       reconciler: z.enum(["external"]).optional(),
+      /**
+       * The reconciler's own credentials, one PostgreSQL role each.
+       *
+       * Four, not one: row-level security confines each attester to its own
+       * attestation kind, so a stolen attester credential can forge one third
+       * of the proof rather than all of it. Collapsing them into one
+       * connection would make that independence nominal.
+       */
+      activationUrl: z.string().optional(),
+      attestRuntimeUrl: z.string().optional(),
+      attestIdentityUrl: z.string().optional(),
+      attestToolAccessUrl: z.string().optional(),
+      intervalMs: z.coerce.number().int().min(1_000).max(600_000).default(15_000),
       /*
        * The PostgreSQL operational control plane (suspend/resume + attested
        * readiness). OFF by default, and deliberately not inferred from Postgres
@@ -187,7 +207,7 @@ export const appConfigSchema = z
        * default and a total outage if switched on by accident.
        */
       operationalPlane: z.coerce.boolean().default(false),
-    }).strict().default({ probeRuntime: false, operationalPlane: false }),
+    }).strict().default({ probeRuntime: false, operationalPlane: false, intervalMs: 15_000 }),
     toolCredential: z.object({
       issuer: z.string().min(1).default("https://mock-toolhive-sts.sre.local"),
       audiencePrefix: z.string().min(1).default("sre-toolhive"),
@@ -269,6 +289,12 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
       // else generates per process as before
       mockKeyFile: env.SRE_MOCK_OIDC_KEY_FILE ?? (env.SRE_ENV === "local" ? ".sre-local/mock-oidc-key.pem" : undefined),
     },
+    keycloakAdmin: {
+      url: env.SRE_KEYCLOAK_ADMIN_URL,
+      realm: env.SRE_KEYCLOAK_ADMIN_REALM,
+      clientId: env.SRE_KEYCLOAK_ADMIN_CLIENT_ID,
+      clientSecret: env.SRE_KEYCLOAK_ADMIN_CLIENT_SECRET,
+    },
     internalOidc: {
       issuer: env.SRE_INTERNAL_OIDC_ISSUER,
       audience: env.SRE_INTERNAL_OIDC_AUDIENCE,
@@ -309,6 +335,11 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
       probeRuntime: env.SRE_RUNTIME_PROBE === "on",
       operationalPlane: env.SRE_OPERATIONAL_PLANE === "on",
       ...(env.SRE_OPERATIONAL_RECONCILER ? { reconciler: env.SRE_OPERATIONAL_RECONCILER } : {}),
+      activationUrl: env.SRE_ACTIVATION_POSTGRES_URL,
+      attestRuntimeUrl: env.SRE_ATTEST_RUNTIME_POSTGRES_URL,
+      attestIdentityUrl: env.SRE_ATTEST_IDENTITY_POSTGRES_URL,
+      attestToolAccessUrl: env.SRE_ATTEST_TOOL_ACCESS_POSTGRES_URL,
+      intervalMs: env.SRE_RECONCILE_INTERVAL_MS,
     },
     toolCredential: {
       issuer: env.SRE_TOOL_CREDENTIAL_ISSUER,

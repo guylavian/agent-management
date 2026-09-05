@@ -1,0 +1,16 @@
+# CI/lint render values for the portal Helm chart.
+# These are placeholder, non-production values used only for `helm template`
+# validation. Production deployments MUST provide real values that override these.
+
+# Required for template rendering; production must provide the real OIDC metadata endpoint
+oidc:
+  metadataUrl: https://example.com/.well-known/openid-configuration
+
+# Required for template rendering; production must provide the real base URL
+# (typically an OpenShift Route or Ingress hostname)
+baseUrl: https://example.com
+
+# Required for bitbucketServer gitops provider; CI render uses the default "none"
+# so this is not evaluated, but placeholder for completeness
+gitops:
+  host: example.com

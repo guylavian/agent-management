@@ -386,7 +386,7 @@ function deploymentEnvironmentName(config: AppConfig): string {
   return config.deploymentEnvironmentDir.split("/").filter((part) => part.length > 0).pop() ?? "production";
 }
 
-function configPaths(config: AppConfig): { agentsDir: string; promptsDir: string; mcpServersDir: string; modelProfilesFile: string; toolPolicyFile: string } {
+export function configPaths(config: AppConfig): { agentsDir: string; promptsDir: string; mcpServersDir: string; modelProfilesFile: string; toolPolicyFile: string } {
   return {
     agentsDir: config.agentsDir,
     promptsDir: config.promptsDir,
