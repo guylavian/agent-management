@@ -372,8 +372,18 @@ export class PostgresRunStore implements RunStore {
     }
   }
 
-  /** a pool is created lazily, so only a real query proves the database is reachable */
-  async ping(): Promise<void> { await this.#pool.query("SELECT 1", []); }
+  /**
+   * A pool connects lazily, so only a real query proves anything — and the
+   * query has to be about the thing readiness is claiming works. `SELECT 1`
+   * succeeds against a database with no schema at all: observed during
+   * certification when the test database lost its tables and every run write
+   * failed while readiness went on reporting `postgres: healthy`. Touching the
+   * table the store actually writes to is the difference between "the server
+   * answers" and "the history can be recorded".
+   */
+  async ping(): Promise<void> {
+    await this.#pool.query("SELECT 1 FROM sre_execution_event WHERE false", []);
+  }
 
   async close(): Promise<void> {
     await this.#pool.end();

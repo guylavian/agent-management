@@ -230,3 +230,35 @@ describe("an unreadable history is not reported as an empty one", () => {
     await expect(store.get("req-absent")).resolves.toBeUndefined();
   });
 });
+
+/**
+ * `SELECT 1` PROVES THE SERVER ANSWERS, NOT THAT IT CAN STORE ANYTHING.
+ *
+ * Found by accident during certification: the test database lost its schema
+ * when its container restarted without a volume. Every run write then failed —
+ * and was correctly logged and metered, so the "never silent" guarantee held —
+ * but readiness went on reporting `postgres: healthy`, because the probe asked
+ * a question that an empty database can answer.
+ *
+ * Same defect class as the JWKS probe that accepted a 404. Readiness must ask
+ * about the thing it is claiming works.
+ */
+describe("the database probe asks whether the history can be written", () => {
+  it("fails when the table the store writes to is absent", async () => {
+    const noSchema = {
+      query: async (text: string) => {
+        if (/sre_execution_event/u.test(text)) throw new Error('relation "sre_execution_event" does not exist');
+        return { rows: [{ "?column?": 1 }] };
+      },
+      end: async () => { /* noop */ },
+    };
+    const store = new PostgresRunStore("postgres://unused", { pool: noSchema });
+    await expect(store.ping()).rejects.toThrow(/sre_execution_event/u);
+  });
+
+  it("passes when the schema is present", async () => {
+    const ok = { query: async () => ({ rows: [] }), end: async () => { /* noop */ } };
+    const store = new PostgresRunStore("postgres://unused", { pool: ok });
+    await expect(store.ping()).resolves.toBeUndefined();
+  });
+});
