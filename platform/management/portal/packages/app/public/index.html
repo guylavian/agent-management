@@ -42,9 +42,14 @@
       color="#5bbad5"
     />
     <title><%= config.getOptionalString('app.title') ?? 'Backstage' %></title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <!--
+      NO WEBFONT, and no preconnect to one. This portal is deployed into
+      clusters with no route to the public internet, where a hosted stylesheet
+      does not fail loudly — it hangs until the browser gives up, so first paint
+      is delayed on every page load for every operator and nothing in the
+      cluster reports why. It also tells a third party who is opening an
+      internal console. The stack below is resolved by the operating system.
+    -->
     <style>
       /* product canvas; the plugin draws its own surfaces on top */
       html, body { margin: 0; padding: 0; background: #f7f8fa; }
@@ -53,8 +58,10 @@
       @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
       /* the product sidebar is a fixed 222px rail; offset Backstage's page root */
       [class*='BackstageSidebarPage'] { padding-left: 244px; min-height: 100vh; }
-      /* Figtree everywhere; form controls do not inherit font by default */
-      body { font-family: 'Figtree', Helvetica, Arial, sans-serif; }
+      /* The OS UI font, which every platform already has; form controls do not
+         inherit font by default. Figtree stays first so a deployment that
+         self-hosts it still gets it. */
+      body { font-family: 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
       input, select, textarea, button { font-family: inherit; }
     </style>
   </head>
