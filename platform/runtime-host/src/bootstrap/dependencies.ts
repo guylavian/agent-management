@@ -192,9 +192,18 @@ export interface SpecialistDependencies extends CommonDependencies {
 
 export type ApiDependencies = ManagerDependencies | SpecialistDependencies;
 
+/**
+ * Where relative config paths resolve from. Empty means the working directory —
+ * correct for an image, and wrong behind a git-sync checkout, where the CWD the
+ * kernel pinned at exec is deleted the moment the sync advances.
+ */
+function baseDirOf(config: AppConfig): { baseDir?: string } {
+  return config.configBaseDir ? { baseDir: config.configBaseDir } : {};
+}
+
 export function buildDependencies(env: Record<string, string | undefined> = process.env): ApiDependencies {
   const config = loadAppConfig(env);
-  const agent = loadAgentInstance({ configFile: config.agentConfigFile, mcpServersDir: config.mcpServersDir });
+  const agent = loadAgentInstance({ configFile: config.agentConfigFile, mcpServersDir: config.mcpServersDir, ...baseDirOf(config) });
   assertDeclaredRole(config, agent);
   const modelMap = buildModelMap(config, config.llm.model);
   // FAIL CLOSED: an enabled Agent whose model profile does not resolve in this
@@ -213,7 +222,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     // edit, so an Agent cannot be added to routing without adding the Agent.
     // ONE source, re-read on demand. `loadEffectiveAgentCatalog` still runs on
     // the first call, so an invalid configuration is still a startup failure.
-    const desiredState = desiredStateSource({ ...configPaths(config), deploymentEnvironmentDir: config.deploymentEnvironmentDir });
+    const desiredState = desiredStateSource({ ...configPaths(config), deploymentEnvironmentDir: config.deploymentEnvironmentDir, ...baseDirOf(config) });
     /*
      * The catalog is desired state INTERSECTED WITH OBSERVED AVAILABILITY, and
      * the management API is handed this same object. There is one answer to
@@ -354,6 +363,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
     mcpServersDir: config.mcpServersDir,
     agentsDir: config.agentsDir,
     promptsDir: config.promptsDir,
+    ...baseDirOf(config),
   });
   return {
     mode: "specialist",

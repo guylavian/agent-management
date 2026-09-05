@@ -457,16 +457,17 @@ describe("config paths survive a git-sync worktree swap", () => {
     return Object.fromEntries((deployment.spec.template.spec.containers[0]?.env ?? []).map((e) => [e.name, e.value ?? ""]));
   }
 
-  it("addresses config through the link, not relative to a pinned CWD", () => {
+  it("resolves config from the link rather than the working directory", () => {
     const env = managerEnv(["--set", "gitSync.enabled=true", "--set", "gitSync.repoURL=https://git.example/r.git", "--set", "gitSync.egressCIDRs={10.0.0.0/8}"]);
-    // both must re-resolve `current` on every read
-    expect(env.AGENT_CONFIG).toMatch(/^\/repo\/current\//u);
-    expect(env.SRE_DEPLOYMENT_ENVIRONMENT_DIR).toMatch(/^\/repo\/current\//u);
+    // the base is what re-resolves `current` on every read; the paths under it
+    // stay relative so one setting governs all of them
+    expect(env.SRE_CONFIG_BASE_DIR).toBe("/repo/current/platform");
+    expect(env.AGENT_CONFIG).not.toMatch(/^\//u);
   });
 
-  it("keeps the image-relative paths when there is no checkout to follow", () => {
+  it("leaves the working directory in charge when there is no checkout to follow", () => {
     const env = managerEnv([]);
+    expect(env.SRE_CONFIG_BASE_DIR).toBeUndefined();
     expect(env.AGENT_CONFIG).not.toMatch(/^\//u);
-    expect(env.SRE_DEPLOYMENT_ENVIRONMENT_DIR).not.toMatch(/^\/repo/u);
   });
 });

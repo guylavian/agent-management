@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import { parse as parseYaml } from "yaml";
 import {
   agentDocumentSchema,
@@ -41,7 +41,9 @@ export interface LoadAgentInstanceOptions {
 /** Load exactly one logical Agent for one Generic Runtime process. */
 export function loadAgentInstance(opts: LoadAgentInstanceOptions): ManagerAgentConfig | SpecialistAgentConfig {
   const base = opts.baseDir ?? process.cwd();
-  const configPath = join(base, opts.configFile);
+  // resolve, not join: an absolute configFile is an address, and joining it onto
+  // the base silently produced <base>/<abs> — a path that cannot exist
+  const configPath = resolvePath(base, opts.configFile);
   let parsed: unknown;
   try {
     parsed = parseYaml(readFileSync(configPath, "utf8"));

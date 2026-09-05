@@ -67,6 +67,17 @@ export const appConfigSchema = z
     agentsDir: z.string().min(1).default(CONFIG_PATHS.agentsDir),
     agentConfigFile: z.string().min(1).default("config/agents/manager.yaml"),
     /**
+     * Directory the relative paths above resolve against. Empty means the
+     * process's working directory, which is right for an image.
+     *
+     * It is NOT right behind a git-sync checkout: git-sync repoints a symlink
+     * and deletes the worktree it replaced, while the kernel pins a process's
+     * CWD to the inode it resolved at exec. Every relative read then lands in a
+     * deleted directory. Pointing this at the symlink makes each read
+     * re-resolve it, so the swap is visible rather than fatal.
+     */
+    configBaseDir: z.string().default(""),
+    /**
      * Declared role and agent id. Both are OPTIONAL and never authoritative:
      * the Agent document decides what this process is. They exist so a
      * deployment can state its intent, and so a manifest that disagrees with
@@ -263,6 +274,7 @@ export function loadAppConfig(env: Record<string, string | undefined>): AppConfi
     port: env.SRE_PORT,
     agentsDir: env.SRE_AGENTS_DIR,
     agentConfigFile: env.AGENT_CONFIG,
+    configBaseDir: env.SRE_CONFIG_BASE_DIR,
     role: env.ROLE,
     agentId: env.AGENT_ID,
     promptsDir: env.SRE_PROMPTS_DIR,
