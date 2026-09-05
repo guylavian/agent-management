@@ -89,7 +89,9 @@ spec:
               # open one — acceptable here because the policy still confines it
               # to 443 and this environment holds no production data. A real
               # deployment names its git host's own range instead.
-              - { name: gitSync.egressCIDRs[0], value: 0.0.0.0/0 }
+              # quoted: an unquoted [0] would open a flow sequence inside this
+              # flow mapping, which is a YAML parse error rather than a helm one
+              - { name: "gitSync.egressCIDRs[0]", value: "0.0.0.0/0" }
       destination:
         server: https://kubernetes.default.svc
         # must equal deploy/environments/local/environment.yaml `namespace` —
