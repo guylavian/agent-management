@@ -11,3 +11,4 @@ export const createAgentRouteRef = createRouteRef();
 export const permissionsRouteRef = createRouteRef();
 export const mcpServersRouteRef = createRouteRef();
 export const runsRouteRef = createRouteRef();
+export const requestsRouteRef = createRouteRef();

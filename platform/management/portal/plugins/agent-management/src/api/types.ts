@@ -34,6 +34,8 @@ export type {
   ChangeResult,
   ChangedFile,
   DraftError,
+  ManagementRequestDetail,
+  ManagementRequestSummary,
   ManagerDetail,
   ManagerDraft,
   McpAccessView,

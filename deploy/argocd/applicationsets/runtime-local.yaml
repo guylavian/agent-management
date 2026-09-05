@@ -72,6 +72,17 @@ spec:
               # json_schema triggered on that model. Neither belongs in Git.
               - { name: clients.llm, value: real }
               - { name: extraEnv.SRE_REQUEST_DEADLINE_MS, value: "300000" }
+              # Read configuration from a live checkout of main instead of the
+              # image, so a merged pull request reaches this cluster the same
+              # way it reaches Argo — no image rebuild. The image still
+              # supplies the code; only desired state follows Git.
+              # a laptop node cannot fit old+new pods side by side at the
+              # production-sized requests during a rolling update
+              - { name: resources.requests.cpu, value: 100m }
+              - { name: resources.requests.memory, value: 128Mi }
+              - { name: gitSync.enabled, value: "true" }
+              - { name: gitSync.repoURL, value: https://github.com/guylavian/agent-management.git }
+              - { name: gitSync.credentialsSecret, value: sre-git-sync }
       destination:
         server: https://kubernetes.default.svc
         # must equal deploy/environments/local/environment.yaml `namespace` —

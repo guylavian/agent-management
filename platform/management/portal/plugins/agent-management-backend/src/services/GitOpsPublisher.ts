@@ -33,6 +33,8 @@ export interface ChangedFile {
    * the file rather than being guessed from its extension.
    */
   encoding?: 'base64';
+  /** remove the file instead of writing it; `contents` is ignored */
+  deleted?: boolean;
 }
 
 export interface PullRequestInput {
@@ -73,9 +75,24 @@ export interface AgentProposal {
   number?: number;
 }
 
+/**
+ * Where a pull request is, in the three words every provider agrees on.
+ *
+ * `mergedAt`/`closedAt` are the provider's own timestamps, so the request
+ * projection can ask "did the runtime reload AFTER the merge?" without trusting
+ * a clock in this process.
+ */
+export interface PullRequestState {
+  state: 'open' | 'merged' | 'declined';
+  mergedAt?: string;
+  closedAt?: string;
+}
+
 export interface GitOpsPublisher {
   readonly configured: boolean;
   createPullRequest(input: PullRequestInput): Promise<PullRequestOutcome>;
+  /** The provider's current view of one pull request. Throws when it cannot be observed. */
+  pullRequestState(number: number): Promise<PullRequestState>;
   /**
    * Open Agent proposals, or an empty list when this deployment has no Git
    * credential. Empty is honest here: with no credential nothing was observed,
@@ -116,6 +133,9 @@ export class UnconfiguredGitOpsPublisher implements GitOpsPublisher {
   async createPullRequest(): Promise<PullRequestOutcome> {
     return { status: 'not-configured', reason: this.#reason };
   }
+  async pullRequestState(): Promise<PullRequestState> {
+    throw new Error(this.#reason);
+  }
   async listProposals(): Promise<AgentProposal[]> {
     return [];
   }
@@ -151,6 +171,11 @@ export class GitHubGitOpsPublisher implements GitOpsPublisher {
         .getContent({ owner, repo, path: file.path, ref: input.branch })
         .catch(() => undefined);
       const sha = existing && !Array.isArray(existing.data) && 'sha' in existing.data ? existing.data.sha : undefined;
+      if (file.deleted) {
+        // already gone on the branch (an amended removal) is not a failure
+        if (sha !== undefined) await this.#octokit.repos.deleteFile({ owner, repo, path: file.path, message: `${input.title} (${file.path})`, sha, branch: input.branch });
+        continue;
+      }
       await this.#octokit.repos.createOrUpdateFileContents({
         owner,
         repo,
@@ -180,6 +205,14 @@ export class GitHubGitOpsPublisher implements GitOpsPublisher {
         return { data: { html_url: existing.html_url, number: existing.number } };
       });
     return { status: 'created', url: pull.data.html_url, number: pull.data.number };
+  }
+
+  async pullRequestState(number: number): Promise<PullRequestState> {
+    const { owner, repo } = this.#settings;
+    const { data } = await this.#octokit.pulls.get({ owner, repo, pull_number: number });
+    if (data.merged) return { state: 'merged', ...(data.merged_at ? { mergedAt: data.merged_at } : {}) };
+    if (data.state === 'closed') return { state: 'declined', ...(data.closed_at ? { closedAt: data.closed_at } : {}) };
+    return { state: 'open' };
   }
 
   async listProposals(): Promise<AgentProposal[]> {
@@ -249,6 +282,12 @@ export class BitbucketServerGitOpsPublisher implements GitOpsPublisher {
     const created = await this.#call('POST', '/branches', JSON.stringify({ name: input.branch, startPoint: `refs/heads/${baseBranch}` }), 'application/json');
     if (!created.ok && created.status !== 409) throw this.#asError(created.status, await created.text().catch(() => ''), 'create branch');
 
+    // ponytail: Bitbucket Data Center's REST file API can create and edit but
+    // not delete, so a removal needs a git push. Refused honestly rather than
+    // opening a pull request that leaves every file in place.
+    if (input.files.some(file => file.deleted)) {
+      throw Object.assign(new Error('bitbucket: file deletion is not supported by the Data Center REST API; remove the files with a git client'), { status: 501 });
+    }
     for (const file of input.files) {
       // Bitbucket requires the file's latest commit id when EDITING, and its
       // absence when creating — so ask which case this is first.
@@ -293,6 +332,17 @@ export class BitbucketServerGitOpsPublisher implements GitOpsPublisher {
       if (existing) return { status: 'created', number: existing.id, ...(existing.links?.self?.[0]?.href ? { url: existing.links.self[0].href } : {}) };
     }
     throw this.#asError(pull.status, body, 'create pull request');
+  }
+
+  async pullRequestState(number: number): Promise<PullRequestState> {
+    const response = await this.#call('GET', `/pull-requests/${number}`);
+    if (!response.ok) throw this.#asError(response.status, await response.text().catch(() => ''), 'get pull request');
+    // Data Center reports OPEN | MERGED | DECLINED, with closedDate in epoch ms
+    const body = (await response.json()) as { state?: string; closedDate?: number };
+    const closed = body.closedDate === undefined ? undefined : new Date(body.closedDate).toISOString();
+    if (body.state === 'MERGED') return { state: 'merged', ...(closed ? { mergedAt: closed } : {}) };
+    if (body.state === 'DECLINED') return { state: 'declined', ...(closed ? { closedAt: closed } : {}) };
+    return { state: 'open' };
   }
 
   async listProposals(): Promise<AgentProposal[]> {

@@ -15,7 +15,7 @@
     "tools/keycloak-provisioning"
   ],
   "scripts": {
-    "dev:local": "SRE_CLIENT_AGENT=inprocess node --import tsx --env-file-if-exists=.env.local runtime-host/src/main.ts",
+    "dev:local": "SRE_ENV=local SRE_DEPLOYMENT_ENVIRONMENT_DIR=../deploy/environments/local SRE_CLIENT_AGENT=inprocess node --import tsx --env-file-if-exists=.env.local runtime-host/src/main.ts",
     "dev:runtime": "npm run dev:local",
     "dev:portal": "cd management/portal && yarn start",
     "dev": "npm run dev:runtime & npm run dev:portal",
@@ -49,7 +49,8 @@
     "verify:toolhive-policy": "./tools/verify-toolhive-policy.sh",
     "check:engine": "npm --prefix ../agent-engine run check",
     "install:engine": "npm --prefix ../agent-engine install",
-    "validate:tracked": "node --import tsx tools/check-tracked-files.ts"
+    "validate:tracked": "node --import tsx tools/check-tracked-files.ts",
+    "test:postgres": "docker rm -f sre-test-pg >/dev/null 2>&1; docker run -d --name sre-test-pg -e POSTGRES_PASSWORD=testpw -e POSTGRES_DB=sre -e PGDATA=/pgdata --tmpfs /pgdata:rw,size=512m -p 55432:5432 postgres:16-alpine -c fsync=off >/dev/null && until docker exec sre-test-pg pg_isready -U postgres -d sre >/dev/null 2>&1; do sleep 1; done && SRE_TEST_POSTGRES_URL=postgres://postgres:testpw@127.0.0.1:55432/sre vitest run tests/operational-plane-postgres.test.ts tests/management-requests-postgres.test.ts; status=$?; docker rm -f sre-test-pg >/dev/null 2>&1; exit $status"
   },
   "devDependencies": {
     "@types/diff": "^5.2.3",
@@ -65,6 +66,7 @@
     "zod": "4.4.3"
   },
   "dependencies": {
-    "@sre/agent-engine": "file:../agent-engine"
+    "@sre/agent-engine": "file:../agent-engine",
+    "@sre/events": "*"
   }
 }

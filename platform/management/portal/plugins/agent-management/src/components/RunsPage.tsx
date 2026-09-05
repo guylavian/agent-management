@@ -127,7 +127,8 @@ function outcome(run: RunDetail): string | undefined {
 }
 
 /** Events that carry the substance of a step get their detail shown inline. */
-const SHOW_DETAIL = new Set(['specialist', 'authorization.check', 'agent.result', 'domain.escalation', 'followup.route', 'run.completed', 'error']);
+const SHOW_DETAIL = new Set(['specialist', 'authorization.check', 'agent.result', 'domain.escalation', 'followup.route', 'run.completed', 'error',
+  'request.created', 'change.prepared', 'pr.opened', 'pr.merged', 'pr.rejected', 'reconciliation.started', 'argo.sync', 'runtime.ready', 'agent.routable', 'request.completed', 'request.failed']);
 
 const TIMELINE_COLUMNS = '.9fr .9fr 1.1fr 2.4fr .6fr';
 
@@ -227,7 +228,7 @@ function Diagnosis({ run }: { run: RunDetail }) {
   );
 }
 
-function Timeline({ nodes }: { nodes: RunNode[] }) {
+export function Timeline({ nodes }: { nodes: RunNode[] }) {
   const ordered = [...nodes].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   const origin = ordered[0]?.startedAt;
 
@@ -244,7 +245,7 @@ function Timeline({ nodes }: { nodes: RunNode[] }) {
               <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{node.detail}</div>
             )}
           </div>
-          <div>{node.status === 'ok' ? <Muted size={12}>ok</Muted> : <StatusPill tone={node.status === 'denied' ? 'danger' : 'warn'}>{node.status}</StatusPill>}</div>
+          <div>{node.status === 'ok' ? <Muted size={12}>ok</Muted> : <StatusPill tone={node.status === 'denied' || node.status === 'failed' ? 'danger' : 'warn'}>{node.status}</StatusPill>}</div>
         </DataRow>
       ))}
     </DataTable>

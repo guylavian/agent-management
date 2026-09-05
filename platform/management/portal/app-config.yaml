@@ -217,6 +217,11 @@ sreAgent:
 
   managementApi:
     baseUrl: ${SRE_MANAGEMENT_API_URL}
+    # Local development may supply the short-lived token minted by
+    # /dev/token/alice. Deployed environments use the renewable OIDC settings
+    # below instead; both values stay in the backend process and never reach the
+    # browser.
+    token: ${SRE_MANAGEMENT_API_TOKEN}
     # Runtime tokens are short-lived. The portal mints and refreshes its own
     # rather than holding a pasted token that expires minutes later.
     oidc:

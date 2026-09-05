@@ -14,7 +14,8 @@ import {
 } from './permissions';
 import { runtimeManagementClientRef } from './services/RuntimeManagementClient';
 import type { gitOpsPublisherRef } from './services/GitOpsPublisher';
-import type { AgentReconciliation, AgentSummary, ChangePreview } from './api/generated-types';
+import { InMemoryRequestStore, newRequestId, projectRequest, scrubMessage, summarise, type ProjectionInput, type RequestRecord, type RequestStore, type RequestType, type RuntimeSnapshot } from './services/RequestStore';
+import type { AgentDraft, AgentReconciliation, AgentSummary, ChangePreview } from './api/generated-types';
 
 /**
  * Management operations for the portal.
@@ -29,11 +30,15 @@ export async function createRouter({
   permissions,
   runtime,
   gitops,
+  requests = new InMemoryRequestStore(),
+  now = () => new Date().toISOString(),
 }: {
   httpAuth: HttpAuthService;
   permissions: PermissionsService;
   runtime: typeof runtimeManagementClientRef.T;
   gitops: typeof gitOpsPublisherRef.T;
+  requests?: RequestStore;
+  now?: () => string;
 }): Promise<express.Router> {
   const router = Router();
   /*
@@ -45,12 +50,15 @@ export async function createRouter({
    */
   router.use(express.json({ limit: '2mb' }));
 
-  const requirePermission = async (request: express.Request, permission: BasicPermission): Promise<void> => {
+  const requirePermission = async (request: express.Request, permission: BasicPermission): Promise<string> => {
     const credentials = await httpAuth.credentials(request, { allow: ['user'] });
     const [decision] = await permissions.authorize([{ permission }], { credentials });
     if (decision?.result !== AuthorizeResult.ALLOW) {
       throw new NotAllowedError(`Not allowed to perform ${permission.name}`);
     }
+    // the requester, for the Requests page: an entity ref, never a token
+    const principal = credentials.principal as { userEntityRef?: string };
+    return principal.userEntityRef ?? 'unknown';
   };
 
   // when no runtime is configured, say so instead of rendering an empty console
@@ -154,23 +162,169 @@ export async function createRouter({
    * write a change to its own policy, and holds no token that would let it.
    */
   router.post('/agents/change', async (request, response) => {
-    await requirePermission(request, agentCreatePrPermission);
+    const requestedBy = await requirePermission(request, agentCreatePrPermission);
     if (!runtime.configured) {
       response.status(501).json({ status: 'not-configured', reason: 'sreAgent.managementApi.baseUrl is not set' });
       return;
     }
+    const draft = request.body as AgentDraft;
+    /*
+     * The Request is recorded BEFORE anything is attempted, so a change that
+     * fails to render or to publish still leaves a trace saying where it
+     * stopped — the same reason a run records a refused tool call.
+     */
+    const record: RequestRecord = {
+      id: newRequestId(),
+      agentId: draft.name,
+      type: await requestType(draft),
+      requestedBy,
+      createdAt: now(),
+      branch: '',
+      effects: [],
+    };
+    await requests.record(record);
+
     const rendered = await runtime.post<ChangePreview>('/management/agents/preview', request.body);
     if (rendered.status !== 200) {
-      response.status(rendered.status).json(rendered.body);
+      const body = rendered.body as unknown as { message?: string; issues?: string[] };
+      await requests.update(record.id, { preparedAt: now(), prepareError: scrubMessage([body.message, ...(body.issues ?? [])].filter(Boolean).join('; ') || `preview refused (${rendered.status})`) });
+      response.status(rendered.status).json({ ...(rendered.body as object), requestId: record.id });
       return;
     }
     const preview = rendered.body;
+    await requests.update(record.id, { preparedAt: now(), branch: preview.branch, effects: preview.effects, ...(preview.diff ? { diff: preview.diff } : {}) });
     if (!gitops.configured) {
-      response.status(501).json({ status: 'not-configured', reason: (await gitops.createPullRequest({ branch: preview.branch, title: preview.title, body: preview.body, files: preview.files })).reason, branch: preview.branch, effects: preview.effects });
+      const outcome = await gitops.createPullRequest({ branch: preview.branch, title: preview.title, body: preview.body, files: preview.files });
+      await requests.update(record.id, { notConfigured: outcome.reason ?? 'no Git provider is configured' });
+      response.status(501).json({ status: 'not-configured', reason: outcome.reason, branch: preview.branch, effects: preview.effects, requestId: record.id });
       return;
     }
-    const outcome = await gitops.createPullRequest({ branch: preview.branch, title: preview.title, body: preview.body, files: preview.files });
-    response.status(outcome.status === 'created' ? 201 : 501).json({ ...outcome, branch: preview.branch, effects: preview.effects });
+    let outcome;
+    try {
+      outcome = await gitops.createPullRequest({ branch: preview.branch, title: preview.title, body: preview.body, files: preview.files });
+    } catch (error) {
+      // the provider's message names a branch or a status, not a credential —
+      // and it is bounded, the same ceiling the runtime puts on a node's detail
+      await requests.update(record.id, { publishedAt: now(), publishError: scrubMessage((error instanceof Error ? error.message : 'the pull request could not be opened').slice(0, 500)) });
+      throw error;
+    }
+    if (outcome.status === 'created' && outcome.number !== undefined) {
+      await requests.update(record.id, { publishedAt: now(), pullRequest: { number: outcome.number, ...(outcome.url ? { url: outcome.url } : {}) } });
+    } else {
+      await requests.update(record.id, { publishedAt: now(), publishError: outcome.reason ?? 'the provider returned no pull request number' });
+    }
+    response.status(outcome.status === 'created' ? 201 : 501).json({ ...outcome, branch: preview.branch, effects: preview.effects, requestId: record.id });
+  });
+
+  /**
+   * Remove an Agent. The runtime enumerates the files it owns and refuses when
+   * another Agent still depends on it; this plane opens the pull request that
+   * deletes them. Tracked as a Request like every other change.
+   */
+  router.post('/agents/:id/delete', async (request, response) => {
+    const requestedBy = await requirePermission(request, agentCreatePrPermission);
+    if (!runtime.configured) {
+      response.status(501).json({ status: 'not-configured', reason: 'sreAgent.managementApi.baseUrl is not set' });
+      return;
+    }
+    const agentId = request.params.id;
+    const record: RequestRecord = { id: newRequestId(), agentId, type: 'delete', requestedBy, createdAt: now(), branch: '', effects: [] };
+    await requests.record(record);
+    const rendered = await runtime.post<ChangePreview>(`/management/agents/${encodeURIComponent(agentId)}/delete/preview`, {});
+    if (rendered.status !== 200) {
+      const body = rendered.body as unknown as { message?: string; issues?: string[] };
+      await requests.update(record.id, { preparedAt: now(), prepareError: scrubMessage([body.message, ...(body.issues ?? [])].filter(Boolean).join('; ') || `preview refused (${rendered.status})`) });
+      response.status(rendered.status).json({ ...(rendered.body as object), requestId: record.id });
+      return;
+    }
+    const preview = rendered.body;
+    await requests.update(record.id, { preparedAt: now(), branch: preview.branch, effects: preview.effects, ...(preview.diff ? { diff: preview.diff } : {}) });
+    let outcome;
+    try {
+      outcome = await gitops.createPullRequest({ branch: preview.branch, title: preview.title, body: preview.body, files: preview.files });
+    } catch (error) {
+      await requests.update(record.id, { publishedAt: now(), publishError: scrubMessage((error instanceof Error ? error.message : 'the pull request could not be opened').slice(0, 500)) });
+      throw error;
+    }
+    if (outcome.status === 'created' && outcome.number !== undefined) {
+      await requests.update(record.id, { publishedAt: now(), pullRequest: { number: outcome.number, ...(outcome.url ? { url: outcome.url } : {}) } });
+    } else {
+      await requests.update(record.id, { publishedAt: now(), ...(outcome.status === 'not-configured' ? { notConfigured: outcome.reason ?? 'no Git provider is configured' } : { publishError: outcome.reason ?? 'the provider returned no pull request number' }) });
+    }
+    response.status(outcome.status === 'created' ? 201 : 501).json({ ...outcome, branch: preview.branch, effects: preview.effects, requestId: record.id });
+  });
+
+  /**
+   * Which kind of change this is, from what the runtime already has.
+   *
+   * Enable and disable are edits whose only meaningful difference is the
+   * lifecycle flip, and the console tracks them as their own type because the
+   * question an operator asks afterwards ("is it off yet?") is different.
+   */
+  async function requestType(draft: AgentDraft): Promise<RequestType> {
+    const existing = await runtime.get<{ lifecycle?: string }>(`/management/agents/${encodeURIComponent(draft.name)}`).catch(() => undefined);
+    if (existing?.lifecycle === undefined) return 'create';
+    const wasActive = existing.lifecycle === 'active';
+    const willBeActive = (draft.lifecycle ?? 'draft') === 'active';
+    if (wasActive && !willBeActive) return 'disable';
+    if (!wasActive && willBeActive) return 'enable';
+    return 'edit';
+  }
+
+  /**
+   * MANAGEMENT REQUESTS, projected onto live state on every read.
+   *
+   * Pre-merge the provider is the source of truth for the pull request; after
+   * the merge the runtime's reconciliation is. Neither is cached beyond a
+   * terminal provider answer (merged/declined never changes again), so the
+   * page polls this and sees transitions without anyone pushing them.
+   */
+  async function project(records: RequestRecord[]) {
+    const snapshot: ProjectionInput['runtime'] = await runtime
+      .get<RuntimeSnapshot>('/management/agents')
+      .then(value => ({ loadedAt: value.loadedAt, agents: value.agents, ...(value.configError ? { configError: value.configError } : {}) }))
+      .catch((error: Error) => ({ error: error.message }));
+    const states = await Promise.allSettled(
+      records.map(async (record): Promise<ProjectionInput['pullRequest']> => {
+        if (record.pullRequest === undefined) return undefined;
+        const cached = record.pullRequestState;
+        if (cached !== undefined && cached.state !== 'open') return cached;
+        const fresh = await gitops.pullRequestState(record.pullRequest.number);
+        await requests.update(record.id, { pullRequestState: { ...fresh, observedAt: now() } });
+        return fresh;
+      }),
+    );
+    return records.map((record, index) => {
+      const state = states[index];
+      const pullRequest = state?.status === 'fulfilled'
+        ? state.value
+        : record.pullRequestState ?? { error: 'the Git provider could not be reached' };
+      return projectRequest({ record, pullRequest, runtime: snapshot });
+    });
+  }
+
+  router.get('/requests', async (request, response) => {
+    await requirePermission(request, agentReadPermission);
+    if (!runtime.configured) {
+      response.status(501).json({ status: 'not-configured', reason: 'sreAgent.managementApi.baseUrl is not set' });
+      return;
+    }
+    response.json({ requests: (await project(await requests.list())).map(summarise) });
+  });
+
+  router.get('/requests/:id', async (request, response) => {
+    await requirePermission(request, agentReadPermission);
+    if (!runtime.configured) {
+      response.status(501).json({ status: 'not-configured', reason: 'sreAgent.managementApi.baseUrl is not set' });
+      return;
+    }
+    const record = await requests.get(request.params.id);
+    if (record === undefined) {
+      response.status(404).json({ code: 'not_found', message: 'request not found' });
+      return;
+    }
+    const [detail] = await project([record]);
+    response.json(detail);
   });
 
   /**

@@ -6,6 +6,7 @@ import {
   managerRouteRef,
   mcpServersRouteRef,
   permissionsRouteRef,
+  requestsRouteRef,
   rootRouteRef,
   runsRouteRef,
 } from './routes';
@@ -101,9 +102,25 @@ export const runsPage = PageBlueprint.make({
   },
 });
 
+/**
+ * Requests sit beside Runs on purpose: a Run explains how an answer was
+ * produced, a Request explains how a platform change was applied, and both are
+ * the same execution-trace model with different domain events.
+ */
+export const requestsPage = PageBlueprint.make({
+  name: 'requests',
+  params: {
+    path: '/requests',
+    title: 'Requests',
+    noHeader: true,
+    routeRef: requestsRouteRef,
+    loader: () => import('./components/RequestsRoutes').then(m => <m.RequestsRoutes />),
+  },
+});
+
 export const agentManagementPlugin = createFrontendPlugin({
   pluginId: 'agent-management',
-  extensions: [overviewPage, agentsPage, managerPage, createAgentPage, permissionsPage, mcpServersPage, runsPage],
+  extensions: [overviewPage, agentsPage, managerPage, createAgentPage, permissionsPage, mcpServersPage, runsPage, requestsPage],
   routes: {
     root: rootRouteRef,
     agents: agentsRouteRef,
@@ -111,5 +128,6 @@ export const agentManagementPlugin = createFrontendPlugin({
     permissions: permissionsRouteRef,
     mcpServers: mcpServersRouteRef,
     runs: runsRouteRef,
+    requests: requestsRouteRef,
   },
 });

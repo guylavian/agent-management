@@ -37,6 +37,7 @@ const NAV: Array<{ label: string; to: string; icon: keyof typeof ICONS; group: '
   { label: 'Agents', to: '/agents', icon: 'agents', group: 'work' },
   { label: 'Manager', to: '/manager', icon: 'manager', group: 'work' },
   { label: 'Runs', to: '/runs', icon: 'runs', group: 'work' },
+  { label: 'Requests', to: '/requests', icon: 'requests', group: 'work' },
   { label: 'MCP Servers', to: '/mcp-servers', icon: 'mcp', group: 'platform' },
   { label: 'Permissions', to: '/permissions', icon: 'permissions', group: 'platform' },
   { label: 'Catalog', to: '/catalog', icon: 'catalog', group: 'platform' },
@@ -49,6 +50,7 @@ const ICONS = {
   mcp: <><rect x="2" y="3" width="12" height="4" rx="1.2" /><rect x="2" y="9" width="12" height="4" rx="1.2" /></>,
   permissions: <><rect x="3.5" y="7" width="9" height="6.2" rx="1.4" /><path d="M5.8 7V5.2a2.2 2.2 0 0 1 4.4 0V7" /></>,
   runs: <><circle cx="8" cy="8" r="6" /><path d="M8 4.6V8l2.3 1.4" /></>,
+  requests: <><path d="M3 4.5h10M3 8h7M3 11.5h5" /><path d="M11 9.5l1.5 1.5L15 8.5" /></>,
   catalog: <><path d="M3 3.6h10M3 8h10M3 12.4h10" /></>,
   settings: <><circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1M12.4 12.4l-1.1-1.1M4.7 4.7 3.6 3.6" /></>,
 } as const;

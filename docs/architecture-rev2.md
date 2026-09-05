@@ -15,7 +15,7 @@ preserved as-is; read it first.
 | Deployment unit | one runtime process executes Manager and all specialists | **every logical Agent is its own OpenShift Deployment + Service** |
 | Fan-out | local `Promise.allSettled(runSpecialist(...))` | `Promise.allSettled(agentClient.execute(agentId, request, signal))` over HTTP |
 | Manager ↔ specialist contract | in-process function call | versioned internal Agent API (`docs/contracts/internal-agent-api.md`) |
-| Agent resolution | in-process config registry | Agent Service Registry (`agents/registry.yaml` → Service DNS) |
+| Agent resolution | in-process config registry | environment desired state (`deploy/environments/<env>/environment.yaml` → Service DNS) |
 | Identity across hops | single process, no extra hop | dual credential: workload identity + audience-bound delegated user JWT |
 | Network policy | one pod egress profile | per-agent NetworkPolicy; manager has **no** ToolHive/RAG egress |
 | Everything else | — | **unchanged**: one-shot Manager, deterministic control plane, read-only capability, ACL-aware RAG, typed `Evidence[]`, redaction, bounded Round 2, conditional Tier-L, red lines |
@@ -25,10 +25,10 @@ preserved as-is; read it first.
 > **Independent Deployment does not mean independent implementation.**
 
 ```text
-1 Runtime codebase        (packages/*, apps/api)
+1 Runtime codebase        (agent-engine/ + platform/)
 1 Runtime image           (registry.internal/sre-agent-runtime:<tag>)
-1 Generic Helm chart      (deploy/helm)
-N Agent YAML configs      (agents/*.yaml)
+1 Generic Helm chart      (deploy/runtime/helm)
+N Agent YAML configs      (platform/config/agents/*.yaml)
 N Deployments             (sre-agent-manager, sre-agent-active-directory, ...)
 N Services                (one per agent, DNS = registry endpoint)
 ```
@@ -48,7 +48,7 @@ flowchart TD
     IDP --> GW[API / Gateway]
     GW --> M[Manager Agent Service\nsre-agent-manager]
 
-    M --> REG[(Agent Service Registry\nagents/registry.yaml)]
+    M --> REG[(Environment desired state\nenvironment.yaml)]
     M -->|"internal/v1 + workload token\n+ delegated user JWT"| A1[AD Agent Service]
     M -->|internal/v1| A2[OpenShift Agent Service]
     M -->|internal/v1| A3[Network/Obs Agent Service]

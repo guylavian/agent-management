@@ -28,6 +28,8 @@
     "@backstage/frontend-plugin-api": "^0.18.0",
     "@backstage/theme": "^0.7.3",
     "@backstage/ui": "^0.17.1",
+    "d3-selection": "^3.0.0",
+    "d3-zoom": "^3.0.0",
     "react-use": "^17.2.4"
   },
   "peerDependencies": {
@@ -42,6 +44,8 @@
     "@testing-library/jest-dom": "^6.0.0",
     "@testing-library/react": "^14.0.0",
     "@testing-library/user-event": "^14.0.0",
+    "@types/d3-selection": "^3.0.0",
+    "@types/d3-zoom": "^3.0.0",
     "msw": "^1.0.0",
     "react": "^16.13.1 || ^17.0.0 || ^18.0.0",
     "react-router-dom": "^6.30.2"

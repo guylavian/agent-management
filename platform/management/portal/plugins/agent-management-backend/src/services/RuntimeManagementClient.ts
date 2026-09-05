@@ -25,17 +25,74 @@ export interface RuntimeOidcSettings {
   password: string;
 }
 
+export interface RuntimeManagementClientOptions {
+  baseUrl?: string;
+  token?: string;
+  oidc?: RuntimeOidcSettings;
+  /**
+   * LOCAL ONLY: the runtime's mock-OIDC minting route (`/dev/token/alice`).
+   * A pasted dev token expires in an hour and dies with every runtime restart,
+   * so the backend mints and refreshes its own, exactly as it does with real
+   * OIDC. The runtime registers that route only when SRE_ENV=local.
+   */
+  devTokenUrl?: string;
+}
+
+/**
+ * Read the optional runtime connection without making an empty YAML object
+ * mandatory. Backstage keeps the `oidc` object when all of its environment
+ * placeholders are unset, so checking only `getOptionalConfig()` would turn a
+ * deliberately unconfigured local backend into a startup failure.
+ *
+ * A partially configured credential is different: silently ignoring it would
+ * make an operator believe OIDC is active when it is not, so that remains a
+ * clear configuration error naming the missing fields.
+ */
+export function readRuntimeManagementClientOptions(config: RootConfigService): RuntimeManagementClientOptions {
+  const oidcConfig = config.getOptionalConfig('sreAgent.managementApi.oidc');
+  const oidcValues = oidcConfig
+    ? {
+        tokenUrl: oidcConfig.getOptionalString('tokenUrl'),
+        clientId: oidcConfig.getOptionalString('clientId'),
+        clientSecret: oidcConfig.getOptionalString('clientSecret'),
+        username: oidcConfig.getOptionalString('username'),
+        password: oidcConfig.getOptionalString('password'),
+      }
+    : undefined;
+
+  const configuredOidcValues = oidcValues
+    ? Object.entries(oidcValues).filter((entry): entry is [keyof RuntimeOidcSettings, string] => entry[1] !== undefined)
+    : [];
+  if (configuredOidcValues.length > 0 && configuredOidcValues.length < 5) {
+    const missing = Object.entries(oidcValues ?? {})
+      .filter(([, value]) => value === undefined)
+      .map(([key]) => key);
+    throw new Error(`incomplete sreAgent.managementApi.oidc configuration; missing: ${missing.join(', ')}`);
+  }
+
+  return {
+    baseUrl: config.getOptionalString('sreAgent.managementApi.baseUrl'),
+    token: config.getOptionalString('sreAgent.managementApi.token'),
+    ...(config.getOptionalString('sreAgent.managementApi.devTokenUrl') ? { devTokenUrl: config.getOptionalString('sreAgent.managementApi.devTokenUrl') } : {}),
+    ...(configuredOidcValues.length === 5
+      ? { oidc: Object.fromEntries(configuredOidcValues) as unknown as RuntimeOidcSettings }
+      : {}),
+  };
+}
+
 export class HttpRuntimeManagementClient implements RuntimeManagementClient {
   readonly configured: boolean;
   readonly #baseUrl?: string;
   readonly #staticToken?: string;
   readonly #oidc?: RuntimeOidcSettings;
+  readonly #devTokenUrl?: string;
   #cached?: { token: string; expiresAtMs: number };
 
-  constructor(options: { baseUrl?: string; token?: string; oidc?: RuntimeOidcSettings }) {
+  constructor(options: RuntimeManagementClientOptions) {
     this.#baseUrl = options.baseUrl;
     this.#staticToken = options.token;
     this.#oidc = options.oidc;
+    this.#devTokenUrl = options.devTokenUrl;
     this.configured = Boolean(options.baseUrl);
   }
 
@@ -45,8 +102,17 @@ export class HttpRuntimeManagementClient implements RuntimeManagementClient {
    * mints its own and refreshes before expiry.
    */
   async #accessToken(): Promise<string | undefined> {
-    if (this.#oidc === undefined) return this.#staticToken;
     if (this.#cached && this.#cached.expiresAtMs - 15_000 > Date.now()) return this.#cached.token;
+    if (this.#oidc === undefined) {
+      if (this.#devTokenUrl === undefined) return this.#staticToken;
+      const minted = await fetch(this.#devTokenUrl, { method: 'POST' });
+      if (!minted.ok) throw new Error(`runtime dev token request failed with ${minted.status}`);
+      const { token } = (await minted.json()) as { token?: string };
+      if (token === undefined) throw new Error('runtime dev token response had no token');
+      // the mock issues one-hour tokens; refresh well inside that
+      this.#cached = { token, expiresAtMs: Date.now() + 30 * 60_000 };
+      return token;
+    }
     const response = await fetch(this.#oidc.tokenUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -88,10 +154,25 @@ export class HttpRuntimeManagementClient implements RuntimeManagementClient {
 
   async post<T>(path: string, body: unknown): Promise<{ status: number; body: T }> {
     const response = await this.#call(path, body);
-    return { status: response.status, body: (await response.json()) as T };
+    // a proxy error page or an unknown route answers HTML; that is a runtime
+    // status to report, not a JSON parse failure to crash on
+    const parsed = await response.json().catch(() => ({ code: 'RUNTIME_UNAVAILABLE', message: `the runtime answered ${response.status} without a JSON body for ${path}` }));
+    return { status: response.status, body: parsed as T };
   }
 
   async #call(path: string, body?: unknown): Promise<Response> {
+    const response = await this.#send(path, body);
+    // A minted token can die before it expires — the runtime restarted and the
+    // mock issuer signs with a new key, or a session was revoked. One re-mint
+    // and retry turns that into nothing anyone notices.
+    if (response.status === 401 && this.#cached !== undefined) {
+      this.#cached = undefined;
+      return this.#send(path, body);
+    }
+    return response;
+  }
+
+  async #send(path: string, body?: unknown): Promise<Response> {
     if (this.#baseUrl === undefined) throw new Error('runtime management API is not configured');
     const token = await this.#accessToken();
     return fetch(`${this.#baseUrl}${path}`, {
@@ -112,22 +193,7 @@ export const runtimeManagementClientRef = createServiceRef<RuntimeManagementClie
       service,
       deps: { config: coreServices.rootConfig },
       async factory({ config }: { config: RootConfigService }) {
-        const oidc = config.getOptionalConfig('sreAgent.managementApi.oidc');
-        return new HttpRuntimeManagementClient({
-          baseUrl: config.getOptionalString('sreAgent.managementApi.baseUrl'),
-          token: config.getOptionalString('sreAgent.managementApi.token'),
-          ...(oidc
-            ? {
-                oidc: {
-                  tokenUrl: oidc.getString('tokenUrl'),
-                  clientId: oidc.getString('clientId'),
-                  clientSecret: oidc.getString('clientSecret'),
-                  username: oidc.getString('username'),
-                  password: oidc.getString('password'),
-                },
-              }
-            : {}),
-        });
+        return new HttpRuntimeManagementClient(readRuntimeManagementClientOptions(config));
       },
     }),
 });

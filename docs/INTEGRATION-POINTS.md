@@ -8,7 +8,7 @@ Items are ordered by gate. Mock results do not replace real-environment verifica
 - BLOCKED: this execution environment is denied access to `/Users/guylavian/.docker/run/docker.sock`, so Keycloak and Prometheus could not be started.
 - BLOCKED: `.env.real-poc` with disposable local secrets and the real model/Wiki endpoints has not been supplied.
 - BLOCKED: the configured/default real LLM (`127.0.0.1:11434`) and LLM Wiki MCP (`127.0.0.1:8642`) were not listening during the smoke attempt.
-- Re-run `engineering/tools/prepare-real-poc.sh`, `engineering/tools/start-real-poc.sh`, and `engineering/tools/verify-real-poc.sh` in a normal local shell. A-D remain unpassed until the verifier emits real MCP citations.
+- Re-run `platform/tools/prepare-real-poc.sh`, `platform/tools/start-real-poc.sh`, and `platform/tools/verify-real-poc.sh` in a normal local shell. A-D remain unpassed until the verifier emits real MCP citations.
 
 ## Gate 1 — identity and authorization
 
@@ -50,6 +50,6 @@ Items are ordered by gate. Mock results do not replace real-environment verifica
 
 - INTEGRATION BLOCKER: enterprise RFC 8693 token-exchange endpoint for the Specialist → ToolHive credential. `RealTokenExchangeCredentialExchanger` is implemented but cannot mint enterprise credentials until the STS endpoint, workload subject-token source, and accepted `sre-toolhive:<server>` audiences are provisioned. Production token-exchange mode fails closed without `SRE_TOOL_CREDENTIAL_TOKEN_ENDPOINT`; the local PoC instead uses a real asymmetric signed-context key verified by ToolHive.
 - INTEGRATION BLOCKER: ToolHive-side verification of the delegated credential (issuer/JWKS, audience, subject binding) must be configured to match the token-exchange output; re-run the Gate #1 Alice/Bob cases against real ToolHive audit.
-- PENDING: real Tier-S/Tier-L endpoints to run the Track-2 real-model benchmark (`engineering/eval/real-benchmark.md`); wire the `SRE_EVAL_CORPUS` switch in `engineering/eval/run.ts` at that time.
+- PENDING: real Tier-S/Tier-L endpoints to run the Track-2 real-model benchmark (`platform/eval/real-benchmark.md`); wire the `SRE_EVAL_CORPUS` switch in `platform/eval/run.ts` at that time.
 - PENDING: real MCP `callTool` cancellation — verify the pinned MCP SDK forwards the AbortSignal/timeout to the transport against a live server; the runtime already passes it.
 - DEFERRED (P2): MCP connection reuse/pooling and tool-schema TTL cache; measure discovery vs invocation latency against a real ToolHive before optimizing.

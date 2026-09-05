@@ -257,13 +257,13 @@ export interface RunSummary {
 export interface RunNode {
   id: string;
   /** The trailing values name capabilities the platform does not have yet; they are declared so adding one is an emission rather than a contract change. */
-  kind: "user.request" | "manager.route" | "followup.route" | "run.completed" | "specialist" | "agent.action" | "agent.result" | "domain.escalation" | "authorization.check" | "workload.token" | "tool.request" | "toolhive.call" | "evidence" | "synthesis" | "error" | "approval.requested" | "approval.granted" | "write.action" | "retry" | "verify.result";
+  kind: "user.request" | "manager.route" | "followup.route" | "run.completed" | "specialist" | "agent.action" | "agent.result" | "domain.escalation" | "authorization.check" | "workload.token" | "tool.request" | "toolhive.call" | "evidence" | "synthesis" | "error" | "approval.requested" | "approval.granted" | "write.action" | "retry" | "verify.result" | "request.created" | "change.prepared" | "pr.opened" | "pr.merged" | "pr.rejected" | "reconciliation.started" | "argo.sync" | "runtime.ready" | "agent.routable" | "request.completed" | "request.failed";
   label: string;
   parentId?: string;
-  status: "ok" | "denied" | "failed" | "timeout";
+  status: "ok" | "denied" | "failed" | "timeout" | "pending";
   startedAt: string;
   durationMs: number;
-  actor: "user" | "manager" | "specialist" | "runtime";
+  actor: "user" | "manager" | "specialist" | "runtime" | "portal" | "git" | "argo";
   /** The substance of the step - a task */
   detail?: string;
   agentId?: string;
@@ -384,6 +384,55 @@ export interface ChangedFile {
   contents: string;
   /** Present when contents carries bytes rather than text. */
   encoding?: "base64";
+  /** The file is removed by this change; contents is empty. */
+  deleted?: boolean;
+}
+
+/**
+ * A management change (create, edit, enable or disable an Agent) tracked from the portal through pull request, merge, reconciliation and routability. A PROJECTION of real state - the provider's pull request state and the runtime's reconciliation - never a stored status.
+ */
+
+export interface ManagementRequestSummary {
+  id: string;
+  agentId: string;
+  type: "create" | "edit" | "enable" | "disable" | "delete";
+  /** Backstage user entity ref of the requester. */
+  requestedBy: string;
+  status: "draft" | "pending-merge" | "merged" | "reconciling" | "completed" | "failed" | "rejected";
+  /** The Agent's own lifecycle status */
+  agentStatus?: "draft" | "pending-merge" | "reconciling" | "active" | "disabled" | "degraded" | "failed";
+  createdAt: string;
+  updatedAt: string;
+  branch: string;
+  pullRequest?: {
+    number: number;
+    url?: string;
+  };
+  /** Safe */
+  blockedBy?: string;
+}
+
+export interface ManagementRequestDetail {
+  id: string;
+  agentId: string;
+  type: "create" | "edit" | "enable" | "disable" | "delete";
+  requestedBy: string;
+  status: "draft" | "pending-merge" | "merged" | "reconciling" | "completed" | "failed" | "rejected";
+  /** The Agent's own lifecycle status */
+  agentStatus?: "draft" | "pending-merge" | "reconciling" | "active" | "disabled" | "degraded" | "failed";
+  createdAt: string;
+  updatedAt: string;
+  branch: string;
+  pullRequest?: {
+    number: number;
+    url?: string;
+  };
+  blockedBy?: string;
+  effects: Array<string>;
+  diff?: ChangeSetDiff;
+  reconciliation?: AgentReconciliation;
+  /** The same execution-trace events Runs use, with management-domain kinds. */
+  nodes: Array<RunNode>;
 }
 
 export interface ChangePreview {
@@ -409,6 +458,8 @@ export interface ChangeResult {
   url?: string;
   reason?: string;
   branch: string;
+  /** The management Request that tracks this change through merge and reconciliation. */
+  requestId?: string;
   effects: Array<string>;
 }
 

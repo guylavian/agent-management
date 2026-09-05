@@ -292,6 +292,56 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/NotConfigured" }
 
+  /agents/{id}/delete/preview:
+    post:
+      operationId: previewAgentDeletion
+      summary: Render the change-set that removes an Agent from Git, including the cross-domain grants other Agents hold on it. Pure; deploys nothing.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Every file the Agent owns marked deleted, plus every other Agent document rewritten without its grant.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangePreview" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /requests:
+    get:
+      operationId: listRequests
+      summary: Management Requests, served by the management plane (not the runtime).
+      responses:
+        "200":
+          description: Bounded, in-process request history, projected onto live provider and runtime state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requests]
+                properties:
+                  requests:
+                    type: array
+                    items: { $ref: "#/components/schemas/ManagementRequestSummary" }
+
+  /requests/{id}:
+    get:
+      operationId: getRequest
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: One request with its execution graph.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ManagementRequestDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /evaluations:
     get:
       operationId: getEvaluations
@@ -765,13 +815,16 @@ components:
              specialist, agent.action, agent.result, domain.escalation,
              authorization.check, workload.token,
              tool.request, toolhive.call, evidence, synthesis, error,
-             approval.requested, approval.granted, write.action, retry, verify.result]
+             approval.requested, approval.granted, write.action, retry, verify.result,
+             request.created, change.prepared, pr.opened, pr.merged, pr.rejected,
+             reconciliation.started, argo.sync, runtime.ready, agent.routable,
+             request.completed, request.failed]
         label: { type: string }
         parentId: { type: string }
-        status: { type: string, enum: [ok, denied, failed, timeout] }
+        status: { type: string, enum: [ok, denied, failed, timeout, pending] }
         startedAt: { type: string }
         durationMs: { type: integer }
-        actor: { type: string, enum: [user, manager, specialist, runtime] }
+        actor: { type: string, enum: [user, manager, specialist, runtime, portal, git, argo] }
         detail: { type: string, description: The substance of the step - a task, a rationale, a refusal reason. }
         agentId: { type: string }
         mcp: { type: string }
@@ -936,6 +989,67 @@ components:
         path: { type: string }
         contents: { type: string }
         encoding: { type: string, enum: [base64], description: Present when contents carries bytes rather than text. }
+        deleted: { type: boolean, description: The file is removed by this change; contents is empty. }
+
+    ManagementRequestSummary:
+      type: object
+      description: >-
+        A management change (create, edit, enable or disable an Agent) tracked
+        from the portal through pull request, merge, reconciliation and
+        routability. A PROJECTION of real state - the provider's pull request
+        state and the runtime's reconciliation - never a stored status.
+      additionalProperties: false
+      required: [id, agentId, type, requestedBy, status, createdAt, updatedAt, branch]
+      properties:
+        id: { type: string }
+        agentId: { type: string }
+        type: { type: string, enum: [create, edit, enable, disable, delete] }
+        requestedBy: { type: string, description: Backstage user entity ref of the requester. }
+        status: { type: string, enum: [draft, pending-merge, merged, reconciling, completed, failed, rejected] }
+        agentStatus: { type: string, enum: [draft, pending-merge, reconciling, active, disabled, degraded, failed], description: The Agent's own lifecycle status, from the runtime's reconciliation. }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+        branch: { type: string }
+        pullRequest:
+          type: object
+          additionalProperties: false
+          required: [number]
+          properties:
+            number: { type: integer }
+            url: { type: string }
+        blockedBy: { type: string, description: Safe, human-readable reason the request has not progressed. }
+
+    ManagementRequestDetail:
+      type: object
+      additionalProperties: false
+      required: [id, agentId, type, requestedBy, status, createdAt, updatedAt, branch, effects, nodes]
+      properties:
+        id: { type: string }
+        agentId: { type: string }
+        type: { type: string, enum: [create, edit, enable, disable, delete] }
+        requestedBy: { type: string }
+        status: { type: string, enum: [draft, pending-merge, merged, reconciling, completed, failed, rejected] }
+        agentStatus: { type: string, enum: [draft, pending-merge, reconciling, active, disabled, degraded, failed], description: The Agent's own lifecycle status, from the runtime's reconciliation. }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+        branch: { type: string }
+        pullRequest:
+          type: object
+          additionalProperties: false
+          required: [number]
+          properties:
+            number: { type: integer }
+            url: { type: string }
+        blockedBy: { type: string }
+        effects:
+          type: array
+          items: { type: string }
+        diff: { $ref: "#/components/schemas/ChangeSetDiff" }
+        reconciliation: { $ref: "#/components/schemas/AgentReconciliation" }
+        nodes:
+          type: array
+          description: The same execution-trace events Runs use, with management-domain kinds.
+          items: { $ref: "#/components/schemas/RunNode" }
 
     ChangePreview:
       type: object
@@ -968,6 +1082,7 @@ components:
         url: { type: string }
         reason: { type: string }
         branch: { type: string }
+        requestId: { type: string, description: The management Request that tracks this change through merge and reconciliation. }
         effects:
           type: array
           items: { type: string }

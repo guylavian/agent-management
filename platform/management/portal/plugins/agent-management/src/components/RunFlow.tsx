@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { select } from 'd3-selection';
+import { zoom as d3zoom, zoomIdentity } from 'd3-zoom';
 import { DependencyGraph, DependencyGraphTypes } from '@backstage/core-components';
 import { Button, C, MONO, Muted, S, StatusPill } from './common';
 import type { RunNode } from '../api/types';
@@ -25,7 +27,7 @@ import type { RunNode } from '../api/types';
  */
 
 /** The visual families. Type is carried by the tag and the glyph, never by hue. */
-type Family = 'user' | 'manager' | 'specialist' | 'intent' | 'authorization' | 'tool' | 'evidence' | 'handoff' | 'approval' | 'result';
+type Family = 'user' | 'manager' | 'specialist' | 'intent' | 'authorization' | 'tool' | 'evidence' | 'handoff' | 'approval' | 'result' | 'portal' | 'git' | 'argo' | 'runtime';
 
 const FAMILY: Record<string, Family> = {
   'user.request': 'user',
@@ -48,6 +50,18 @@ const FAMILY: Record<string, Family> = {
   retry: 'intent',
   'verify.result': 'result',
   error: 'result',
+  // management requests: the same graph, a different domain
+  'request.created': 'user',
+  'change.prepared': 'portal',
+  'pr.opened': 'git',
+  'pr.merged': 'git',
+  'pr.rejected': 'git',
+  'reconciliation.started': 'runtime',
+  'argo.sync': 'argo',
+  'runtime.ready': 'runtime',
+  'agent.routable': 'manager',
+  'request.completed': 'result',
+  'request.failed': 'result',
 };
 
 /** A short tag, so the type is readable in words and not only by shape. */
@@ -62,6 +76,10 @@ const TAG: Record<Family, string> = {
   handoff: 'HANDOFF',
   approval: 'APPROVAL',
   result: 'RESULT',
+  portal: 'PORTAL',
+  git: 'GIT',
+  argo: 'ARGO',
+  runtime: 'RUNTIME',
 };
 
 /**
@@ -75,10 +93,10 @@ const TAG: Record<Family, string> = {
 function tone(node: RunNode, selected: boolean): { stroke: string; fill: string; accent: string } {
   if (selected) return { stroke: C.accent, fill: C.accentSoft, accent: C.accent };
   if (node.status === 'denied' || node.status === 'failed') return { stroke: C.redBright, fill: C.redSoft, accent: C.redBright };
-  if (node.status === 'timeout') return { stroke: C.amberBright, fill: C.amberSoft, accent: C.amberBright };
+  if (node.status === 'timeout' || node.status === 'pending') return { stroke: C.amberBright, fill: C.amberSoft, accent: C.amberBright };
   // an informational step that simply happened stays neutral; only the steps
   // that PRODUCED something are green, or every run is a wall of green
-  if (node.kind === 'evidence' || node.kind === 'agent.result' || node.kind === 'run.completed') {
+  if (node.kind === 'evidence' || node.kind === 'agent.result' || node.kind === 'run.completed' || node.kind === 'request.completed') {
     return { stroke: C.border, fill: C.greenSoft, accent: C.greenBright };
   }
   return { stroke: C.border, fill: C.surface, accent: C.dim };
@@ -105,15 +123,71 @@ function actionSummary(node: RunNode): string | undefined {
   if (node.kind === 'agent.result' || node.kind === 'run.completed' || node.kind === 'domain.escalation') return node.detail;
   if (node.kind === 'tool.request') return 'requested';
   if (typeof node.metadata?.rationale === 'string') return node.metadata.rationale;
+  if (node.kind.startsWith('request.') || node.kind.startsWith('pr.') || node.kind === 'change.prepared' || node.kind === 'reconciliation.started' || node.kind === 'argo.sync' || node.kind === 'runtime.ready' || node.kind === 'agent.routable') return node.detail;
   return undefined;
 }
 
-export function RunFlow({ nodes }: { nodes: RunNode[] }) {
+export function RunFlow({ nodes, footer = 'Run history records decisions and actions, not private model reasoning or raw tool payloads.' }: { nodes: RunNode[]; footer?: string }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [selectedId, setSelected] = useState<string | undefined>();
   // remounting the graph makes it re-run its initial fit; there is no imperative
   // handle for that, and a key bump is a great deal less code than reaching in
   const [fitKey, setFitKey] = useState(0);
+
+  // Backstage's DependencyGraph has two sizing defects for small graphs:
+  //  1. it hardcodes d3-zoom scaleExtent([1, Infinity]) — zooming OUT below the
+  //     initial fit is impossible;
+  //  2. with fit="grow" its outer svg viewBox is computed from a containerWidth
+  //     state that never updates past its initial 100px for graphs narrower
+  //     than the container, so a two-node graph is stretched several-fold.
+  // Both are fixed from outside: pin the svg to its natural viewBox size (kills
+  // the stretch) and re-attach our own d3-zoom (same d3 event namespace, so it
+  // replaces the library's listeners) with a real extent. Re-asserted for a few
+  // seconds because the library wires its own zoom in a debounced measure
+  // callback that would otherwise clobber ours.
+  const canvasRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = canvasRef.current;
+    if (!root) return undefined;
+    const behavior = d3zoom<SVGSVGElement, unknown>().scaleExtent([0.15, 10]);
+    let attachedTo: SVGSVGElement | undefined;
+    const attach = () => {
+      const svg = root.querySelector<SVGSVGElement>('svg#dependency-graph');
+      const workspace = svg?.querySelector<SVGGElement>('g#workspace');
+      if (!svg || !workspace) return;
+      // remember the graph's natural extent from the library's own viewBox,
+      // then make the svg a 1-unit-per-pixel surface covering the whole canvas:
+      // no stretch, and zoom/pan never clip against a shrunken svg
+      if (!svg.dataset.graphW) {
+        const natural = svg.viewBox.baseVal;
+        if (!natural || natural.width === 0) return;
+        svg.dataset.graphW = String(natural.width);
+        svg.dataset.graphH = String(natural.height);
+      }
+      const width = root.clientWidth;
+      const height = root.clientHeight;
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.style.width = '100%';
+      svg.style.height = '100%';
+      svg.style.maxWidth = 'none';
+      behavior.on('zoom', event => { select(workspace).attr('transform', event.transform); });
+      select(svg).call(behavior);
+      if (attachedTo !== svg) {
+        attachedTo = svg;
+        // start centered at natural scale
+        const graphW = Number(svg.dataset.graphW);
+        select(svg).call(behavior.transform, zoomIdentity.translate(Math.max((width - graphW) / 2, 12), 16));
+      }
+    };
+    const timers = [150, 400, 800, 1500, 3000].map(ms => setTimeout(attach, ms));
+    // the library re-attaches its zoom from a debounced resize measurer; win the race
+    const reassert = () => attach();
+    root.addEventListener('pointerenter', reassert);
+    return () => {
+      timers.forEach(clearTimeout);
+      root.removeEventListener('pointerenter', reassert);
+    };
+  }, [fitKey, nodes, collapsed]);
 
   const byId = useMemo(() => new Map(nodes.map(node => [node.id, node])), [nodes]);
   const childrenOf = useMemo(() => {
@@ -201,7 +275,7 @@ export function RunFlow({ nodes }: { nodes: RunNode[] }) {
       </div>
 
       <div style={{ display: 'flex', gap: S.lg, alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, minWidth: 0, border: `1px solid ${C.border}`, borderRadius: 12, background: C.canvas, overflow: 'hidden', height: 620 }}>
+        <div ref={canvasRef} style={{ flex: 1, minWidth: 0, border: `1px solid ${C.border}`, borderRadius: 12, background: C.canvas, overflow: 'hidden', height: 620 }}>
           <DependencyGraph<FlowNode, {}>
             key={fitKey}
             nodes={graphNodes}
@@ -221,7 +295,7 @@ export function RunFlow({ nodes }: { nodes: RunNode[] }) {
       </div>
 
       <div style={{ marginTop: S.md, paddingTop: S.md, borderTop: `1px solid ${C.rule}` }}>
-        <Muted size={12}>Run history records decisions and actions, not private model reasoning or raw tool payloads.</Muted>
+        <Muted size={12}>{footer}</Muted>
       </div>
     </div>
   );
@@ -269,7 +343,7 @@ function NodePanel({ node, onClose }: { node: RunNode; onClose: () => void }) {
         {rows.map(([label, value]) => (
           <div key={label} style={{ display: 'contents' }}>
             <dt style={{ color: C.muted }}>{label}</dt>
-            <dd style={{ margin: 0, color: C.body, fontFamily: label === 'citation' || label === 'Tool' || label === 'Server' ? MONO : 'inherit', wordBreak: 'break-word' }}>{value}</dd>
+            <dd style={{ margin: 0, color: C.body, fontFamily: label === 'citation' || label === 'Tool' || label === 'Server' || label === 'url' || label === 'branch' ? MONO : 'inherit', wordBreak: 'break-word' }}>{value}</dd>
           </div>
         ))}
       </dl>

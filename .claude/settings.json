@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(npm --prefix platform run typecheck)",
+      "Bash(npm --prefix platform run lint)",
+      "Bash(npm --prefix platform run test)",
+      "Bash(npm --prefix platform run validate:boundaries)",
+      "Bash(npm --prefix platform run validate:tracked)",
+      "Bash(npm --prefix platform run validate:yaml)",
+      "Bash(npm --prefix platform run check:portal)",
+      "Bash(npx vitest run:*)",
+      "Bash(npx tsc --noEmit:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch --list:*)",
+      "Bash(git merge-base:*)",
+      "Bash(git ls-files:*)",
+      "Bash(ls:*)",
+      "Bash(cat .claude/*)",
+      "Bash(find . -name:*)",
+      "Bash(wc -l:*)",
+      "Bash(curl -s -m 5 http://localhost:3000/health/*)",
+      "Bash(curl -s -m 5 http://localhost:7007/.backstage/health/*)",
+      "Bash(kubectl get:*)",
+      "Bash(kubectl describe:*)",
+      "Bash(argocd app get:*)",
+      "Bash(argocd app list:*)",
+      "Bash(helm template:*)",
+      "Bash(helm lint:*)",
+      "Bash(docker compose -f deploy/local/compose.yaml ps:*)"
+    ],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(npm --prefix platform run render:deploy)",
+      "Bash(npm --prefix platform run gen:all)"
+    ],
+    "deny": [
+      "Bash(kubectl apply:*)",
+      "Bash(kubectl create:*)",
+      "Bash(kubectl delete:*)",
+      "Bash(kubectl edit:*)",
+      "Bash(kubectl scale:*)",
+      "Bash(oc apply:*)",
+      "Bash(oc create:*)",
+      "Bash(oc delete:*)",
+      "Bash(helm install:*)",
+      "Bash(helm upgrade:*)",
+      "Bash(helm uninstall:*)",
+      "Bash(argocd app sync:*)",
+      "Bash(argocd app set:*)",
+      "Bash(argocd app delete:*)"
+    ]
+  }
+}

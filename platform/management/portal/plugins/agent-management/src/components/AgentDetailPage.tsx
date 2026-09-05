@@ -72,6 +72,7 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                 */}
               <Button variant="secondary" onClick={() => setTab('Prompt')}>Edit prompt</Button>
               <Button onClick={() => { window.location.href = `/agents/${encodeURIComponent(agentId)}/edit`; }}>Edit agent</Button>
+              <DeleteAgent agentId={agentId} />
             </div>
 
             <Tabs tabs={TABS} active={tab} onChange={setTab} />
@@ -453,5 +454,45 @@ function DeploymentTab({ agent }: { agent: AgentDetail }) {
         <Muted>Git is the source of truth. The portal proposes changes; it never deploys to production directly.</Muted>
       </div>
     </Panel>
+  );
+}
+
+/**
+ * Delete is a PULL REQUEST that removes every file the Agent owns — document,
+ * prompt, avatar, and the overlay and rendered values in every environment.
+ * Nothing is deleted by the click: the change is reviewed or it does not
+ * happen, and the resulting Request shows Argo pruning the workload after
+ * merge. The runtime refuses when another Agent still grants this one
+ * cross-domain access, and that reason is shown here rather than a 409.
+ */
+function DeleteAgent({ agentId }: { agentId: string }) {
+  const { deleteAgent } = useAgentActions();
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<{ url?: string; requestId?: string; issue?: string; issues?: string[] }>();
+
+  const propose = async () => {
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(`Open a pull request that removes the ${agentId} agent and every file it owns from Git?`)) return;
+    setBusy(true);
+    setOutcome(undefined);
+    try {
+      const result = await deleteAgent(agentId);
+      setOutcome({ ...(result.url ? { url: result.url } : {}), ...(result.requestId ? { requestId: result.requestId } : {}), ...(result.status === 'created' ? {} : { issue: result.reason ?? 'the pull request could not be opened' }) });
+    } catch (error) {
+      const body = error as { message?: string; issues?: string[]; reason?: string };
+      setOutcome({ issue: body.reason ?? body.message ?? 'the change could not be proposed', ...(body.issues ? { issues: body.issues } : {}) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+      <Button variant="secondary" onClick={() => { void propose(); }} disabled={busy}>{busy ? 'Proposing…' : 'Delete agent'}</Button>
+      {outcome?.url && <a href={outcome.url} style={{ color: C.accent, fontSize: 12 }}>Removal pull request opened</a>}
+      {outcome?.requestId && <a href={`/requests/${outcome.requestId}`} style={{ color: C.accent, fontSize: 12 }}>Track this request →</a>}
+      {outcome?.issue && <StatusPill tone="danger">{outcome.issue}</StatusPill>}
+      {outcome?.issues?.map(issue => <div key={issue} style={{ fontSize: 12, color: C.red, maxWidth: 360, textAlign: 'right' }}>{issue}</div>)}
+    </div>
   );
 }

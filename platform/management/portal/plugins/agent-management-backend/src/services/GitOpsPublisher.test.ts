@@ -26,7 +26,7 @@ function octokitDouble(overrides: {
       list: overrides.pullsList ?? jest.fn().mockResolvedValue({ data: [] }),
       _reject: reject,
     },
-  } as never;
+  } as unknown as { git: Record<string, jest.Mock>; repos: Record<string, jest.Mock>; pulls: Record<string, jest.Mock> };
 }
 
 const settings = { owner: 'o', repo: 'r', baseBranch: 'main', token: 't' };
@@ -237,5 +237,70 @@ describe('listing open proposals', () => {
     // the page-level message says proposals were not observed; a throw here
     // would take the whole Agents view down over a feature that only adds rows
     await expect(new UnconfiguredGitOpsPublisher('no token').listProposals()).resolves.toEqual([]);
+  });
+});
+
+/**
+ * ONE STATE VOCABULARY FOR EVERY PROVIDER.
+ *
+ * The request projection asks "open, merged or declined?" and never sees a
+ * provider's own grammar — GitHub's `merged: true` on a closed pull, Bitbucket's
+ * MERGED/DECLINED with an epoch closedDate — so a Request looks the same on
+ * either, which is what makes the Requests page provider-neutral.
+ */
+describe('pullRequestState', () => {
+  it('GitHub: merged, closed and open map to the shared vocabulary', async () => {
+    const get = jest.fn()
+      .mockResolvedValueOnce({ data: { state: 'closed', merged: true, merged_at: '2026-08-30T10:05:00Z', closed_at: '2026-08-30T10:05:00Z' } })
+      .mockResolvedValueOnce({ data: { state: 'closed', merged: false, closed_at: '2026-08-30T11:00:00Z' } })
+      .mockResolvedValueOnce({ data: { state: 'open', merged: false } });
+    const publisher = new GitHubGitOpsPublisher(settings, { ...octokitDouble({}), pulls: { get } } as never);
+    await expect(publisher.pullRequestState(7)).resolves.toEqual({ state: 'merged', mergedAt: '2026-08-30T10:05:00Z' });
+    await expect(publisher.pullRequestState(7)).resolves.toEqual({ state: 'declined', closedAt: '2026-08-30T11:00:00Z' });
+    await expect(publisher.pullRequestState(7)).resolves.toEqual({ state: 'open' });
+    expect(get).toHaveBeenCalledWith({ owner: 'o', repo: 'r', pull_number: 7 });
+  });
+
+  it('Bitbucket Data Center: MERGED / DECLINED / OPEN map to the same vocabulary', async () => {
+    const answers = [
+      { state: 'MERGED', closedDate: Date.parse('2026-08-30T10:05:00Z') },
+      { state: 'DECLINED', closedDate: Date.parse('2026-08-30T11:00:00Z') },
+      { state: 'OPEN' },
+    ];
+    const urls: string[] = [];
+    const impl = (async (url: string | URL | Request) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify(answers.shift()), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const publisher = new BitbucketServerGitOpsPublisher(bbSettings, impl);
+    await expect(publisher.pullRequestState(7)).resolves.toEqual({ state: 'merged', mergedAt: '2026-08-30T10:05:00.000Z' });
+    await expect(publisher.pullRequestState(7)).resolves.toEqual({ state: 'declined', closedAt: '2026-08-30T11:00:00.000Z' });
+    await expect(publisher.pullRequestState(7)).resolves.toEqual({ state: 'open' });
+    expect(urls[0]).toBe('http://bb/rest/api/1.0/projects/SRE/repos/agents/pull-requests/7');
+  });
+
+  it('an unconfigured publisher cannot observe a pull request and says so', async () => {
+    await expect(new UnconfiguredGitOpsPublisher('no token').pullRequestState(1)).rejects.toThrow('no token');
+  });
+});
+
+describe('file deletion', () => {
+  it('GitHub: a deleted file is removed with its sha, and a missing one is skipped', async () => {
+    const deleteFile = jest.fn().mockResolvedValue({});
+    const double = octokitDouble({});
+    double.repos.getContent = jest.fn()
+      .mockResolvedValueOnce({ data: { sha: 'abc' } })
+      .mockRejectedValueOnce(new Error('not found'));
+    double.repos.deleteFile = deleteFile;
+    const publisher = new GitHubGitOpsPublisher(settings, double);
+    await publisher.createPullRequest({ ...input, files: [{ path: 'a.yaml', contents: '', deleted: true }, { path: 'gone.yaml', contents: '', deleted: true }] });
+    expect(deleteFile).toHaveBeenCalledTimes(1);
+    expect(deleteFile).toHaveBeenCalledWith(expect.objectContaining({ path: 'a.yaml', sha: 'abc', branch: input.branch }));
+    expect(double.repos.createOrUpdateFileContents).not.toHaveBeenCalled();
+  });
+
+  it('Bitbucket Data Center: refuses a deletion instead of opening an empty pull request', async () => {
+    const publisher = new BitbucketServerGitOpsPublisher(bbSettings, bitbucketFetch().impl);
+    await expect(publisher.createPullRequest({ ...input, files: [{ path: 'a.yaml', contents: '', deleted: true }] })).rejects.toThrow(/deletion is not supported/u);
   });
 });

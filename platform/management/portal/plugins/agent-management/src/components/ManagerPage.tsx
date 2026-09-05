@@ -128,7 +128,10 @@ export function ManagerPage() {
     try {
       setPr(await actions.createManagerPullRequest(draft));
     } catch (error) {
-      setIssues([(error as Error).message]);
+      // the same treatment as preview: opening the pull request can fail
+      // validation too, and a list of named fields beats one status line
+      const body = error as { issues?: string[]; message?: string };
+      setIssues(body.issues ?? [body.message ?? 'The pull request could not be opened']);
     } finally {
       setBusy(false);
     }

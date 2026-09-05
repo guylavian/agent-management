@@ -35,6 +35,7 @@ function gitopsReturning(proposals: AgentProposal[] | Error): GitOpsPublisher {
   return {
     configured: true,
     createPullRequest: async () => ({ status: 'created' as const }),
+    pullRequestState: async () => ({ state: 'open' as const }),
     listProposals: async () => {
       if (proposals instanceof Error) throw proposals;
       return proposals;

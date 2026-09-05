@@ -6,6 +6,8 @@ import type {
   AgentDraft,
   AgentSummary,
   ChangePreview,
+  ManagementRequestDetail,
+  ManagementRequestSummary,
   ManagerDetail,
   ManagerDraft,
   McpServer,
@@ -29,6 +31,34 @@ export class NotConfiguredError extends Error {
   }
 }
 
+/**
+ * A refusal from the runtime, WITH the reason it gave.
+ *
+ * The runtime answers a rejected draft with `{ code, message, issues }` — a
+ * list naming each field that failed the canonical schema — specifically so the
+ * console can put those lines next to the form. This client used to throw the
+ * status line and discard the body, so every validation failure in the console
+ * read "Request failed: 400 Bad Request": the one message that tells an
+ * operator nothing at all, about the one class of error they can actually fix.
+ *
+ * `issues` is the runtime's own validation output. It is never synthesised
+ * here: a console that guessed at which field was wrong would send someone to
+ * edit the wrong one.
+ */
+export class RequestError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly issues?: string[];
+
+  constructor(status: number, body: { code?: string; message?: string; issues?: string[] }, statusText: string) {
+    super(body.message ?? `Request failed: ${status} ${statusText}`);
+    this.name = 'RequestError';
+    this.status = status;
+    if (body.code !== undefined) this.code = body.code;
+    if (body.issues !== undefined) this.issues = body.issues;
+  }
+}
+
 function useFetch() {
   const { fetch } = useApi(fetchApiRef);
   return async <T>(path: string, init?: RequestInit): Promise<T> => {
@@ -37,7 +67,13 @@ function useFetch() {
       throw new NotConfiguredError(((await response.json()) as { reason?: string }).reason ?? 'not configured');
     }
     if (!response.ok) {
-      throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+      // a body that is not JSON (a proxy error page, an empty 502) is normal
+      // and must not turn into a parse failure on top of the real failure
+      const body = await response
+        .json()
+        .catch(() => ({}))
+        .then(value => (typeof value === 'object' && value !== null ? (value as { code?: string; message?: string; issues?: string[] }) : {}));
+      throw new RequestError(response.status, body, response.statusText);
     }
     return (await response.json()) as T;
   };
@@ -151,6 +187,22 @@ export function useRuns() {
   return usePolled(async () => (await request<{ runs: RunSummary[] }>('/runs')).runs, []);
 }
 
+/**
+ * Management Requests. Polled like the Agents directory, because every
+ * transition after "PR opened" happens somewhere else: a reviewer merges, Argo
+ * syncs, a pod starts. The detail is polled too — the Flow is where an
+ * operator watches a deployment land.
+ */
+export function useRequests(intervalMs = RECONCILE_POLL_MS) {
+  const request = useFetch();
+  return usePolled(async () => (await request<{ requests: ManagementRequestSummary[] }>('/requests')).requests, [], intervalMs);
+}
+
+export function useRequest(id: string) {
+  const request = useFetch();
+  return usePolled(async () => request<ManagementRequestDetail>(`/requests/${encodeURIComponent(id)}`), [id]);
+}
+
 export function useRun(id: string) {
   const request = useFetch();
   return useAsync(async () => request<RunDetail>(`/runs/${encodeURIComponent(id)}`), [id]);
@@ -188,7 +240,7 @@ export function useAgentActions() {
         body: JSON.stringify(draft),
       }),
     createPullRequest: (draft: AgentDraft) =>
-      request<{ url: string; status: string; reason?: string; effects: string[] }>('/agents/change', {
+      request<{ url: string; status: string; reason?: string; effects: string[]; requestId?: string }>('/agents/change', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(draft),
@@ -230,6 +282,12 @@ export function useAgentActions() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ upload }),
       }),
+    /** Propose removing the Agent: one pull request deleting every file it owns. */
+    deleteAgent: (id: string) =>
+      request<{ url?: string; status: string; reason?: string; effects: string[]; branch: string; requestId?: string }>(
+        `/agents/${encodeURIComponent(id)}/delete`,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' },
+      ),
     /** Propose a prompt edit. Touches one file; the Agent document is untouched. */
     proposePrompt: (id: string, prompt: string) =>
       request<{ url?: string; status: string; reason?: string; effects: string[]; branch: string }>(

@@ -44,7 +44,25 @@ COPY agent-engine/src ./agent-engine/src
 RUN cd /app/agent-engine && npm ci --omit=dev
 RUN cd /app/platform && npm ci --omit=dev --workspace @sre/runtime-host --include-workspace-root
 
-# canonical logical configuration + every environment's deployment desired state
+# Canonical logical configuration + every environment's deployment state.
+#
+# These are the DEFAULTS and the immutable half, not the live desired state:
+#
+#   config/mcp-servers, config/model-profiles, config/policies
+#       the approved tool catalog and the platform tool policy. They belong to
+#       the reviewed artifact: changing what an Agent MAY be granted should
+#       require a new image, not a ConfigMap edit.
+#
+#   config/agents, config/prompts, deploy/environments/<env>/agents
+#       MUTABLE Agent desired state. In production these are SHADOWED by
+#       ConfigMap volumes that Argo renders from Git (deploy/runtime/helm),
+#       because a merged Agent has to reach a running pod without a rebuild.
+#       The copies here keep a working tree and a container resolving the same
+#       relative paths, and let a laptop run with no cluster at all.
+#
+# A production runtime that finds these NOT mounted refuses to start rather
+# than quietly serving the estate as it stood on build day — see
+# `assertDesiredStateIsMounted` in runtime-host/src/bootstrap/dependencies.ts.
 COPY platform/config ./platform/config
 COPY deploy/environments ./deploy/environments
 

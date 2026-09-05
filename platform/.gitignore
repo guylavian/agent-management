@@ -36,3 +36,6 @@ management/portal/node_modules
 *.tar
 *.tar.gz
 *.tgz
+
+# local mock OIDC signing key, persisted so runtime restarts keep tokens valid
+.sre-local/

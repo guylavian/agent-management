@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useAgent, useAgentActions, useMcpServers } from '../api/client';
+import { useAgent, useAgents, useAgentActions, useMcpServers } from '../api/client';
 import {
   AsyncState,
   Breadcrumb,
@@ -83,6 +83,8 @@ const ROUTING_FIELDS: Array<[keyof typeof EMPTY_ROUTING, string, string]> = [
  */
 export function CreateAgentPage(props: { agentId?: string }) {
   const servers = useMcpServers();
+  // the escalation targets are a CLOSED set the console already has
+  const directory = useAgents();
   const actions = useAgentActions();
   const existing = useAgent(props.agentId ?? '');
   const [draft, setDraft] = useState<AgentDraft>({
@@ -94,13 +96,16 @@ export function CreateAgentPage(props: { agentId?: string }) {
     requiredRoles: ['infra-read'],
     crossDomainAllowed: [],
     access: [],
+    // explicit rather than relying on the runtime's default, so the control
+    // below shows the value that will actually be written
+    lifecycle: 'draft',
   });
   const [prompt, setPrompt] = useState('');
   const [limits, setLimits] = useState(DEFAULT_LIMITS);
   const [loaded, setLoaded] = useState(false);
   const [preview, setPreview] = useState<ChangePreview | undefined>();
   const [issues, setIssues] = useState<string[]>([]);
-  const [pr, setPr] = useState<{ url: string; status: string; reason?: string } | undefined>();
+  const [pr, setPr] = useState<{ url: string; status: string; reason?: string; requestId?: string } | undefined>();
   const [busy, setBusy] = useState(false);
   const [editingMcp, setEditingMcp] = useState<string | undefined>();
   const [drafting, setDrafting] = useState(false);
@@ -213,7 +218,10 @@ export function CreateAgentPage(props: { agentId?: string }) {
     try {
       setPr(await actions.createPullRequest(submission()));
     } catch (error) {
-      setIssues([(error as Error).message]);
+      // the same treatment as preview: opening the pull request can fail
+      // validation too, and a list of named fields beats one status line
+      const body = error as { issues?: string[]; message?: string };
+      setIssues(body.issues ?? [body.message ?? 'The pull request could not be opened']);
     } finally {
       setBusy(false);
     }
@@ -242,7 +250,7 @@ export function CreateAgentPage(props: { agentId?: string }) {
       />
       <div style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.2px' }}>{editing ? `Edit ${draft.displayName || draft.name}` : 'Create agent'}</div>
       <div style={{ fontSize: 13, color: C.muted, marginTop: S.xs }}>
-        {editing ? 'Changes are proposed as a pull request. Nothing reaches production until it is merged.' : 'A new agent is created with lifecycle draft and proposed as a pull request.'}
+        {editing ? 'Changes are proposed as a pull request. Nothing reaches production until it is merged.' : 'Proposed as a pull request. Nothing is deployed until it is merged.'}
       </div>
 
       <Section icon="general" title="General">
@@ -261,6 +269,22 @@ export function CreateAgentPage(props: { agentId?: string }) {
           </Field>
           <Field label="Description" hint="Optional. Shown in the agents directory.">
             <input style={inputStyle} value={draft.description ?? ''} onChange={event => patch({ description: event.target.value })} />
+          </Field>
+          {/*
+            * THE ONE DECISION THAT DECIDES WHETHER ANYTHING DEPLOYS.
+            *
+            * The deployment overlay's `enabled` is derived from this, so the
+            * two files in the change-set cannot disagree about whether the
+            * Agent should run. Without this control every agent created here
+            * was a draft — merged, listed, and never deployed, with no action
+            * anywhere in the console that could activate it.
+            */}
+          <Field label="Lifecycle" hint={draft.lifecycle === 'active' ? 'Active: this environment will deploy it once the pull request merges.' : 'Draft: merged and visible, but nothing is deployed. Set Active when it is ready to run.'}>
+            <select style={selectStyle} value={draft.lifecycle ?? 'draft'} onChange={event => patch({ lifecycle: event.target.value as AgentDraft['lifecycle'] })}>
+              <option value="draft">draft — do not deploy yet</option>
+              <option value="active">active — deploy on merge</option>
+              <option value="disabled">disabled — stop deploying</option>
+            </select>
           </Field>
         </FieldGrid>
 
@@ -283,7 +307,22 @@ export function CreateAgentPage(props: { agentId?: string }) {
             </Field>
           ))}
           <Field label="Cross-domain agents" hint="Escalation always returns through the Manager.">
-            <input style={inputStyle} value={(draft.crossDomainAllowed ?? []).join(', ')} onChange={event => patch({ crossDomainAllowed: splitList(event.target.value) })} placeholder="observability" />
+            {/*
+              * A PICKER, not a text box.
+              *
+              * Escalation targets are a closed set — the agents that exist —
+              * and the runtime refuses a name that is not one of them. Offering
+              * a free-text field for a closed set meant the only feedback on a
+              * typo arrived at the very end, after the whole form was filled,
+              * as a rejected pull request. The list is the agents the console
+              * is already showing, so an unselectable name cannot be typed.
+              */}
+            <CrossDomainPicker
+              selected={draft.crossDomainAllowed ?? []}
+              candidates={(directory.value?.agents ?? []).map(agent => agent.id).filter(id => id !== draft.name)}
+              loading={directory.loading}
+              onChange={next => patch({ crossDomainAllowed: next })}
+            />
           </Field>
         </FieldGrid>
       </Section>
@@ -510,12 +549,64 @@ export function CreateAgentPage(props: { agentId?: string }) {
               <div style={{ marginTop: 6 }}>
                 <a href={pr.url} style={{ color: C.accent, fontSize: 13 }}>{pr.url}</a>
               </div>
+              {pr.requestId && (
+                <div style={{ marginTop: 6 }}>
+                  <a href={`/requests/${pr.requestId}`} style={{ color: C.accent, fontSize: 13 }}>Track this request →</a>
+                </div>
+              )}
             </>
           ) : (
             <StatusPill tone="warn">Not configured: {pr.reason}</StatusPill>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The agents this one may escalate to.
+ *
+ * Deliberately shows every agent that EXISTS rather than only the routable
+ * ones: a cross-domain edge is desired state, and refusing to let an operator
+ * name an agent whose pod happens to be down right now would make the form's
+ * validity depend on the weather.
+ */
+function CrossDomainPicker(props: { selected: string[]; candidates: string[]; loading: boolean; onChange: (next: string[]) => void }) {
+  const toggle = (id: string) => {
+    props.onChange(props.selected.includes(id) ? props.selected.filter(item => item !== id) : [...props.selected, id]);
+  };
+  if (props.loading) return <Muted size={12.5}>Loading agents…</Muted>;
+  if (props.candidates.length === 0) {
+    // an empty list is not a broken control: the first agent on a platform has
+    // nobody to escalate to, and saying so beats an input that rejects everything
+    return <Muted size={12.5}>No other agents exist yet, so there is nothing to escalate to.</Muted>;
+  }
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: S.sm }}>
+      {props.candidates.map(id => {
+        const on = props.selected.includes(id);
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => toggle(id)}
+            aria-pressed={on}
+            style={{
+              fontSize: 12.5,
+              fontFamily: MONO,
+              padding: '4px 10px',
+              borderRadius: R.small,
+              cursor: 'pointer',
+              background: on ? C.accentSoft : C.chip,
+              border: `1px solid ${on ? C.accent : C.rule}`,
+              color: on ? C.accent : C.bodySoft,
+            }}
+          >
+            {on ? '✓ ' : ''}{id}
+          </button>
+        );
+      })}
     </div>
   );
 }
