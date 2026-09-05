@@ -84,6 +84,19 @@ gitSync:
   # adding 443 to the platform ports; use this for a remote outside the cluster.
   egressCIDRs: []
   egressPort: 443
+  # git-sync's own HTTP endpoint, which answers 200 once it holds a good
+  # checkout. A readiness probe against it is what makes "this pod is still
+  # converging on Git" something Kubernetes checks rather than something
+  # inferred from the process exiting.
+  httpPort: 8118
+  # consecutive fetch failures tolerated before git-sync aborts. Stated rather
+  # than inherited: the default is 0, so a single failure ends the container,
+  # and that is a deployment decision worth making on purpose.
+  maxFailures: 3
+  # readiness failures tolerated before the pod leaves its Service endpoints.
+  # With periodSeconds above, this sets how long a stalled sync may serve stale
+  # desired state before it stops being routed to.
+  stalenessFailureThreshold: 3
 
 # default replicas for manager and specialist; reconciler should override to 1
 # (concurrent rounds would draw competing generations of the same Agent from Git,
@@ -221,6 +234,14 @@ networkPolicy:
   # on 5353 (the dns-default Service maps 53 -> 5353 and NetworkPolicy matches
   # the pod port), so add it there.
   dnsPorts: [53]
+  # WHERE DNS may be sent. Both selectors apply to the same peer, so this means
+  # "the kube-dns pods in kube-system" rather than "anything labelled kube-dns".
+  # OpenShift uses openshift-dns / dns.operator.openshift.io/daemonset-dns:
+  # default; a cluster with a differently-labelled resolver overrides these.
+  dnsNamespaceLabels:
+    kubernetes.io/metadata.name: kube-system
+  dnsPodLabels:
+    k8s-app: kube-dns
   # TCP ports the agent may reach in platform-service namespaces; set per
   # environment to the actual service ports.
   # manager: IdP/HTTPS 443, OTLP 4318, PostgreSQL 5432, vLLM 8000

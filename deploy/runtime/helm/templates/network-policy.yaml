@@ -54,8 +54,18 @@ spec:
       ports:
         - { protocol: TCP, port: {{ .Values.gitSync.egressPort }} }
     {{- end }}
-    # cluster DNS
-    - ports:
+    # Cluster DNS, and ONLY the cluster's resolver. This rule used to carry
+    # ports with no `to` selector at all, which permitted UDP and TCP to any
+    # address on port 53 — a working exfiltration channel out of an otherwise
+    # closed policy. The namespace and pod selectors sit in ONE peer, which is
+    # an AND: the kube-dns pods inside kube-system, not any pod anywhere that
+    # happens to carry the label.
+    - to:
+        - namespaceSelector:
+            matchLabels: {{- toYaml .Values.networkPolicy.dnsNamespaceLabels | nindent 14 }}
+          podSelector:
+            matchLabels: {{- toYaml .Values.networkPolicy.dnsPodLabels | nindent 14 }}
+      ports:
         {{- range .Values.networkPolicy.dnsPorts }}
         - { protocol: UDP, port: {{ . }} }
         - { protocol: TCP, port: {{ . }} }

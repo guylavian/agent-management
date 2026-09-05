@@ -229,7 +229,21 @@ spec:
         # desired state every few seconds and picks the new revision up itself
         - name: git-sync
           image: {{ .Values.gitSync.image | quote }}
-          args: ["--repo={{ .Values.gitSync.repoURL }}", "--ref={{ .Values.gitSync.branch }}", "--root=/repo", "--link=current", "--depth=1", "--period={{ .Values.gitSync.periodSeconds }}s"]
+          # --http-bind makes freshness ASKABLE. Without it the only signal that
+          # this checkout had stopped converging was the process exiting on
+          # --max-failures, which is a behaviour inferred from a default rather
+          # than a thing Kubernetes checks; while git-sync was merely retrying,
+          # the pod stayed Ready serving the last worktree it managed to fetch.
+          args: ["--repo={{ .Values.gitSync.repoURL }}", "--ref={{ .Values.gitSync.branch }}", "--root=/repo", "--link=current", "--depth=1", "--period={{ .Values.gitSync.periodSeconds }}s", "--http-bind=:{{ .Values.gitSync.httpPort }}", "--max-failures={{ .Values.gitSync.maxFailures }}"]
+          ports:
+            - { name: gitsync, containerPort: {{ .Values.gitSync.httpPort }} }
+          # git-sync answers 200 here once it has a good checkout. A pod whose
+          # sidecar cannot answer leaves its Service endpoints, which is what
+          # stops the Manager serving desired state it can no longer refresh.
+          readinessProbe:
+            httpGet: { path: /, port: {{ .Values.gitSync.httpPort }} }
+            periodSeconds: {{ .Values.gitSync.periodSeconds }}
+            failureThreshold: {{ .Values.gitSync.stalenessFailureThreshold }}
           {{- if .Values.gitSync.credentialsSecret }}
           env:
             - { name: GITSYNC_USERNAME, valueFrom: { secretKeyRef: { name: {{ .Values.gitSync.credentialsSecret | quote }}, key: username } } }

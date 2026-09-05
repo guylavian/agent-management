@@ -24,7 +24,10 @@ interface Rule { to?: Peer[]; ports?: Array<{ port: number }> }
 
 function platformEgress(mode: "manager" | "specialist"): Rule[] {
   const policy = render(mode)[0] as { spec: { egress: Rule[] } };
-  return policy.spec.egress.filter((rule) => (rule.to ?? []).some((peer) => peer.namespaceSelector !== undefined));
+  // a platform-service peer selects a NAMESPACE only; the DNS peer also carries
+  // a podSelector (kube-dns inside kube-system) and is not one of these
+  return policy.spec.egress.filter((rule) => (rule.to ?? []).some((peer) =>
+    peer.namespaceSelector !== undefined && (peer as { podSelector?: unknown }).podSelector === undefined));
 }
 
 /**
@@ -141,6 +144,40 @@ describe("database egress follows the database client", () => {
   it("never emits port 0, which Kubernetes rejects outright", () => {
     for (const mode of ["manager", "specialist", "reconciler"]) {
       expect(egressPorts(["--set", `agent.mode=${mode}`])).not.toContain(0);
+    }
+  });
+});
+
+/**
+ * DNS EGRESS MUST GO TO THE CLUSTER'S RESOLVER, NOT ANYWHERE.
+ *
+ * The DNS rule carried ports and no `to` selector at all, so every pod could
+ * send UDP or TCP to any address on port 53. That is a working exfiltration
+ * channel out of an otherwise closed egress policy — and it was verified from
+ * inside a pod during this certification, where 1.1.1.1:53 connected while every
+ * other external destination timed out. It was read at the time as the DNS rule
+ * doing its job.
+ */
+describe("DNS egress is confined to the cluster resolver", () => {
+  function dnsRules(mode: string): Rule[] {
+    const out = execFileSync("helm", ["template", "np", chart, "--set", `agent.mode=${mode}`, "--set", "agent.name=probe", "--set", "networkPolicy.enabled=true"], { encoding: "utf8" });
+    const policy = out.split(/^---$/mu).map((doc) => parse(doc) as Record<string, unknown>).find((doc) => doc?.kind === "NetworkPolicy") as { spec: { egress: Rule[] } };
+    return policy.spec.egress.filter((rule) => (rule.ports ?? []).some((port) => port.port === 53));
+  }
+
+  it.each(["manager", "specialist", "reconciler"])("%s sends DNS only to a selected peer", (mode) => {
+    const rules = dnsRules(mode);
+    expect(rules.length).toBeGreaterThan(0);
+    for (const rule of rules) {
+      // a rule with no `to` permits the whole internet on this port
+      expect(rule.to ?? [], "DNS rule has no peer selector").not.toEqual([]);
+      expect(rule.to?.length ?? 0).toBeGreaterThan(0);
+      for (const peer of rule.to ?? []) {
+        // both halves in ONE peer, which is an AND: the kube-dns pods inside
+        // the kube-system namespace, not any pod so labelled anywhere
+        expect(peer.namespaceSelector).toBeDefined();
+        expect((peer as { podSelector?: unknown }).podSelector).toBeDefined();
+      }
     }
   });
 });

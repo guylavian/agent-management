@@ -538,3 +538,41 @@ describe("a failed reload stays visible instead of going silent", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+/**
+ * GIT-SYNC FRESHNESS MUST BE AN EXPLICIT SIGNAL.
+ *
+ * The sidecar had no probe. It happened to fail closed — git-sync aborts after
+ * `--max-failures` consecutive failures, the container exits, and a pod with a
+ * dead container leaves its Service endpoints — but that depended on an
+ * unstated default, and while it was merely retrying, the pod stayed Ready
+ * serving whatever worktree it last managed to fetch.
+ *
+ * git-sync serves its own HTTP endpoint for exactly this. Wiring a probe to it
+ * makes "this checkout is converging" a thing Kubernetes checks, rather than a
+ * behaviour inferred from a process exiting.
+ */
+describe("the desired-state sidecar reports its own freshness", () => {
+  const sidecar = (() => {
+    const out = execFileSync("helm", ["template", "gs", join(DEPLOY_ROOT, "runtime", "helm"),
+      "--set", "agent.mode=manager", "--set", "agent.name=probe",
+      "--set", "gitSync.enabled=true", "--set", "gitSync.repoURL=https://git.example/r.git",
+      "--set", "gitSync.egressCIDRs={10.0.0.0/8}"], { encoding: "utf8" });
+    const deployment = out.split(/^---$/mu).map((doc) => parseYaml(doc) as Record<string, unknown>)
+      .find((doc) => doc?.kind === "Deployment") as { spec: { template: { spec: { containers: Array<Record<string, unknown>> } } } };
+    return deployment.spec.template.spec.containers.find((c) => c.name === "git-sync") as Record<string, unknown>;
+  })();
+
+  it("serves an HTTP endpoint a probe can ask", () => {
+    expect((sidecar.args as string[]).some((a) => a.startsWith("--http-bind="))).toBe(true);
+  });
+
+  it("has a readiness probe against it, so a stalled sync leaves the endpoints", () => {
+    const probe = sidecar.readinessProbe as { httpGet?: { port?: number } } | undefined;
+    expect(probe?.httpGet?.port).toBeDefined();
+  });
+
+  it("states its failure tolerance instead of inheriting a default", () => {
+    expect((sidecar.args as string[]).some((a) => a.startsWith("--max-failures="))).toBe(true);
+  });
+});
