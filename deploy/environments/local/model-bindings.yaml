@@ -1,27 +1,31 @@
 apiVersion: sre.ai/v1alpha1
 kind: ModelBindings
 environment: local
-# The local environment uses the SAME hosted OpenAI-compatible endpoint as the
-# PoC. It ran a local Ollama, which is why every profile below once said
-# qwen3:8b: an 8B model converged unreliably on strict json_schema and needed a
-# "/no_think" suffix to avoid a provider 500, so the environment was slower and
-# less predictable than the one it was meant to rehearse.
+# LOCAL runs against whatever this cluster can actually reach, which is the
+# developer's Ollama (SRE_LLM_TIER_*_URL in the integrations Secret) — there is
+# no credential here for a hosted provider. These profiles named a hosted
+# gpt-oss-20b while the endpoint served Ollama, so every routing call returned
+# MODEL_UNAVAILABLE: the ids and the endpoint described different providers.
+#
+# qwen3:8b is what that endpoint serves. It converges less reliably on strict
+# json_schema and needs the "/no_think" suffix the Secret already carries, which
+# is the cost of local fidelity; poc and production keep gpt-oss-20b.
 #
 # Only logical model ids are recorded here. The endpoint and its credential come
 # from the environment, so this file stays credential-free.
 profiles:
   manager-router:
     provider: openai-compatible
-    model: openai/gpt-oss-20b
+    model: qwen3:8b
   tool-caller:
     provider: openai-compatible
-    model: openai/gpt-oss-20b
+    model: qwen3:8b
   tier-l-synthesis:
     provider: openai-compatible
-    model: openai/gpt-oss-20b
+    model: qwen3:8b
   # PLATFORM profile, not an Agent's. It backs console assistance such as
   # drafting a system prompt, and is bound here like any other profile so an
   # air-gapped deployment resolves it to the same internal endpoint as the rest.
   prompt-assist:
     provider: openai-compatible
-    model: openai/gpt-oss-20b
+    model: qwen3:8b
