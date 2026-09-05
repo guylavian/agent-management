@@ -104,6 +104,7 @@ describe("GitOps YAML generation", () => {
     name: "check-point",
     owner: "network-security",
     displayName: "Check Point Agent",
+    description: "Investigates Check Point firewall policy and gateway state for network security incidents.",
     modelTier: "small" as const,
     modelProfile: "tool-caller",
     prompt: "You are the Check Point specialist. Investigate firewall policy and gateway state using only approved read-only tools.",
@@ -187,7 +188,7 @@ describe("GitOps YAML generation", () => {
 
   it("round-trips the checked-in agents unchanged in meaning", () => {
     for (const agent of specialists) {
-      const rendered = renderAgentYaml({ apiVersion: "sre.ai/v1alpha1", kind: "Agent", metadata: { name: agent.name, owner: agent.owner, ...(agent.displayName ? { displayName: agent.displayName } : {}) }, spec: agent.spec });
+      const rendered = renderAgentYaml({ apiVersion: "sre.ai/v1alpha1", kind: "Agent", metadata: { name: agent.name, owner: agent.owner, description: agent.description, ...(agent.displayName ? { displayName: agent.displayName } : {}) }, spec: agent.spec });
       const reparsed = agentDocumentSchema.parse(parseYaml(rendered));
       expect(reparsed.spec).toEqual(agent.spec);
     }

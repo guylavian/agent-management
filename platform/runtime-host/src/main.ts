@@ -19,9 +19,31 @@ const tlsServer = tlsCertFile && tlsKeyFile && tlsPort
   ? createHttpsServer({ cert: readFileSync(tlsCertFile), key: readFileSync(tlsKeyFile) }, app).listen(Number(tlsPort), "127.0.0.1")
   : undefined;
 
+const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 30_000;
+
 const stop = async (): Promise<void> => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  if (tlsServer) await new Promise<void>((resolve) => tlsServer.close(() => resolve()));
+  // stop accepting new requests
+  server.close();
+  if (tlsServer) tlsServer.close();
+
+  // drain in-flight requests with a bounded wait
+  const drainDeadline = Date.now() + GRACEFUL_SHUTDOWN_TIMEOUT_MS;
+  while (Date.now() < drainDeadline && server.connections > 0) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+  }
+  if (server.connections > 0) {
+    console.warn(`forced shutdown with ${server.connections} connections still active`);
+  }
+
+  // close stores that expose close()
+  if (deps.mode === "manager") {
+    if ("close" in deps.runs && typeof deps.runs.close === "function") {
+      await deps.runs.close();
+    }
+    // sessionStore has close in manager mode
+    await deps.sessionStore.close();
+  }
+
   await shutdownTelemetry();
 };
 process.once("SIGTERM", () => { void stop(); });

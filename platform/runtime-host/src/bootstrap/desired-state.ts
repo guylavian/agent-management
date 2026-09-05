@@ -1,3 +1,4 @@
+import { incrementMetric } from "@sre/telemetry";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import {
@@ -340,11 +341,17 @@ export function agentInstanceSource(
       if (fingerprint(watched) !== next) return current;
       current = loaded;
       revision = next;
-    } catch {
+    } catch (error) {
       // keep the last document that validated; a specialist that stopped
       // serving because someone merged a typo would be a worse failure than
-      // one that keeps enforcing the policy it last understood
+      // one that keeps enforcing the policy it last understood.
+      //
+      // But it must be VISIBLE: silently serving last week's allowlist is the
+      // failure this whole source exists to prevent, and an operator cannot
+      // act on something that was never reported.
       revision = next;
+      incrementMetric("sre_agent_policy_reload_failures_total");
+      console.error(JSON.stringify({ level: "error", event: "agent.policy.reload_failed", message: "keeping the last valid Agent document", detail: error instanceof Error ? error.message : String(error) }));
     }
     return current;
   };

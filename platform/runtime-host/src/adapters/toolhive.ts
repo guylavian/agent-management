@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ListToolsOptions, Principal, ToolCallRequest, ToolCallResult, ToolCredential, ToolDescriptor, ToolProvider } from "@sre/agent-engine";
-import { toolCredentialSchema, type ToolCredentialVerifier } from "@sre/auth";
+import { toolCredentialSchema, type ToolCredentialExchanger, type ToolCredentialVerifier, type WorkloadIdentity, type RequestIdentity } from "@sre/auth";
 import { toolHiveAudience as canonicalAudience } from "@sre/config";
 
 /**
@@ -64,6 +64,96 @@ export const MOCK_TOOLS: ToolDescriptor[] = [
   { serverId: "wiki", name: "wiki_route", description: "Route a query to its likely wiki domain(s)", inputSchema: objectSchema({ q: { type: "string" }, mode: { type: "string" } }, ["q"]) },
 ];
 
+/**
+ * MCP connections, reused within a run instead of rebuilt per call.
+ *
+ * The engine re-checks tool visibility before every invocation, so one tool
+ * call cost at least two connect/close cycles against the gateway.
+ *
+ * The key includes the CREDENTIAL, not just the server: a pooled connection
+ * carries its bearer token in the transport headers, so sharing one across
+ * credentials would let a later call ride an earlier human's identity. A
+ * different token therefore gets a different connection, always.
+ */
+export class McpConnectionPool {
+  readonly #connections = new Map<string, { client: Client; expiresAtMs: number }>();
+  readonly #ttlMs: number;
+  readonly #now: () => number;
+
+  constructor(options: { ttlMs?: number; now?: () => number } = {}) {
+    this.#ttlMs = options.ttlMs ?? 30_000;
+    this.#now = options.now ?? (() => Date.now());
+  }
+
+  async getConnection(serverId: string, credential: ToolCredential, connectFn: () => Promise<Client>): Promise<Client> {
+    const key = `${serverId}\u0000${credential.token}`;
+    const cached = this.#connections.get(key);
+    if (cached !== undefined) {
+      if (cached.expiresAtMs > this.#now()) return cached.client;
+      // idle past its lifetime: close it rather than leaking the socket
+      this.#connections.delete(key);
+      await cached.client.close().catch(() => { /* already gone */ });
+    }
+    const client = await connectFn();
+    this.#connections.set(key, { client, expiresAtMs: this.#now() + this.#ttlMs });
+    return client;
+  }
+
+  get size(): number { return this.#connections.size; }
+
+  async dispose(): Promise<void> {
+    const closing = Array.from(this.#connections.values()).map(({ client }) => client.close());
+    this.#connections.clear();
+    await Promise.allSettled(closing);
+  }
+}
+
+/**
+ * Keeps a long run's credentials alive.
+ *
+ * The engine acquires ONE credential per server at setup and caches it for the
+ * whole run, so it never asks again — but an agent budget of 120s outlives a
+ * 60s token. This wrapper sits at the ToolProvider boundary, which IS crossed
+ * on every call, and re-exchanges just before the credential would be rejected.
+ *
+ * It takes a `refresh` closure rather than an exchanger and an identity,
+ * because the caller is the only place that holds the REAL workload identity,
+ * the real delegated human and the run's deadline. Anything this file invented
+ * for itself would be a credential minted for nobody.
+ */
+export type ExpiringToolCredential = ToolCredential & { expiresAt?: number };
+
+const CREDENTIAL_SKEW_MS = 5_000;
+
+export function withCredentialRefresh(
+  inner: ToolHiveClient,
+  refresh: (audience: string) => Promise<ToolCredential>,
+  nowMs: () => number = () => Date.now(),
+): ToolHiveClient {
+  const fresh = async (credential: ToolCredential | undefined): Promise<ToolCredential | undefined> => {
+    if (credential === undefined) return undefined;
+    const expiresAt = (credential as ExpiringToolCredential).expiresAt;
+    // no stated expiry means the strategy does not report one; the credential
+    // is used as-is rather than re-minted on every single call
+    if (expiresAt === undefined || expiresAt - CREDENTIAL_SKEW_MS > nowMs()) return credential;
+    // a failure here propagates: presenting a token known to be dead would turn
+    // an expired credential into an unexplained tool failure further downstream
+    return refresh(credential.audience);
+  };
+
+  return {
+    mode: inner.mode,
+    async listTools(serverId: string, principal: Principal, environment: string, options?: ListToolsOptions): Promise<ToolDescriptor[]> {
+      const credential = await fresh(options?.credential);
+      return inner.listTools(serverId, principal, environment, { ...options, ...(credential ? { credential } : {}) });
+    },
+    async invoke(call: ToolCallRequest): Promise<ToolCallResult> {
+      const credential = await fresh(call.credential);
+      return inner.invoke({ ...call, ...(credential ? { credential } : {}) });
+    },
+  };
+}
+
 export class MockToolHiveClient implements ToolHiveClient {
   readonly mode = "mock" as const;
   readonly audit: AuditEvent[] = [];
@@ -118,20 +208,23 @@ export class RealToolHiveClient implements ToolHiveClient {
   readonly mode = "real" as const;
   readonly baseUrl?: string;
   readonly #endpoints: ReadonlyMap<string, string>;
+  readonly #pool = new McpConnectionPool();
   constructor(baseUrl?: string, endpoints: Record<string, string> = {}) {
     if (baseUrl === undefined && Object.keys(endpoints).length === 0) throw new Error("real ToolHive requires a gateway URL or per-server proxy endpoints");
     this.baseUrl = baseUrl;
     this.#endpoints = new Map(Object.entries(endpoints));
   }
   async invoke(call: ToolCallRequest): Promise<ToolCallResult> {
-    const client = await this.#connect(call.serverId, requireCredential(call), call.environment, call.requestId, call.signal);
-    try {
-      // the MCP SDK forwards this AbortSignal to the underlying HTTP request, so a
-      // client disconnect or deadline cancels the in-flight backend call
-      const result = await client.callTool({ name: call.toolName, arguments: call.arguments }, undefined, call.signal ? { signal: call.signal, timeout: call.timeoutMs } : { timeout: call.timeoutMs });
-      return { content: result.content, isError: result.isError === true, observedAt: new Date().toISOString() };
-    } finally { await client.close(); }
+    const credential = requireCredential(call);
+    const client = await this.#pool.getConnection(call.serverId, credential, () => this.#connect(call.serverId, credential, call.environment, call.requestId, call.signal));
+    // the MCP SDK forwards this AbortSignal to the underlying HTTP request, so a
+    // client disconnect or deadline cancels the in-flight backend call
+    const result = await client.callTool({ name: call.toolName, arguments: call.arguments }, undefined, call.signal ? { signal: call.signal, timeout: call.timeoutMs } : { timeout: call.timeoutMs });
+    return { content: result.content, isError: result.isError === true, observedAt: new Date().toISOString() };
   }
+
+  /** Close every pooled connection. Called on shutdown. */
+  async dispose(): Promise<void> { await this.#pool.dispose(); }
   async #connect(serverId: string, credential: ToolCredential, environment: string, requestId: string, signal?: AbortSignal): Promise<Client> {
     const client = new Client({ name: "sre-agent-runtime", version: "0.1.0" });
     const configured = this.#endpoints.get(serverId);
@@ -145,19 +238,15 @@ export class RealToolHiveClient implements ToolHiveClient {
   async listTools(serverId: string, principal: Principal, environment: string, options: ListToolsOptions = {}): Promise<ToolDescriptor[]> {
     const credential = options.credential;
     if (credential === undefined) throw Object.assign(new Error("verified ToolHive credential is required for discovery"), { code: "TOOL_DENIED" });
-    const client = await this.#connect(serverId, credential, environment, options.requestId ?? principal.requestId, options.signal);
-    try {
-      const result = await client.listTools(undefined, options.signal ? { signal: options.signal } : undefined);
-      return result.tools.map((tool) => ({
-        serverId,
-        name: tool.name,
-        description: tool.description ?? "",
-        inputSchema: (tool.inputSchema as Record<string, unknown>) ?? { type: "object" },
-        ...(tool.annotations ? { annotations: { readOnlyHint: tool.annotations.readOnlyHint, destructiveHint: tool.annotations.destructiveHint } } : {}),
-      }));
-    } finally {
-      await client.close();
-    }
+    const client = await this.#pool.getConnection(serverId, credential, () => this.#connect(serverId, credential, environment, options.requestId ?? principal.requestId, options.signal));
+    const result = await client.listTools(undefined, options.signal ? { signal: options.signal } : undefined);
+    return result.tools.map((tool) => ({
+      serverId,
+      name: tool.name,
+      description: tool.description ?? "",
+      inputSchema: (tool.inputSchema as Record<string, unknown>) ?? { type: "object" },
+      ...(tool.annotations ? { annotations: { readOnlyHint: tool.annotations.readOnlyHint, destructiveHint: tool.annotations.destructiveHint } } : {}),
+    }));
   }
 }
 

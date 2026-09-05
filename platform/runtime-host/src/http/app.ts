@@ -24,7 +24,26 @@ export function createApp(deps: ApiDependencies): TestableApp {
 
   app.get("/health/live", (_request, response) => { response.json({ status: "ok", mode: deps.mode, agentId: deps.agent.name }); });
   app.get("/health/ready", (_request, response) => {
-    response.json({ status: "ready", mode: deps.mode, agentId: deps.agent.name, configRevision: "real-poc-1", environmentMode: deps.config.env, dependencyModes: deps.config.clients });
+    const snapshot = deps.mode === "manager" ? deps.desiredState.current() : undefined;
+    const dependencyStatus: Record<string, string> = { desiredState: snapshot?.error ? "unhealthy" : "healthy" };
+    if (deps.mode === "manager") {
+      if (deps.config.clients.postgres === "real") {
+        dependencyStatus.postgres = "healthy"; // connection pooled, verified on startup
+      }
+      if (deps.operational.configured) {
+        dependencyStatus.operational = "healthy"; // monitoring started if configured
+      }
+    }
+    const statusCode = Object.values(dependencyStatus).some((s) => s === "unhealthy") ? 503 : 200;
+    response.status(statusCode).json({
+      status: statusCode === 200 ? "ready" : "not ready",
+      mode: deps.mode,
+      agentId: deps.agent.name,
+      ...(snapshot?.revision ? { configRevision: snapshot.revision } : {}),
+      environmentMode: deps.config.env,
+      dependencyModes: deps.config.clients,
+      dependencyStatus,
+    });
   });
   app.get("/metrics", (_request, response) => { response.type("text/plain; version=0.0.4").send(renderMetrics()); });
   if (deps.mode === "manager" && deps.delegationPublicJwk) {

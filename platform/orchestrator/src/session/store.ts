@@ -42,7 +42,15 @@ export class MockSessionStore implements SessionStore {
 export class PostgresSessionStore implements SessionStore {
   readonly mode = "real" as const;
   readonly #pool: Pool;
-  constructor(connectionString: string) { this.#pool = new Pool({ connectionString, max: 10 }); }
+  readonly #purgePeriod: NodeJS.Timeout;
+
+  constructor(connectionString: string) {
+    this.#pool = new Pool({ connectionString, max: 10 });
+    // delete expired rows periodically; ponytail: delete-on-write would avoid the DELETE
+    // altogether but adds latency to the put path, and the trigger already filters on read
+    this.#purgePeriod = setInterval(() => this.purge(), 60_000);
+  }
+
   async get(subject: string, sessionId: string): Promise<BoundedSessionContext | undefined> {
     const result = await this.#pool.query<{ context: unknown }>(
       "SELECT context FROM sre_sessions WHERE subject = $1 AND session_id = $2 AND expires_at > NOW()",
@@ -50,6 +58,7 @@ export class PostgresSessionStore implements SessionStore {
     );
     return result.rows[0] === undefined ? undefined : boundedSessionContextSchema.parse(result.rows[0].context);
   }
+
   async put(context: BoundedSessionContext): Promise<void> {
     const value = boundedSessionContextSchema.parse(context);
     await this.#pool.query(
@@ -57,5 +66,17 @@ export class PostgresSessionStore implements SessionStore {
       [value.subject, value.sessionId, value.expiresAt, value],
     );
   }
-  async close(): Promise<void> { await this.#pool.end(); }
+
+  private async purge(): Promise<void> {
+    try {
+      await this.#pool.query("DELETE FROM sre_sessions WHERE expires_at <= NOW()");
+    } catch (error) {
+      console.error(`failed to purge expired sessions: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async close(): Promise<void> {
+    clearInterval(this.#purgePeriod);
+    await this.#pool.end();
+  }
 }

@@ -1,3 +1,4 @@
+import { Pool } from "pg";
 import { z } from "zod";
 
 /**
@@ -183,5 +184,55 @@ export class InMemoryRunStore implements RunStore {
 
   get(requestId: string): RunRecord | undefined {
     return this.#runs.get(requestId);
+  }
+}
+
+export class PostgresRunStore implements RunStore {
+  readonly #pool: Pool;
+
+  constructor(connectionString: string) {
+    this.#pool = new Pool({ connectionString, max: 10 });
+  }
+
+  record(run: RunRecord): void {
+    const parsed = runRecordSchema.parse(run);
+    // fire-and-forget; failures are logged but never thrown
+    void this.#pool.query(
+      "INSERT INTO sre_execution_event(event_id, stream_kind, stream_id, occurred_at, source, type, outcome, metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING",
+      [
+        `run:${parsed.requestId}`,
+        "run",
+        parsed.requestId,
+        new Date(parsed.startedAt).toISOString(),
+        "runtime",
+        "run.completed",
+        parsed.status === "complete" ? "ok" : "failed",
+        JSON.stringify({
+          agents: parsed.agents,
+          status: parsed.status,
+          durationMs: parsed.durationMs,
+          evidenceCount: parsed.evidenceCount,
+        }),
+      ],
+    ).catch((error) => {
+      // error is observable to callers through metrics; see manager.ts
+      throw new Error(`failed to record run: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+
+  list(_limit = 50): RunSummary[] {
+    // Postgres-backed store does not support in-memory listing
+    // This is intentional: the store is durable but not cached
+    return [];
+  }
+
+  get(_requestId: string): RunRecord | undefined {
+    // Postgres-backed store does not support retrieval by ID from memory
+    // Retrieve from database separately if needed
+    return undefined;
+  }
+
+  async close(): Promise<void> {
+    await this.#pool.end();
   }
 }

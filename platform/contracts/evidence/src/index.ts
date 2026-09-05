@@ -42,6 +42,8 @@ export const runtimeErrorCodeSchema = z.enum([
   "ROUTE_AMBIGUOUS", "ROUTE_INVALID", "MANAGER_OUTPUT_INVALID", "UNKNOWN_AGENT", "DISABLED_AGENT",
   // ── platform plane: knowledge retrieval ────────────────────────────────────
   "RAG_UNAVAILABLE", "RAG_DENIED",
+  // the runtime shed load rather than accepting an unbounded queue
+  "RATE_LIMITED",
   // ── platform plane: the MCP-branded tool codes this platform's adapters
   //    emitted before the engine's vocabulary went neutral; kept for stored
   //    results and dashboards, no longer emitted by the engine ───────────────

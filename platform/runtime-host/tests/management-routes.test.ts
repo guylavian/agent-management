@@ -96,6 +96,7 @@ describe("GitOps change flow", () => {
     name: "check-point",
     owner: "network-security",
     displayName: "Check Point Agent",
+    description: "Investigates Check Point firewall policy and gateway state for network security incidents.",
     modelTier: "small",
     modelProfile: "tool-caller",
     prompt: "You are the Check Point specialist. Investigate firewall policy and gateway state using only approved read-only tools.",

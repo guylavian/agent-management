@@ -1,6 +1,7 @@
 import { createPublicKey } from "node:crypto";
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import type { SpecialistTransport } from "@sre/agent-protocol";
 import {
   JwksDelegatedIdentityVerifier,
@@ -34,7 +35,7 @@ import { MockModelClient, RealOpenAiCompatibleClient, type ModelClient } from "@
 import { MockSpecialistTransport, type SessionStore } from "@sre/orchestrator";
 import { DisabledSessionStore, MockSessionStore, PostgresSessionStore } from "@sre/orchestrator";
 import { DisabledAgentRepository, PostgresAgentRepository, type AgentRepository } from "@sre/orchestrator";
-import { ArgoCdStatusSource, HttpRuntimeProbe, InMemoryRunStore, type DeploymentStatusSource, type RunStore, type RuntimeProbe } from "../management/index.ts";
+import { ArgoCdStatusSource, HttpRuntimeProbe, InMemoryRunStore, PostgresRunStore, type DeploymentStatusSource, type RunStore, type RuntimeProbe } from "../management/index.ts";
 import { effectiveCatalog, NOTHING_OBSERVED, ProbeAvailabilityMonitor, type AvailabilityView } from "./availability.ts";
 import { envelopeDigest, operationalCatalog, OperationalStateView } from "./operational.ts";
 import { agentInstanceSource, desiredStateSource, type DesiredStateSource } from "./desired-state.ts";
@@ -114,6 +115,8 @@ export interface SpecialistDependencies extends CommonDependencies {
   credentialExchanger: ToolCredentialExchanger;
   identityVerifier: DelegatedIdentityVerifier;
   workloadOidc?: OidcClient;
+  /** service-account subject the calling Manager must present; see verifyWorkloadIdentity */
+  expectedManagerSubject?: string;
 }
 
 export type ApiDependencies = ManagerDependencies | SpecialistDependencies;
@@ -220,7 +223,9 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
       agent: managerAgent,
       registry,
       agentClient,
-      runs: new InMemoryRunStore(),
+      runs: config.clients.postgres === "real" && config.postgres.connectionString !== undefined
+        ? new PostgresRunStore(config.postgres.connectionString)
+        : new InMemoryRunStore(),
       desiredState,
       agentRepository,
       operational,
@@ -251,7 +256,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
   const credentialExchanger: ToolCredentialExchanger = config.clients.toolhive === "mock"
     ? toolAuthority as MockToolCredentialAuthority
     : config.toolCredential.strategy === "signed-jwt"
-      ? new PrivateKeyToolCredentialExchanger({ issuer: config.toolCredential.issuer, privateKeyPkcs8: readFileSync(config.toolCredential.privateKeyFile as string, "utf8") })
+      ? new PrivateKeyToolCredentialExchanger({ issuer: config.toolCredential.issuer, privateKeyPkcs8: readFileSync(config.toolCredential.privateKeyFile as string, "utf8"), agentId: specialistAgent.name })
       : config.toolCredential.strategy === "workload-client"
         // the client id comes from this Agent's own canonical config, never from env,
         // so a process cannot be pointed at another Agent's workload identity
@@ -262,7 +267,13 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
             issuer: config.toolCredential.issuer,
             ...(config.toolCredential.jwksUri ? { jwksUri: config.toolCredential.jwksUri } : {}),
           })
-        : new RealTokenExchangeCredentialExchanger(config.toolCredential);
+        // the delegation ACTOR is this pod's own projected service-account token;
+        // the SUBJECT is attached per request by withDelegationAssertion
+        : new RealTokenExchangeCredentialExchanger({
+            ...config.toolCredential,
+            clientSecret: () => config.toolCredential.clientSecret as string,
+            actorToken: async () => (await readFile(config.agentTransport.workloadTokenFile as string, "utf8")).trim(),
+          });
   const agentOf = agentInstanceSource({
     configFile: config.agentConfigFile,
     mcpServersDir: config.mcpServersDir,
@@ -272,6 +283,7 @@ export function buildDependencies(env: Record<string, string | undefined> = proc
   return {
     mode: "specialist",
     config,
+    ...(config.internalOidc.expectedSubject ? { expectedManagerSubject: config.internalOidc.expectedSubject } : {}),
     agent: specialistAgent,
     // a manager document can never reach this branch: assertDeclaredRole and
     // the type switch above both already refused it
