@@ -105,7 +105,8 @@ modelEnv: {}
 #
 # manager gets:
 #   - managerSecret: SRE_POSTGRES_URL (session store), SRE_ARGOCD_TOKEN (Argo status)
-#   - delegationPrivateKeySecret with file mount: SRE_DELEGATION_PRIVATE_KEY_FILE=/etc/sre/delegation/private.pem
+#   - delegationPrivateKeySecret with file mount: SRE_DELEGATION_PRIVATE_KEY_FILE=/etc/sre/delegation-key/private.pem
+#     (a DISTINCT directory from the public key's /etc/sre/delegation: two volumes on one path is a rejected pod)
 #
 # specialist gets:
 #   - specialistSecret: SRE_TOOL_CREDENTIAL_CLIENT_SECRET (RFC 8693 token exchange)
@@ -129,7 +130,7 @@ clients:
   delegation: real
 
 # Non-credential environment variables an overlay needs to add (endpoints, model
-# ids). Anything credential-shaped belongs in integrationsSecret, never here.
+# ids). Anything credential-shaped belongs in the per-role Secrets above, never here.
 extraEnv: {}
 
 # Additional envFrom sources, e.g. a ConfigMap holding the non-secret endpoints

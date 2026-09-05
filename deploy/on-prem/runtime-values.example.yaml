@@ -34,8 +34,11 @@ environmentOverride: |
   endpointTemplate: http://sre-agent-{agentId}.{namespace}.svc.cluster.local
 
 # Non-secret endpoints shared by every agent live in a ConfigMap (secrets.example.yaml
-# lists the keys); credentials stay in integrationsSecret.
-integrationsSecret: sre-agent-integrations
+# lists the keys). Credentials are split per ROLE and mounted conditionally on
+# agent.mode, so a specialist release never references the manager's Secret.
+managerSecret: sre-agent-manager-secrets
+specialistSecret: sre-agent-specialist-secrets
+delegationPrivateKeySecret: sre-agent-delegation-private-key
 extraEnvFrom:
   - configMapRef: { name: sre-agent-endpoints }
 # Delegation public key (not secret): specialists verify Manager-issued
