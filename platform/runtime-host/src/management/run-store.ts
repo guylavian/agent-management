@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { z } from "zod";
+import { incrementMetric } from "@sre/telemetry";
 
 /**
  * Bounded in-memory execution trace for recent runs (TDD §45/§46).
@@ -187,16 +188,41 @@ export class InMemoryRunStore implements RunStore {
   }
 }
 
-export class PostgresRunStore implements RunStore {
-  readonly #pool: Pool;
+/** The slice of a pg Pool this store needs; narrowed so tests can supply one. */
+export interface RunEventWriter {
+  query(text: string, values: unknown[]): Promise<unknown>;
+  end(): Promise<void>;
+}
 
-  constructor(connectionString: string) {
-    this.#pool = new Pool({ connectionString, max: 10 });
+/**
+ * Durable run history.
+ *
+ * The write goes to the append-only event table, so a record survives the pod
+ * that made it and is visible to every replica through the database. The READ
+ * path is a local ring, because RunStore is synchronous and the console asks
+ * for recent runs on a request thread — so a pod serves the runs it saw, while
+ * the durable record of ALL of them is the table.
+ *
+ * A failed write never breaks the answer, but it is never silent either: the
+ * whole point of the finding was that a swallowed failure is indistinguishable
+ * from a run that never happened.
+ */
+export class PostgresRunStore implements RunStore {
+  readonly #pool: RunEventWriter;
+  readonly #recent: InMemoryRunStore;
+
+  constructor(connectionString: string, options: { recentCapacity?: number; pool?: RunEventWriter } = {}) {
+    // the pool is injectable so the durability contract can be tested without a
+    // database; production always builds its own
+    this.#pool = options.pool ?? new Pool({ connectionString, max: 10 });
+    this.#recent = new InMemoryRunStore(options.recentCapacity ?? 200);
   }
 
   record(run: RunRecord): void {
     const parsed = runRecordSchema.parse(run);
-    // fire-and-forget; failures are logged but never thrown
+    this.#recent.record(parsed);
+    // fire-and-forget: the caller already has its answer, and waiting on the
+    // database to hand it over would make history a dependency of correctness
     void this.#pool.query(
       "INSERT INTO sre_execution_event(event_id, stream_kind, stream_id, occurred_at, source, type, outcome, metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING",
       [
@@ -214,23 +240,19 @@ export class PostgresRunStore implements RunStore {
           evidenceCount: parsed.evidenceCount,
         }),
       ],
-    ).catch((error) => {
-      // error is observable to callers through metrics; see manager.ts
-      throw new Error(`failed to record run: ${error instanceof Error ? error.message : String(error)}`);
+    ).catch((error: unknown) => {
+      // observable, not thrown: throwing here would surface as an unhandled
+      // rejection long after the response, which is how a lost audit record
+      // stays lost
+      incrementMetric("sre_run_record_failures_total");
+      console.error(JSON.stringify({ level: "error", event: "run.record_failed", requestId: parsed.requestId, detail: error instanceof Error ? error.message : String(error) }));
     });
   }
 
-  list(_limit = 50): RunSummary[] {
-    // Postgres-backed store does not support in-memory listing
-    // This is intentional: the store is durable but not cached
-    return [];
-  }
+  /** Recent runs THIS pod served; the durable record of all of them is the event table. */
+  list(limit = 50): RunSummary[] { return this.#recent.list(limit); }
 
-  get(_requestId: string): RunRecord | undefined {
-    // Postgres-backed store does not support retrieval by ID from memory
-    // Retrieve from database separately if needed
-    return undefined;
-  }
+  get(requestId: string): RunRecord | undefined { return this.#recent.get(requestId); }
 
   async close(): Promise<void> {
     await this.#pool.end();

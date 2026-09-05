@@ -1,121 +1,82 @@
-import { readFileSync } from "node:fs";
-import { Pool } from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildDependencies } from "../src/index.ts";
-import type { RunRecord } from "../src/management/run-store.ts";
+import { describe, expect, it, vi } from "vitest";
+import { PostgresRunStore, type RunRecord } from "../src/management/run-store.ts";
 
-const SUPERUSER = process.env.SRE_TEST_POSTGRES_URL;
-const describeOrSkip = SUPERUSER === undefined ? describe.skip : describe;
+/**
+ * A run record that only ever lived in one pod's memory was indistinguishable
+ * from a run that never happened, and a failed write was worse: silent. The
+ * durable write is what makes the history real; the metric is what makes its
+ * loss visible.
+ *
+ * This runs without a database on purpose — a durability contract that is only
+ * checked when someone sets an env var is not checked.
+ */
 
-describeOrSkip("PostgresRunStore", () => {
-  let admin: Pool;
+const record = (requestId: string): RunRecord => ({
+  requestId,
+  startedAt: new Date().toISOString(),
+  durationMs: 100,
+  status: "complete",
+  userSubjectHash: "a".repeat(64),
+  environment: "prod",
+  agents: ["keycloak"],
+  workloads: ["sre-agent-keycloak"],
+  toolCalls: 5,
+  deniedToolCalls: 0,
+  evidenceCount: 3,
+  modelProfiles: ["tool-caller"],
+  nodes: [],
+});
 
-  beforeAll(async () => {
-    admin = new Pool({ connectionString: SUPERUSER });
-    // Run the execution events schema if it exists
-    try {
-      await admin.query(readFileSync("/Users/guylavian/sre agent/deploy/runtime/postgres/003_execution_events.sql", "utf8"));
-    } catch {
-      // schema might already exist
-    }
-    // Also need the runs table schema
-    try {
-      await admin.query(`
-        CREATE TABLE IF NOT EXISTS sre_runs (
-          request_id TEXT PRIMARY KEY,
-          event_id TEXT UNIQUE NOT NULL,
-          stream_kind TEXT NOT NULL DEFAULT 'run',
-          stream_id TEXT NOT NULL,
-          data JSONB NOT NULL,
-          recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `);
-    } catch {
-      // table might already exist
-    }
-  }, 60_000);
+function writer() {
+  const calls: Array<{ text: string; values: unknown[] }> = [];
+  return {
+    calls,
+    query: async (text: string, values: unknown[]) => { calls.push({ text, values }); return undefined; },
+    end: async () => { /* nothing to close */ },
+  };
+}
 
-  afterAll(async () => {
-    if (admin) {
-      try {
-        await admin.query("DROP TABLE IF EXISTS sre_runs CASCADE");
-      } catch {
-        // ignore
-      }
-      await admin.end();
-    }
+describe("run history is durable, and its loss is visible", () => {
+  it("writes every run to the append-only event table", async () => {
+    const pool = writer();
+    const store = new PostgresRunStore("postgres://unused", { pool });
+    store.record(record("req-1"));
+    await vi.waitFor(() => expect(pool.calls).toHaveLength(1));
+    const [call] = pool.calls;
+    expect(call?.text).toContain("sre_execution_event");
+    // idempotent by event id, so a retry cannot double-count a run
+    expect(call?.text).toContain("ON CONFLICT DO NOTHING");
+    expect(call?.values[0]).toBe("run:req-1");
+    expect(call?.values[2]).toBe("req-1");
   });
 
-  it("records and retrieves a run through Postgres store", async () => {
-    const deps = buildDependencies({ SRE_CLIENT_POSTGRES: "real", SRE_POSTGRES_CONNECTION_STRING: SUPERUSER });
-    if (deps.mode !== "manager") throw new Error("expected manager mode");
-
-    const record: RunRecord = {
-      requestId: "req-test-1",
-      startedAt: new Date().toISOString(),
-      durationMs: 100,
-      status: "complete",
-      question: "test question",
-      userSubjectHash: "a".repeat(64),
-      environment: "prod",
-      agents: ["test-agent"],
-      workloads: ["workload-1"],
-      toolCalls: 5,
-      deniedToolCalls: 0,
-      evidenceCount: 3,
-      modelProfiles: ["test-profile"],
-      nodes: [],
-    };
-
-    deps.runs.record(record);
-    const retrieved = deps.runs.get("req-test-1");
-    expect(retrieved).toBeDefined();
-    expect(retrieved?.requestId).toBe("req-test-1");
+  it("reports a failed write instead of swallowing or throwing it", async () => {
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => { errors.push(String(line)); });
+    const failing = { query: async () => { throw new Error("connection refused"); }, end: async () => { /* noop */ } };
+    const store = new PostgresRunStore("postgres://unused", { pool: failing });
+    // must not throw into the caller: the user's answer is already sent
+    expect(() => store.record(record("req-2"))).not.toThrow();
+    await vi.waitFor(() => expect(errors.length).toBeGreaterThan(0));
+    expect(errors.join("\n")).toContain("run.record_failed");
+    expect(errors.join("\n")).toContain("req-2");
+    spy.mockRestore();
   });
 
-  it("survives a store being recreated (like a restart)", async () => {
-    const deps1 = buildDependencies({ SRE_CLIENT_POSTGRES: "real", SRE_POSTGRES_CONNECTION_STRING: SUPERUSER });
-    if (deps1.mode !== "manager") throw new Error("expected manager mode");
-
-    const record: RunRecord = {
-      requestId: "req-test-2",
-      startedAt: new Date().toISOString(),
-      durationMs: 100,
-      status: "complete",
-      userSubjectHash: "b".repeat(64),
-      environment: "prod",
-      agents: ["test-agent"],
-      workloads: [],
-      toolCalls: 0,
-      deniedToolCalls: 0,
-      evidenceCount: 0,
-      modelProfiles: [],
-      nodes: [],
-    };
-
-    deps1.runs.record(record);
-
-    // Create a new store object (like after restart)
-    const deps2 = buildDependencies({ SRE_CLIENT_POSTGRES: "real", SRE_POSTGRES_CONNECTION_STRING: SUPERUSER });
-    if (deps2.mode !== "manager") throw new Error("expected manager mode");
-
-    const retrieved = deps2.runs.get("req-test-2");
-    expect(retrieved).toBeDefined();
-    expect(retrieved?.requestId).toBe("req-test-2");
+  it("still serves the runs this pod saw, so the console does not go blank", async () => {
+    const pool = writer();
+    const store = new PostgresRunStore("postgres://unused", { pool });
+    store.record(record("req-3"));
+    // the read path used by the management routes must keep working when
+    // Postgres is configured — returning nothing would read as "no runs"
+    expect(store.get("req-3")?.requestId).toBe("req-3");
+    expect(store.list(50).map((run) => run.requestId)).toContain("req-3");
   });
 
-  it("uses Postgres store when configured", async () => {
-    const deps = buildDependencies({ SRE_CLIENT_POSTGRES: "real", SRE_POSTGRES_CONNECTION_STRING: SUPERUSER });
-    if (deps.mode !== "manager") throw new Error("expected manager mode");
-    expect(deps.runs).toBeDefined();
-    // The store should be a Postgres-backed one, not InMemory
-    expect(deps.runs.list().length).toBeLessThanOrEqual(50); // list should work
-  });
-
-  it("falls back to InMemoryRunStore when Postgres is mock", async () => {
-    const deps = buildDependencies({ SRE_CLIENT_POSTGRES: "mock" });
-    if (deps.mode !== "manager") throw new Error("expected manager mode");
-    // with mock postgres, should still have a run store
-    expect(deps.runs).toBeDefined();
+  it("records the run even when the durable write is still in flight", () => {
+    const slow = { query: () => new Promise<unknown>(() => { /* never settles */ }), end: async () => { /* noop */ } };
+    const store = new PostgresRunStore("postgres://unused", { pool: slow });
+    store.record(record("req-4"));
+    expect(store.get("req-4")).toBeDefined();
   });
 });
