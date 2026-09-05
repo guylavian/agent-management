@@ -4,7 +4,7 @@ kind: AgentDeployment
 # ownership are properties of the Agent and live in config/agents/openshift.yaml;
 # the schema rejects them here.
 agentId: openshift
-enabled: true
+enabled: false
 replicas: 2
 resources:
   requests: { cpu: 500m, memory: 512Mi }
