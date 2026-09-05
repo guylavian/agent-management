@@ -1,0 +1,34 @@
+# ROOT APPLICATION — the one object still applied by hand.
+#
+# An app-of-apps has to start somewhere: something must exist before Argo can
+# reconcile anything, and that is this. Everything it syncs — including itself —
+# is then reconciled from Git, so the AppProject can no longer drift silently the
+# way it did when bootstrap-local.sh was its only writer.
+#
+# It lives in the `default` project, not sre-agent-platform: it manages
+# AppProjects and ApplicationSets in the argocd namespace, which
+# sre-agent-platform deliberately does not permit. Keeping the workload project
+# narrow is the point — widening it so it could manage itself would hand every
+# Agent Application the right to rewrite its own authorization.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sre-agent-gitops-local
+  namespace: argocd
+  # the root must outlive a cascade delete of its children
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/guylavian/agent-management.git
+    targetRevision: main
+    path: deploy/argocd/local
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      # selfHeal is the whole point: it is what reverts a hand-edited AppProject
+      prune: true
+      selfHeal: true

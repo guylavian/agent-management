@@ -102,10 +102,14 @@ for agent_file in "${here}/../environments/local/rendered/agents/"*.yaml; do
 done
 
 # --- desired state ----------------------------------------------------------
-# From here on Git is in charge. These two objects are the last manual apply.
-echo "==> applying project + ApplicationSet"
-kubectl apply -f "${here}/projects/sre-agent-platform.yaml"
-kubectl apply -f "${here}/applicationsets/runtime-local.yaml"
+# From here on Git is in charge. ONE object is applied by hand; everything else
+# follows from it. The root
+# Application syncs deploy/argocd/local, which contains the AppProject, the
+# ApplicationSet and the root itself — so all three are reconciled from Git and
+# a hand-edit to any of them is reverted. Applying the project and the
+# ApplicationSet directly here is what let the project drift unnoticed.
+echo "==> applying root Application (app-of-apps)"
+kubectl apply -f "${here}/applications/gitops-local.yaml"
 
 echo
 echo "OK. Argo CD is reconciling ${repo_url} (branch main, environment local)."
