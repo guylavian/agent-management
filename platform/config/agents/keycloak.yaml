@@ -22,7 +22,7 @@ spec:
     - mcp: wiki
       audience: sre-toolhive:wiki
       tools: [wiki_search, wiki_read_page, wiki_route]
-  execution: { maxToolCalls: 6, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
+  execution: { maxToolCalls: 9, maxModelTurns: 6, timeoutMs: 120000, maxEvidenceBytes: 262144, maxContextTokens: 12000, maxEvidenceItems: 32, maxRawExcerptBytes: 8192 }
   discovery: { allowedNeedsDomains: [observability] }
   authorization: { requiredRoles: [infra-read] }
   security: { readOnly: true }
